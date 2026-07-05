@@ -87,6 +87,7 @@ contract MASPCancelIntentTest is Test {
         bytes32 cm1;
         uint256[2] cvDep0;
         uint256[2] cvDep1;
+        uint32 submittedAt;
     }
 
     mapping(uint256 => _Preimage) internal _pre;
@@ -118,13 +119,14 @@ contract MASPCancelIntentTest is Test {
             cm0: d.outCm[0],
             cm1: d.outCm[1],
             cvDep0: d.cvDep0,
-            cvDep1: d.cvDep1
+            cvDep1: d.cvDep1,
+            submittedAt: uint32(block.number)
         });
     }
 
     function _cancel(uint256 id) internal {
         _Preimage memory p = _pre[id];
-        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1);
+        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID, p.fbps, payer, p.submittedAt);
     }
 
     // --- happy path --------------------------------------------------------
@@ -145,12 +147,10 @@ contract MASPCancelIntentTest is Test {
 
         assertEq(token.balanceOf(payer) - payerBefore, total, "payer refunded gross");
         assertEq(poolBefore - token.balanceOf(address(masp)), total, "pool drained gross");
-        assertEq(masp.accruedFee(IERC20(address(token))), 0, "fee accrual reversed");
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), 0, "pending reversed");
+        assertEq(masp.accruedFee(IERC20(address(token))), 0, "no accrual to reverse; fees accrue at flush only");
 
         // Slot cleared.
-        (, address ePayer,,,) = masp.escrowed(id);
-        assertEq(ePayer, address(0), "slot cleared");
+        assertEq(masp.escrowed(id), bytes32(0), "slot cleared");
     }
 
     function test_happy_refundsToEscrowedPayerNotCaller() public {
@@ -195,7 +195,7 @@ contract MASPCancelIntentTest is Test {
         // Caller picks any preimage; contract reverts on empty slot before
         // touching the digest, so the choice does not matter.
         uint256[2] memory zCv;
-        masp.cancelIntent(999, 0, bytes32(0), bytes32(0), zCv, zCv);
+        masp.cancelIntent(999, 0, bytes32(0), bytes32(0), zCv, zCv, 0, 0, address(0), 0);
     }
 
     function test_revert_replayCancel() public {
@@ -207,38 +207,66 @@ contract MASPCancelIntentTest is Test {
         _cancel(id);
     }
 
+    // --- digest binding ------------------------------------------------------
+
+    function test_revert_DigestMismatch_wrongPayer() public {
+        (uint256 id,,) = _submit(100);
+        vm.roll(block.number + masp.cancelDelay());
+        _Preimage memory p = _pre[id];
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID, p.fbps, bystander, p.submittedAt);
+    }
+
+    function test_revert_DigestMismatch_wrongSubmittedAt() public {
+        // A forged earlier submittedAt cannot bypass the delay: the digest
+        // check runs before the delay check ever trusts the value.
+        (uint256 id,,) = _submit(100);
+        _Preimage memory p = _pre[id];
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID, p.fbps, payer, p.submittedAt - 1);
+    }
+
+    function test_revert_DigestMismatch_wrongFbps() public {
+        (uint256 id,,) = _submit(100);
+        vm.roll(block.number + masp.cancelDelay());
+        _Preimage memory p = _pre[id];
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID, p.fbps + 1, payer, p.submittedAt);
+    }
+
+    function test_revert_DigestMismatch_wrongAsset() public {
+        (uint256 id,,) = _submit(100);
+        vm.roll(block.number + masp.cancelDelay());
+        _Preimage memory p = _pre[id];
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID + 1, p.fbps, payer, p.submittedAt);
+    }
+
     // --- accounting invariant ---------------------------------------------
 
-    function test_pendingEscrowFee_zeroAfterCancel() public {
-        (uint256 id, uint256 inAmt,) = _submit(100);
-        uint256 expectedFee = (inAmt * FEE_BPS) / 10_000;
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), expectedFee);
+    function test_accruedFee_zeroThroughCancelLifecycle() public {
+        (uint256 id,,) = _submit(100);
+        // Nothing accrues at submit (fees accrue at flush only)...
+        assertEq(masp.accruedFee(IERC20(address(token))), 0);
 
         vm.roll(block.number + masp.cancelDelay());
         _cancel(id);
 
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), 0);
+        // ...and cancel has no fee bookkeeping to reverse.
         assertEq(masp.accruedFee(IERC20(address(token))), 0);
+        assertEq(masp.sweep(IERC20(address(token))), 0, "nothing to sweep");
     }
 
-    function test_sweep_releasesFromOtherIntents_notCanceled() public {
-        // Submit two intents, cancel only the first. Sweep should release
-        // the second's fee (still pending until flush, but in this test we
-        // don't flush). Hmm — both are pending, so sweep should release zero
-        // and pending counter should equal intent2's fee.
-        (uint256 id1, uint256 inAmt,) = _submit(100);
-        (, uint256 inAmt2,) = _submit(100);
-        uint256 expectedFee = (inAmt * FEE_BPS) / 10_000;
-        uint256 expectedFee2 = (inAmt2 * FEE_BPS) / 10_000;
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), expectedFee + expectedFee2);
+    function test_sweep_unaffectedByCancel() public {
+        // Two pending intents; cancel the first. Neither ever accrued, so
+        // sweep finds nothing and the second intent's escrow stays whole.
+        (uint256 id1,,) = _submit(100);
+        (, uint256 inAmt2, uint256 fee2) = _submit(100);
 
         vm.roll(block.number + masp.cancelDelay());
         _cancel(id1);
 
-        // intent1 fee reversed; intent2 fee still pending → sweep returns 0.
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), expectedFee2);
-        uint256 swept = masp.sweep(IERC20(address(token)));
-        assertEq(swept, 0, "intent2 still pending");
-        assertEq(masp.accruedFee(IERC20(address(token))), expectedFee2, "intact");
+        assertEq(masp.sweep(IERC20(address(token))), 0, "no accrual without flush");
+        assertEq(token.balanceOf(address(masp)), inAmt2 + fee2, "second intent's escrow (principal + fee) untouched");
     }
 }

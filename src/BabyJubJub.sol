@@ -36,53 +36,30 @@ library BabyJubJub {
     /// small-subgroup point). Caller MUST have checked `isOnCurve` first.
     /// Rejecting these blocks small-subgroup attacks on FMD clues.
     /// Defense-in-depth backing the in-circuit constraint.
-    function isLowOrder(uint256 x, uint256 y) internal view returns (bool) {
+    function isLowOrder(uint256 x, uint256 y) internal pure returns (bool) {
         if (isIdentity(x, y)) return true;
-        (uint256 rx, uint256 ry) = _mulBy8(x, y);
-        return rx == 0 && ry == 1;
+        // Three projective doublings. The formula is complete on Baby-Jubjub
+        // (`a` square, `d` non-square), so Z stays nonzero for on-curve inputs.
+        (uint256 rx, uint256 ry, uint256 rz) = _doubleProj(x, y, 1);
+        (rx, ry, rz) = _doubleProj(rx, ry, rz);
+        (rx, ry, rz) = _doubleProj(rx, ry, rz);
+        // [8]P is the identity iff (X : Y : Z) = (0 : λ : λ).
+        return rx == 0 && ry == rz;
     }
 
-    /// Affine doubling on the twisted Edwards curve; one inverse covers both
-    /// denominators via the product trick.
-    function _double(uint256 x, uint256 y) private view returns (uint256 x3, uint256 y3) {
-        uint256 axx = mulmod(A, mulmod(x, x, P), P);
-        uint256 yy = mulmod(y, y, P);
-        // d1 = a*x^2 + y^2
-        uint256 d1 = addmod(axx, yy, P);
-        // d2 = 2 - a*x^2 - y^2  (mod P)
-        uint256 d2 = addmod(2, P - addmod(axx, yy, P) % P, P) % P;
-
-        // Joint inverse: inv12 = (d1*d2)^-1. 1/d1 = d2*inv12; 1/d2 = d1*inv12.
-        uint256 prod = mulmod(d1, d2, P);
-        uint256 inv12 = _expmod(prod, P - 2, P);
-        uint256 invD1 = mulmod(d2, inv12, P);
-        uint256 invD2 = mulmod(d1, inv12, P);
-
-        // numerator(x3) = 2*x*y; numerator(y3) = y^2 - a*x^2
-        uint256 numX = mulmod(2, mulmod(x, y, P), P);
-        uint256 numY = addmod(yy, P - axx % P, P) % P;
-        x3 = mulmod(numX, invD1, P);
-        y3 = mulmod(numY, invD2, P);
-    }
-
-    function _mulBy8(uint256 x, uint256 y) private view returns (uint256 rx, uint256 ry) {
-        (rx, ry) = _double(x, y);
-        (rx, ry) = _double(rx, ry);
-        (rx, ry) = _double(rx, ry);
-    }
-
-    /// Modular exponentiation via the bigModExp precompile (0x05).
-    function _expmod(uint256 b, uint256 e, uint256 m) private view returns (uint256 r) {
-        assembly ("memory-safe") {
-            let p := mload(0x40)
-            mstore(p, 0x20)
-            mstore(add(p, 0x20), 0x20)
-            mstore(add(p, 0x40), 0x20)
-            mstore(add(p, 0x60), b)
-            mstore(add(p, 0x80), e)
-            mstore(add(p, 0xa0), m)
-            if iszero(staticcall(gas(), 0x05, p, 0xc0, p, 0x20)) { revert(0, 0) }
-            r := mload(p)
-        }
+    /// Projective twisted Edwards doubling (dbl-2008-bbjlp), 3M + 4S.
+    /// (X : Y : Z) represents affine (X/Z, Y/Z); Z != 0 required.
+    function _doubleProj(uint256 x, uint256 y, uint256 z) private pure returns (uint256 x3, uint256 y3, uint256 z3) {
+        uint256 b = addmod(x, y, P);
+        b = mulmod(b, b, P); // B = (X+Y)^2
+        uint256 c = mulmod(x, x, P); // C = X^2
+        uint256 dd = mulmod(y, y, P); // D = Y^2
+        uint256 e = mulmod(A, c, P); // E = a*C
+        uint256 f = addmod(e, dd, P); // F = E + D
+        uint256 h = mulmod(z, z, P); // H = Z^2
+        uint256 j = addmod(f, P - mulmod(2, h, P), P); // J = F - 2H
+        x3 = mulmod(addmod(b, P - addmod(c, dd, P), P), j, P); // (B-C-D)*J
+        y3 = mulmod(f, addmod(e, P - dd, P), P); // F*(E-D)
+        z3 = mulmod(f, j, P); // F*J
     }
 }

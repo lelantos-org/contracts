@@ -32,7 +32,7 @@ library AuxValidation {
 
     /// Validate both aux blobs: length bounds, clue-bits prefix, and that
     /// clue R and ephemeral E are on-curve and in the prime-order subgroup.
-    function validate(Output[2] calldata aux) internal view {
+    function validate(Output[2] calldata aux) internal pure {
         for (uint256 j; j < 2;) {
             Output calldata o = aux[j];
             bytes calldata ct = o.ciphertext;

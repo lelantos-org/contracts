@@ -26,7 +26,7 @@ import { MockERC1271 } from "../mocks/MockERC1271.sol";
 /// one surface. This file exercises submit / flushBatch / cancelIntent /
 /// sweep / advance jointly and asserts cross-handler bookkeeping —
 /// lifecycle exclusivity, conservation of `token.balanceOf(masp)`, root
-/// monotonicity, cancel-delay timing, and `accruedFee ≥ pendingEscrowFee`.
+/// monotonicity, and cancel-delay timing.
 ///
 /// Tree-update SNARK verifier is `vm.mockCall`-stubbed (same trick used by
 /// `MASPPendingFeeInvariantTest.setUp`); without that, every `flushBatch`
@@ -54,14 +54,19 @@ contract MaspFlowHandler is Test {
     mapping(uint256 => uint256) public principalAt; // inAmt (asset-units * scale)
     mapping(uint256 => uint256) public feeAt;
     mapping(uint256 => uint256) public submitBlock;
-    /// Off-chain preimage shadow. Required because the 2-slot escrow drops
-    /// cm0/cm1/publicIn from storage; the on-chain digest check binds these.
+    /// Off-chain preimage shadow. Required because the 1-slot escrow stores
+    /// only the digest; flush/cancel must resupply cm0/cm1/publicIn (plus
+    /// payer/submittedAt/fbps, tracked as `payer`/`submitBlock`/`FEE_BPS`)
+    /// and the on-chain digest check binds them.
     mapping(uint256 => uint48) public preimagePublicIn;
     mapping(uint256 => bytes32) public preimageCm0;
     mapping(uint256 => bytes32) public preimageCm1;
 
     /// Sum of principals for ids still `Pending`.
     uint256 public ghostPendingPrincipal;
+    /// Sum of fees escrowed with ids still `Pending`. Never in `accruedFee`
+    /// until flush.
+    uint256 public ghostPendingFee;
     /// Sum of principals for ids that have been `Flushed` (shielded).
     uint256 public ghostShieldedPrincipal;
     /// Most recent root pushed by `flushBatch`. Tracks `currentRoot()`
@@ -130,6 +135,7 @@ contract MaspFlowHandler is Test {
         preimageCm0[id] = d.outCm[0];
         preimageCm1[id] = d.outCm[1];
         ghostPendingPrincipal += inAmt;
+        ghostPendingFee += fee;
     }
 
     function flushOne(uint256 idxSeed) external {
@@ -153,11 +159,16 @@ contract MaspFlowHandler is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
 
+        MASP.IntentMeta[] memory meta = new MASP.IntentMeta[](1);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        meta[0] = MASP.IntentMeta({ payer: payer, submittedAt: uint32(submitBlock[id]), fbps: FEE_BPS });
+
         MASP.Proof memory proof;
-        masp.flushBatch(ids, proof, tpi);
+        masp.flushBatch(ids, meta, proof, tpi);
 
         status[id] = Status.Flushed;
         ghostPendingPrincipal -= principalAt[id];
+        ghostPendingFee -= feeAt[id];
         ghostShieldedPrincipal += principalAt[id];
         lastNewRoot = tpi.newRoot;
         ghostInserted += 2;
@@ -173,7 +184,19 @@ contract MaspFlowHandler is Test {
         vm.roll(block.number + masp.cancelDelay());
 
         uint256[2] memory zCv;
-        masp.cancelIntent(id, preimagePublicIn[id], preimageCm0[id], preimageCm1[id], zCv, zCv);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        masp.cancelIntent(
+            id,
+            preimagePublicIn[id],
+            preimageCm0[id],
+            preimageCm1[id],
+            zCv,
+            zCv,
+            ASSET_ID,
+            FEE_BPS,
+            payer,
+            uint32(submitBlock[id])
+        );
 
         // Cancel-delay assertion: must have waited at least cancelDelay
         // blocks from submit. By construction (roll above) this holds.
@@ -181,6 +204,7 @@ contract MaspFlowHandler is Test {
 
         status[id] = Status.Cancelled;
         ghostPendingPrincipal -= principalAt[id];
+        ghostPendingFee -= feeAt[id];
         cancelCount += 1;
     }
 
@@ -265,23 +289,16 @@ contract MaspFlowInvariantTest is Test {
         targetSelector(FuzzSelector({ addr: address(handler), selectors: selectors }));
     }
 
-    /// Conservation: pool balance equals the pending principal still in
-    /// escrow + the shielded principal locked behind flushed intents +
-    /// the on-chain `accruedFee`. Sweep moves fees out so accruedFee
-    /// shrinks in lockstep with the balance.
+    /// Conservation: pool balance equals the pending principal + pending
+    /// fees still in escrow (never in `accruedFee` until flush) + the
+    /// shielded principal locked behind flushed intents + the on-chain
+    /// `accruedFee`. Sweep moves fees out so accruedFee shrinks in
+    /// lockstep with the balance.
     function invariant_balanceConservation() public view {
         uint256 bal = token.balanceOf(address(masp));
-        uint256 expected = handler.ghostPendingPrincipal() + handler.ghostShieldedPrincipal()
-            + masp.accruedFee(IERC20(address(token)));
+        uint256 expected = handler.ghostPendingPrincipal() + handler.ghostPendingFee()
+            + handler.ghostShieldedPrincipal() + masp.accruedFee(IERC20(address(token)));
         assertEq(bal, expected, "balance conservation");
-    }
-
-    /// `accruedFee ≥ pendingEscrowFee` — sweep can never release more
-    /// than the difference. Cross-test parity with
-    /// [MASPPendingFee.invariant_accruedFeeAlwaysGtePending](MASPPendingFee.invariant.t.sol).
-    function invariant_accruedFeeGtePending() public view {
-        IERC20 t = IERC20(address(token));
-        assertGe(masp.accruedFee(t), masp.pendingEscrowFee(t), "accrued < pending");
     }
 
     /// Lifecycle exclusivity: every submitted id sits in exactly one of

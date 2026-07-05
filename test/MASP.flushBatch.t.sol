@@ -124,6 +124,16 @@ contract MASPFlushBatchTest is Test {
         return masp.submitIntent(d, sig, _aux());
     }
 
+    /// Digest meta for intents submitted in the current block by `payer` at
+    /// the deploy-time fee — matches every `_submit` in this suite.
+    function _meta(uint256 n) internal view returns (MASP.IntentMeta[] memory m) {
+        m = new MASP.IntentMeta[](n);
+        for (uint256 i = 0; i < n; i++) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            m[i] = MASP.IntentMeta({ payer: payer, submittedAt: uint32(block.number), fbps: FEE_BPS });
+        }
+    }
+
     function _emptyProof() internal pure returns (MASP.Proof memory p) {
         p.a = [uint256(0), 0];
         p.b = [[uint256(0), 0], [uint256(0), 0]];
@@ -185,18 +195,18 @@ contract MASPFlushBatchTest is Test {
         ids[0] = id;
 
         _mockSnark(true);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
 
         // Root advanced
         assertEq(masp.currentRoot(), tpi.newRoot, "root advanced");
         assertEq(masp.committedCount(), 2, "count += 2*n");
 
         // Slot cleared (sentinel check)
-        (, address ePayer,,,) = masp.escrowed(id);
-        assertEq(ePayer, address(0), "slot cleared");
+        assertEq(masp.escrowed(id), bytes32(0), "slot cleared");
 
-        // Pending fee decremented
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), 0, "pending zero");
+        // Fee accrued at flush (submit accrues nothing).
+        uint256 expectedFee = (uint256(100) * SCALE * FEE_BPS) / 10_000;
+        assertEq(masp.accruedFee(IERC20(address(token))), expectedFee, "fee accrued at flush");
     }
 
     function test_happy_N3_singleAsset() public {
@@ -232,10 +242,11 @@ contract MASPFlushBatchTest is Test {
         ids[2] = id2;
 
         _mockSnark(true);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(3), _emptyProof(), tpi);
 
         assertEq(masp.committedCount(), 6, "count += 2*3");
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), 0, "all pending released");
+        uint256 feePer = (uint256(100) * SCALE * FEE_BPS) / 10_000;
+        assertEq(masp.accruedFee(IERC20(address(token))), 3 * feePer, "all three fees accrued");
     }
 
     // --- reverts -----------------------------------------------------------
@@ -245,7 +256,7 @@ contract MASPFlushBatchTest is Test {
         PubInputs.TreeUpdateBatch memory tpi = _tpi(0, cms);
         uint256[] memory ids = new uint256[](0);
         vm.expectRevert(MASP.BadBatchSize.selector);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(0), _emptyProof(), tpi);
     }
 
     function test_revert_BadBatchSize_overMax() public {
@@ -255,7 +266,20 @@ contract MASPFlushBatchTest is Test {
         // forge-lint: disable-next-line(unsafe-typecast)
         PubInputs.TreeUpdateBatch memory tpi = _tpi(n, cms);
         vm.expectRevert(MASP.BadBatchSize.selector);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(n), _emptyProof(), tpi);
+    }
+
+    function test_revert_BadBatchSize_metaLengthMismatch() public {
+        _fund(token, 100);
+        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
+        bytes32[] memory cms = new bytes32[](2);
+        cms[0] = bytes32(uint256(1));
+        cms[1] = bytes32(uint256(2));
+        PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = id;
+        vm.expectRevert(MASP.BadBatchSize.selector);
+        masp.flushBatch(ids, _meta(2), _emptyProof(), tpi);
     }
 
     function test_revert_BatchMisaligned_actualCountMismatch() public {
@@ -270,7 +294,7 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = 0;
         vm.expectRevert(MASP.BatchMisaligned.selector);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
     }
 
     function test_revert_StaleOldRoot() public {
@@ -281,7 +305,7 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = 0;
         vm.expectRevert(MASP.StaleOldRoot.selector);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
     }
 
     function test_revert_IntentNotPending_unknownId() public {
@@ -290,7 +314,7 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = 999;
         vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, 999));
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
     }
 
     function test_revert_DigestMismatch_cmTampered() public {
@@ -310,22 +334,57 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+    }
+
+    function test_revert_DigestMismatch_metaTampered() public {
+        _fund(token, 100);
+        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
+
+        bytes32[] memory cms = new bytes32[](2);
+        cms[0] = bytes32(uint256(1));
+        cms[1] = bytes32(uint256(2));
+        PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
+        uint64[] memory a = new uint64[](1);
+        uint64[] memory p = new uint64[](1);
+        a[0] = ASSET_ID;
+        p[0] = 100;
+        _fillPairPI(tpi, a, p);
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = id;
+
+        // Wrong fbps in meta.
+        MASP.IntentMeta[] memory m = _meta(1);
+        m[0].fbps = FEE_BPS + 1;
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        masp.flushBatch(ids, m, _emptyProof(), tpi);
+
+        // Wrong payer in meta.
+        m = _meta(1);
+        m[0].payer = address(0xbad);
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        masp.flushBatch(ids, m, _emptyProof(), tpi);
+
+        // Wrong submittedAt in meta.
+        m = _meta(1);
+        m[0].submittedAt += 1;
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        masp.flushBatch(ids, m, _emptyProof(), tpi);
     }
 
     function test_happy_mixedAssetBatch() public {
         // Two intents of different assets in the same flush. Per-token
-        // pendingEscrowFee released independently in tail loop.
+        // fees accrue independently in the tail loop.
         _fund(token, 100);
         _fund(tokenAlt, 100);
         uint256 id0 = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
         uint256 id1 = _submit(100, ASSET_ID_ALT, bytes32(uint256(3)), bytes32(uint256(4)), 1);
 
-        // Pre-flush: both tokens have pending fees.
+        // Pre-flush: nothing accrued for either token.
         uint256 inAmt = uint256(100) * SCALE;
         uint256 expectedFee = (inAmt * FEE_BPS) / 10_000;
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), expectedFee, "token pending pre-flush");
-        assertEq(masp.pendingEscrowFee(IERC20(address(tokenAlt))), expectedFee, "tokenAlt pending pre-flush");
+        assertEq(masp.accruedFee(IERC20(address(token))), 0, "token nothing accrued pre-flush");
+        assertEq(masp.accruedFee(IERC20(address(tokenAlt))), 0, "tokenAlt nothing accrued pre-flush");
 
         bytes32[] memory cms = new bytes32[](4);
         cms[0] = bytes32(uint256(1));
@@ -346,11 +405,11 @@ contract MASPFlushBatchTest is Test {
         ids[1] = id1;
 
         _mockSnark(true);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(2), _emptyProof(), tpi);
 
-        // Both tokens' pending fees released.
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), 0, "token pending released");
-        assertEq(masp.pendingEscrowFee(IERC20(address(tokenAlt))), 0, "tokenAlt pending released");
+        // Both tokens' fees accrued at flush.
+        assertEq(masp.accruedFee(IERC20(address(token))), expectedFee, "token fee accrued");
+        assertEq(masp.accruedFee(IERC20(address(tokenAlt))), expectedFee, "tokenAlt fee accrued");
         assertEq(masp.committedCount(), 4, "count += 2*2");
     }
 
@@ -372,7 +431,7 @@ contract MASPFlushBatchTest is Test {
         ids[0] = id;
         _mockSnark(false);
         vm.expectRevert(MASP.TreeUpdateRejected.selector);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
     }
 
     function test_revert_replay_secondFlushReverts() public {
@@ -395,13 +454,13 @@ contract MASPFlushBatchTest is Test {
         ids[0] = id;
 
         _mockSnark(true);
-        masp.flushBatch(ids, _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
 
         // Replay with refreshed tpi (root + startIndex aligned with post-flush state)
         // hits the sentinel; without the refresh we'd revert on StaleOldRoot first.
         PubInputs.TreeUpdateBatch memory tpi2 = _tpi(1, cms);
         _fillPairPI(tpi2, a, p);
         vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id));
-        masp.flushBatch(ids, _emptyProof(), tpi2);
+        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi2);
     }
 }

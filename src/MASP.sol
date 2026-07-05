@@ -21,7 +21,7 @@ import { AuxValidation } from "./libs/AuxValidation.sol";
 /// * `submitIntent` — escrow funds via Permit2; no SNARK at submit.
 /// * `flushBatch` — insert up to MAX_N escrowed intents under one
 ///   `tree_update_batch` SNARK.
-/// * `cancelIntent` — refund `escrowed[id].payer` after `cancelDelay`.
+/// * `cancelIntent` — refund the digest-bound payer after `cancelDelay`.
 /// * `transfer` / `withdraw` / `withdrawNative` — spend ops; verify
 ///   `(transact_2x2, tree_update_batch[N=1])`.
 ///
@@ -71,20 +71,20 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
 
     // ============== Escrow state =============================================
 
-    /// Per-intent escrow. Pending iff `payer != address(0)`. Stores the
-    /// digest (see `_intentDigest`) plus `publicAssetId` and `feeBpsAtSubmit`
-    /// so flush/cancel resolve asset and submit-time fee without trusting
-    /// calldata.
-    struct EscrowedIntent {
-        bytes32 digest;
+    /// Per-intent escrow digest (see `_intentDigest`). Pending iff nonzero.
+    /// All submit-time fields fold into the digest; flush/cancel resupply
+    /// the preimage from `IntentEscrowed` and keccak equality binds it.
+    mapping(uint256 id => bytes32 digest) public escrowed;
+    uint256 public nextIntentId;
+
+    /// Digest fields not carried in `tpi`; verified against `escrowed[id]`
+    /// in `_drainIntent`. Sourced from the intent's `IntentEscrowed` event
+    /// (`submittedAt` = its block number).
+    struct IntentMeta {
         address payer;
         uint32 submittedAt;
-        uint64 publicAssetId;
-        uint16 feeBpsAtSubmit;
+        uint16 fbps;
     }
-
-    mapping(uint256 id => EscrowedIntent) public escrowed;
-    uint256 public nextIntentId;
 
     /// Blocks before `cancelIntent` is allowed. Owner-tunable within
     /// `[CANCEL_DELAY_MIN, CANCEL_DELAY_MAX]`.
@@ -194,7 +194,6 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     error MsgValueMismatch();
     error AmountOverflowsAllowance();
     error CvDepMismatch();
-    error AssetMismatch();
     error PublicInMismatch();
     error BadDepositMode();
     /// Caller-supplied digest preimage mismatch on flush/cancel.
@@ -300,7 +299,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         uint16 fbps = feeBps;
         (uint256 inAmt, uint256 fee) = _computeAmounts(d.publicIn, a.scale, fbps);
         _permit2Pull(a.token, d.payer, sig, inAmt + fee, keccak256(abi.encode(d, aux)));
-        id = _finalizeIntent(d, aux, a, inAmt, fee, fbps);
+        id = _finalizeIntent(d, aux, a, inAmt, fbps);
     }
 
     /// Permit2 AllowanceTransfer deposit. User pre-signs a `PermitSingle`
@@ -322,7 +321,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
 
         // forge-lint: disable-next-line(unsafe-typecast)
         IAllowanceTransfer(address(PERMIT2)).transferFrom(d.payer, address(this), uint160(total), address(a.token));
-        id = _finalizeIntent(d, aux, a, inAmt, fee, fbps);
+        id = _finalizeIntent(d, aux, a, inAmt, fbps);
     }
 
     /// Native-coin deposit. Pool wraps `msg.value`. Asset must be the
@@ -344,7 +343,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         if (msg.value != inAmt + fee) revert MsgValueMismatch();
 
         WRAPPED_NATIVE.deposit{ value: msg.value }();
-        id = _finalizeIntent(d, aux, a, inAmt, fee, fbps);
+        id = _finalizeIntent(d, aux, a, inAmt, fbps);
     }
 
     /// Shared validation for `submitIntent*`. Returns resolved asset entry.
@@ -367,29 +366,32 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     }
 
     /// Shared escrow record + event emit for `submitIntent*`. Caller must
-    /// have already pulled `inAmt + fee` of `a.token` into the pool.
+    /// have already pulled `inAmt + fee` of `a.token` into the pool. Fee
+    /// accrues at flush.
     function _finalizeIntent(
         PubInputs.DepositIntent calldata d,
         AuxValidation.Output[2] calldata aux,
         AssetEntry memory a,
         uint256 inAmt,
-        uint256 fee,
         uint16 fbps
     ) private returns (uint256 id) {
-        id = nextIntentId++;
+        unchecked {
+            id = nextIntentId++;
+        }
         // forge-lint: disable-next-line(unsafe-typecast)
-        escrowed[id] = EscrowedIntent({
-            digest: _intentDigest(
-                id, d.outCm[0], d.outCm[1], d.cvDep0, d.cvDep1, d.publicAssetId, uint48(d.publicIn), fbps
-            ),
-            payer: d.payer,
+        escrowed[id] = _intentDigest(
+            id,
+            d.outCm[0],
+            d.outCm[1],
+            d.cvDep0,
+            d.cvDep1,
+            d.publicAssetId,
+            uint48(d.publicIn),
+            fbps,
+            d.payer,
             // forge-lint: disable-next-line(unsafe-typecast)
-            submittedAt: uint32(block.number),
-            publicAssetId: d.publicAssetId,
-            feeBpsAtSubmit: fbps
-        });
-
-        _recordEscrowFee(a.token, fee);
+            uint32(block.number)
+        );
 
         AuxValidation.Output calldata a0 = aux[0];
         AuxValidation.Output calldata a1 = aux[1];
@@ -422,13 +424,16 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     }
 
     /// Insert up to MAX_N_BATCH escrowed intents under one batched SNARK.
-    /// `tpi` mirrors per-intent payloads in `ids` order; circuit enforces
-    /// `isDeposit[i]==1` for active slots and zeros padding.
-    function flushBatch(uint256[] calldata ids, Proof calldata tp, PubInputs.TreeUpdateBatch calldata tpi)
-        external
-        nonReentrant
-    {
+    /// `tpi` and `meta` mirror per-intent payloads in `ids` order; circuit
+    /// enforces `isDeposit[i]==1` for active slots and zeros padding.
+    function flushBatch(
+        uint256[] calldata ids,
+        IntentMeta[] calldata meta,
+        Proof calldata tp,
+        PubInputs.TreeUpdateBatch calldata tpi
+    ) external nonReentrant {
         uint256 n = ids.length;
+        if (meta.length != n) revert BadBatchSize();
         _validateBatchHeader(n, tpi);
 
         // Per-token fee accumulator. Size mirrors PubInputs.MAX_N_BATCH.
@@ -440,12 +445,12 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
 
         // Phase 1: drain each active slot, accumulate fee per token.
         for (uint256 i = 0; i < n; ++i) {
-            nUnique = _drainIntent(ids[i], i, tpi, tokens, fees, nUnique);
+            nUnique = _drainIntent(ids[i], i, tpi, meta[i], tokens, fees, nUnique);
         }
 
-        // Phase 2: release escrow fees, one SSTORE per unique token.
+        // Phase 2: accrue fees, one SSTORE per unique token.
         for (uint256 j = 0; j < nUnique; ++j) {
-            _subPendingEscrowFee(tokens[j], fees[j]);
+            _accrueFee(tokens[j], fees[j]);
         }
 
         // Phase 3: verify batched SNARK and advance tree by 2*n leaves.
@@ -467,26 +472,25 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         if (uint256(cc) + 2 * n > MAX_LEAVES) revert TreeFull();
     }
 
-    /// Validate one intent against its tpi slot, accumulate fee under its
-    /// token, emit + delete. Returns updated unique-token count. `fbps` is
-    /// read from storage, not calldata.
+    /// Validate one intent against its tpi slot + meta, accumulate fee under
+    /// its token, emit + delete. Returns updated unique-token count. Digest
+    /// equality binds every calldata field, asset included.
     function _drainIntent(
         uint256 id,
         uint256 i,
         PubInputs.TreeUpdateBatch calldata tpi,
+        IntentMeta calldata m,
         IERC20[8] memory tokens,
         uint256[8] memory fees,
         uint256 nUnique
     ) private returns (uint256) {
-        // Copy escrow slot into memory once.
-        EscrowedIntent memory em = escrowed[id];
-        if (em.payer == address(0)) revert IntentNotPending(id);
+        bytes32 stored = escrowed[id];
+        if (stored == bytes32(0)) revert IntentNotPending(id);
         if (tpi.isDeposit[i] != 1) revert BadDepositMode();
+        if (tpi.pairPublicIn[i] > type(uint48).max) revert PublicInTooLarge();
 
-        // Reconstruct submit-time digest; one equality binds cms, cvDeps,
-        // asset, publicIn, fbps.
-        uint64 publicAssetId_ = em.publicAssetId;
-        uint16 fbps = em.feeBpsAtSubmit;
+        // Reconstruct submit-time digest; one equality binds all fields.
+        uint64 assetId = tpi.pairAsset[i];
         // forge-lint: disable-next-line(unsafe-typecast)
         bytes32 expected = _intentDigest(
             id,
@@ -494,16 +498,16 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
             tpi.cms[2 * i + 1],
             tpi.cvDeps[2 * i],
             tpi.cvDeps[2 * i + 1],
-            publicAssetId_,
+            assetId,
             uint48(tpi.pairPublicIn[i]),
-            fbps
+            m.fbps,
+            m.payer,
+            m.submittedAt
         );
-        if (expected != em.digest) revert DigestMismatch(id);
-        if (tpi.pairAsset[i] != publicAssetId_) revert AssetMismatch();
+        if (expected != stored) revert DigestMismatch(id);
 
-        if (tpi.pairPublicIn[i] > type(uint48).max) revert PublicInTooLarge();
-        AssetEntry memory a = _getAsset(publicAssetId_);
-        (, uint256 fee) = _computeAmounts(uint256(tpi.pairPublicIn[i]), a.scale, uint256(fbps));
+        AssetEntry memory a = _getAsset(assetId);
+        (, uint256 fee) = _computeAmounts(uint256(tpi.pairPublicIn[i]), a.scale, uint256(m.fbps));
 
         (uint256 slot, uint256 newCount) = _findOrAppendToken(tokens, nUnique, a.token);
         fees[slot] += fee;
@@ -513,7 +517,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         return newCount;
     }
 
-    /// Preimage for `EscrowedIntent.digest`, shared by submit/flush/cancel.
+    /// Preimage for `escrowed[id]`, shared by submit/flush/cancel.
     /// `(address(this), block.chainid, id)` is the anti-replay prefix.
     function _intentDigest(
         uint256 id,
@@ -523,11 +527,24 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         uint256[2] memory cvDep1,
         uint64 publicAssetId,
         uint48 publicIn,
-        uint16 feeBpsAtSubmit
+        uint16 feeBpsAtSubmit,
+        address payer,
+        uint32 submittedAt
     ) private view returns (bytes32) {
         return keccak256(
             abi.encode(
-                address(this), block.chainid, id, cm0, cm1, cvDep0, cvDep1, publicAssetId, publicIn, feeBpsAtSubmit
+                address(this),
+                block.chainid,
+                id,
+                cm0,
+                cm1,
+                cvDep0,
+                cvDep1,
+                publicAssetId,
+                publicIn,
+                feeBpsAtSubmit,
+                payer,
+                submittedAt
             )
         );
     }
@@ -544,37 +561,42 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         return (nUnique, nUnique + 1);
     }
 
-    /// Refund after `cancelDelay`. Anyone may call; funds return to
-    /// `escrowed[id].payer`. Caller supplies the digest preimage (from
-    /// `IntentEscrowed`); the on-chain check binds it to submit-time values.
+    /// Refund after `cancelDelay`. Anyone may call; funds go to the
+    /// digest-bound payer. Caller resupplies the digest preimage from the
+    /// intent's `IntentEscrowed` event (`submittedAt` = its block number);
+    /// keccak equality binds every value to submit time.
     function cancelIntent(
         uint256 id,
         uint48 publicIn,
         bytes32 cm0,
         bytes32 cm1,
         uint256[2] calldata cvDep0,
-        uint256[2] calldata cvDep1
+        uint256[2] calldata cvDep1,
+        uint64 publicAssetId,
+        uint16 fbps,
+        address payer,
+        uint32 submittedAt
     ) external nonReentrant {
-        EscrowedIntent memory e = escrowed[id];
-        if (e.payer == address(0)) revert IntentNotPending(id);
-        uint256 unlockBlock = uint256(e.submittedAt) + uint256(cancelDelay);
+        bytes32 stored = escrowed[id];
+        if (stored == bytes32(0)) revert IntentNotPending(id);
+
+        bytes32 expected =
+            _intentDigest(id, cm0, cm1, cvDep0, cvDep1, publicAssetId, publicIn, fbps, payer, submittedAt);
+        if (expected != stored) revert DigestMismatch(id);
+
+        // `submittedAt` is digest-verified; safe for the delay check.
+        uint256 unlockBlock = uint256(submittedAt) + uint256(cancelDelay);
         if (block.number < unlockBlock) revert CancelTooEarly(id, unlockBlock);
 
-        uint16 fbps = e.feeBpsAtSubmit;
-        bytes32 expected = _intentDigest(id, cm0, cm1, cvDep0, cvDep1, e.publicAssetId, publicIn, fbps);
-        if (expected != e.digest) revert DigestMismatch(id);
-
-        AssetEntry memory a = _getAsset(e.publicAssetId);
+        AssetEntry memory a = _getAsset(publicAssetId);
         (uint256 inAmt, uint256 fee) = _computeAmounts(uint256(publicIn), a.scale, uint256(fbps));
         uint256 total = inAmt + fee;
 
-        // CEI: reverse accounting before external transfer.
-        _decrueFee(a.token, fee);
-        _subPendingEscrowFee(a.token, fee);
+        // CEI: clear escrow before external transfer.
         delete escrowed[id];
 
-        a.token.safeTransfer(e.payer, total);
-        emit IntentCanceled(id, e.payer, total);
+        a.token.safeTransfer(payer, total);
+        emit IntentCanceled(id, payer, total);
     }
 
     // ============== Internal helpers =========================================
@@ -587,12 +609,6 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     {
         inAmt = publicIn * scale;
         fee = (inAmt * fbps) / BPS_DENOMINATOR;
-    }
-
-    /// Bump `accruedFee` and `pendingEscrowFee` together.
-    function _recordEscrowFee(IERC20 token, uint256 fee) private {
-        _accrueFee(token, fee);
-        _addPendingEscrowFee(token, fee);
     }
 
     /// Wrap Permit2 `permitWitnessTransferFrom` with the deposit witness.

@@ -74,9 +74,25 @@ contract MASPSubmitIntentNativeTest is MASPTestBase {
         assertEq(weth.balanceOf(address(masp)), maspWethBefore + total, "MASP WETH credited");
         assertEq(natPayer.balance, payerEthBefore - total, "payer ETH debited");
 
-        (, address payerStored,, uint64 storedAssetId,) = masp.escrowed(id);
-        assertEq(payerStored, natPayer);
-        assertEq(uint256(storedAssetId), uint256(ASSET_ID));
+        // Escrow slot holds the digest binding payer + asset (and the rest
+        // of the preimage); reconstruct and compare.
+        bytes32 expectedDigest = keccak256(
+            abi.encode(
+                address(masp),
+                block.chainid,
+                id,
+                d.outCm[0],
+                d.outCm[1],
+                d.cvDep0,
+                d.cvDep1,
+                uint64(ASSET_ID),
+                uint48(amt),
+                uint16(FEE_BPS),
+                natPayer,
+                uint32(block.number)
+            )
+        );
+        assertEq(masp.escrowed(id), expectedDigest, "digest binds payer + asset");
     }
 
     function testRevertsOnMsgValueTooLow() public {

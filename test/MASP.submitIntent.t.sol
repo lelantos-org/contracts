@@ -125,13 +125,11 @@ contract MASPSubmitIntentTest is Test {
         assertEq(id, 0, "first id");
         assertEq(token.balanceOf(address(masp)) - poolBefore, total, "pool gross");
         assertEq(payerBefore - token.balanceOf(payer), total, "payer debited");
-        assertEq(masp.accruedFee(IERC20(address(token))), fee, "fee accrued");
-        assertEq(masp.pendingEscrowFee(IERC20(address(token))), fee, "fee pending");
+        assertEq(masp.accruedFee(IERC20(address(token))), 0, "no accrual at submit; fee accrues at flush");
         assertEq(masp.nextIntentId(), 1, "nextIntentId bumped");
 
-        // Spot-check escrow slot. Removed fields (cm0/cm1/publicIn/feeBps)
-        // are bound into `digest`; reconstruct preimage and compare.
-        (bytes32 digest, address ePayer, uint32 submittedAt, uint64 eAssetId,) = masp.escrowed(id);
+        // Spot-check escrow slot: a single digest binds the full preimage,
+        // payer and submit block included.
         bytes32 expectedDigest = keccak256(
             abi.encode(
                 address(masp),
@@ -143,13 +141,12 @@ contract MASPSubmitIntentTest is Test {
                 d.cvDep1,
                 uint64(ASSET_ID),
                 uint48(publicIn),
-                uint16(FEE_BPS)
+                uint16(FEE_BPS),
+                payer,
+                uint32(block.number)
             )
         );
-        assertEq(digest, expectedDigest, "digest binds full preimage");
-        assertEq(ePayer, payer);
-        assertEq(uint256(submittedAt), block.number);
-        assertEq(uint256(eAssetId), uint256(ASSET_ID));
+        assertEq(masp.escrowed(id), expectedDigest, "digest binds full preimage");
     }
 
     function test_happy_idsMonotonic() public {
@@ -169,15 +166,16 @@ contract MASPSubmitIntentTest is Test {
         assertEq(b, 1);
     }
 
-    function test_happy_sweep_blockedByPending() public {
+    function test_happy_sweep_nothingAccruedAtSubmit() public {
         uint64 publicIn = 100;
-        (, uint256 fee) = _fund(publicIn);
+        _fund(publicIn);
         masp.submitIntent(_intent(publicIn), _sig(type(uint256).max), _aux());
 
-        // Sweep would normally drain `fee`, but pending counter blocks all of it.
+        // Fees accrue only at flush, so a bare submit leaves nothing to sweep
+        // — escrowed principal + fee stay out of `accruedFee` entirely.
         uint256 swept = masp.sweep(IERC20(address(token)));
-        assertEq(swept, 0, "all pending");
-        assertEq(masp.accruedFee(IERC20(address(token))), fee, "intact");
+        assertEq(swept, 0, "nothing accrued");
+        assertEq(masp.accruedFee(IERC20(address(token))), 0);
     }
 
     // --- reverts -----------------------------------------------------------

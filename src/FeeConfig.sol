@@ -7,8 +7,8 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// Owner-set fees + per-token accrual. Drained to `treasury` via
-/// permissionless `sweep`. `pendingEscrowFee` gates sweep against
-/// `cancelIntent` underflow.
+/// permissionless `sweep`. Fees accrue at flush, so `accruedFee` holds
+/// no escrowed funds.
 abstract contract FeeConfig is Ownable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
@@ -23,12 +23,8 @@ abstract contract FeeConfig is Ownable, ReentrancyGuardTransient {
     /// Total fees accrued per token. Monotone between sweeps.
     mapping(IERC20 => uint256) public accruedFee;
 
-    /// Subset of `accruedFee` still locked in pending intents.
-    mapping(IERC20 => uint256) public pendingEscrowFee;
-
     error ZeroTreasury();
     error FeeTooHigh();
-    error PendingFeeUnderflow();
 
     function _initFee(uint16 feeBps_, address treasury_) internal {
         if (treasury_ == address(0)) revert ZeroTreasury();
@@ -47,45 +43,17 @@ abstract contract FeeConfig is Ownable, ReentrancyGuardTransient {
         treasury = newTreasury;
     }
 
-    /// Drain `accruedFee - pendingEscrowFee` for `token` to `treasury`.
+    /// Drain `accruedFee` for `token` to `treasury`.
     /// Permissionless; destination is owner-pinned.
     function sweep(IERC20 token) external nonReentrant returns (uint256 amount) {
-        uint256 acc = accruedFee[token];
-        uint256 pending = pendingEscrowFee[token];
-        if (acc <= pending) return 0;
-        unchecked {
-            amount = acc - pending;
-        }
-        accruedFee[token] = pending;
+        amount = accruedFee[token];
+        if (amount == 0) return 0;
+        accruedFee[token] = 0;
         token.safeTransfer(treasury, amount);
     }
 
     function _accrueFee(IERC20 token, uint256 amount) internal {
         if (amount == 0) return;
         accruedFee[token] += amount;
-    }
-
-    /// Reverse a prior `_accrueFee`. Caller responsible for pairing.
-    function _decrueFee(IERC20 token, uint256 amount) internal {
-        if (amount == 0) return;
-        uint256 acc = accruedFee[token];
-        if (acc < amount) revert PendingFeeUnderflow();
-        unchecked {
-            accruedFee[token] = acc - amount;
-        }
-    }
-
-    function _addPendingEscrowFee(IERC20 token, uint256 amount) internal {
-        if (amount == 0) return;
-        pendingEscrowFee[token] += amount;
-    }
-
-    function _subPendingEscrowFee(IERC20 token, uint256 amount) internal {
-        if (amount == 0) return;
-        uint256 p = pendingEscrowFee[token];
-        if (p < amount) revert PendingFeeUnderflow();
-        unchecked {
-            pendingEscrowFee[token] = p - amount;
-        }
     }
 }

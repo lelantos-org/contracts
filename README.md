@@ -62,17 +62,17 @@ From `forge test --gas-report` (default profile; reproduce locally):
 
 | Function | Min | Avg | Max |
 | --- | --- | --- | --- |
-| `submitIntent` | 28 176 | 161 266 | 231 424 |
-| `flushBatch` | 34 215 | 181 104 | 203 541 |
-| `cancelIntent` | 27 629 | 60 310 | 77 269 |
-| `transfer` | 41 837 | 51 153 | 62 779 |
+| `submitIntent` | 31 218 | 125 684 | 172 079 |
+| `flushBatch` | 34 287 | 185 280 | 236 152 |
+| `cancelIntent` | 25 561 | 51 227 | 66 910 |
+| `transfer` | 43 493 | 54 714 | 66 506 |
 
-- `submitIntent` covers the per-deposit hot path: Permit2 `permitWitnessTransferFrom` (~75 k), aux validation, a 2-slot `EscrowedIntent` write, and the `IntentEscrowed` log (~1.2 KB ciphertext). No SNARK verification on this leg.
-- `flushBatch` amortizes one batched `TreeUpdateBatchVerifier.verifyProof` (195 026) plus the Merkle root advance across up to `MAX_N_BATCH` intents; each intent's submit-time digest is rebuilt from calldata and checked against a single storage slot.
-- `cancelIntent` refunds escrow after `cancelDelay`, verifying the caller-supplied digest preimage against `escrowed[id].digest`.
+- `submitIntent` covers the per-deposit hot path: Permit2 `permitWitnessTransferFrom` (~75 k), aux validation, a single-slot escrow-digest write, and the `IntentEscrowed` log (~1.2 KB ciphertext). No SNARK verification and no fee-map writes on this leg.
+- `flushBatch` amortizes one batched `TreeUpdateBatchVerifier.verifyProof` (195 026) plus the Merkle root advance across up to `MAX_N_BATCH` intents; each intent's submit-time digest is rebuilt from calldata (`tpi` + `IntentMeta`) and checked against a single storage slot.
+- `cancelIntent` refunds escrow after `cancelDelay`, verifying the caller-supplied digest preimage (all fields from the `IntentEscrowed` event; `submittedAt` is that event's block number) against `escrowed[id]`.
 - Both Groth16 verifiers cost 195 026 per `verifyProof` call regardless of logical public-input count (PolyEval compresses to `(y, z)`).
 
-Fee accounting stays off the hot path: `submitIntent` parks fees in `pendingEscrowFee[token]` (refundable on cancel), `flushBatch` moves them to `accruedFee[token]`, and `sweep(token)` drains accrued fees to the treasury.
+Fee accounting stays off the hot path entirely: `submitIntent` locks `inAmt + fee` in escrow without touching any fee map, `flushBatch` accrues each intent's submit-time fee into `accruedFee[token]`, `cancelIntent` refunds principal + fee straight from balance, and `sweep(token)` drains the full accrued balance to the treasury (escrowed funds are never part of `accruedFee`, so sweep cannot touch them).
 
 Check contract sizes with `just size` (EIP-170 enforcement under the deploy profile) or `just build-sizes`.
 
@@ -88,7 +88,7 @@ Selector → error mapping for `MASP.sol` and its libraries. For parameterized e
 | `0x9d799ba3` | `ZeroRelayer()`                             | `relayer == address(0)`                                                   |
 | `0x89a545e0` | `BadRelayer()`                              | `relayer != msg.sender` (anti front-run)                                  |
 | `0xeb70e79e` | `CmMismatch()`                              | Spend-path only: `pi.outCm[k] != tpi.cms[k]` (transact vs tree-update binding) |
-| `0x183be5d0` | `DigestMismatch(uint256 id)`                | Flush/cancel: caller-supplied digest preimage does not match `escrowed[id].digest` |
+| `0x183be5d0` | `DigestMismatch(uint256 id)`                | Flush/cancel: caller-supplied digest preimage does not match `escrowed[id]` |
 | `0x17e37b5c` | `BatchLengthMismatch()`                     | `flushBatch`: `feeBpsAtSubmit.length != ids.length`                       |
 | `0xcc34802d` | `MustHaveDeposit()`                         | `submitIntent` called with `publicIn == 0`                                |
 | `0x58b94be0` | `MustNotHaveDeposit()`                      | Transfer-only path called with `publicIn != 0`                            |
@@ -97,7 +97,7 @@ Selector → error mapping for `MASP.sol` and its libraries. For parameterized e
 | `0x797649ab` | `PublicInTooLarge()`                        | `publicIn > type(uint48).max`                                             |
 | `0xc4479fc4` | `ZeroCm()`                                  | `outCm[0] == 0` or `outCm[1] == 0`                                        |
 | `0xdc704b92` | `IntentNotPending(uint256 id)`              | `flushBatch`/`cancelIntent` references missing or already-drained id      |
-| `0x8004762e` | `BadBatchSize()`                            | `ids.length == 0` or `> MAX_N_BATCH`                                      |
+| `0x8004762e` | `BadBatchSize()`                            | `ids.length == 0` or `> MAX_N_BATCH`, or `meta.length != ids.length`      |
 | `0xdf5426b8` | `CancelTooEarly(uint256 id, uint256 unlockBlock)` | `cancelIntent` before `submittedAt + cancelDelay`                    |
 | `0x50112c2f` | `BadCancelDelay()`                          | `setCancelDelay` value out of bounds                                      |
 | `0x8c520116` | `UnknownRoot()`                             | Merkle root not in known-roots ring buffer                                |
