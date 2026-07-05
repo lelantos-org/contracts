@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  FOUNDRY_PROFILE: default
+  FOUNDRY_VERSION: stable
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: [self-hosted]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: extractions/setup-just@v2
+      - run: just version
+      - run: just test
+
+  fmt:
+    name: Format check
+    runs-on: [self-hosted]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: extractions/setup-just@v2
+      - run: just fmt-check
+
+  size:
+    name: Contract size (EIP-170)
+    runs-on: [self-hosted]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: extractions/setup-just@v2
+      - run: just size
+
+  slither:
+    name: Slither
+    runs-on: [self-hosted]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: crytic/slither-action@v0.4.0
+        with:
+          target: .
+          slither-config: slither.config.json
+          solc-version: 0.8.35
+          fail-on: medium

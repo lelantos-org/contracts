@@ -1,0 +1,28 @@
+name: fuzz
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: [self-hosted]
+    timeout-minutes: 120
+    env:
+      FOUNDRY_THREADS: 4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - uses: extractions/setup-just@v2
+      - run: just version
+      - name: Heavy fuzz + invariant sweep
+        run: just test-fuzz

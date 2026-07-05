@@ -1,0 +1,31 @@
+# Foundry
+cache/
+out/
+broadcast/
+!broadcast/*/dry-run/
+
+# Docs
+docs/
+
+# Dotenv
+.env
+.env.*
+!.env.example
+
+# Coverage
+lcov.info
+coverage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (if any tooling)
+node_modules/
+.claude

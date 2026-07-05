@@ -1,0 +1,27 @@
+{
+  "ids": [
+    "1",
+    "2",
+    "3"
+  ],
+  "scales": [
+    "10000000000",
+    "10000000000",
+    "1"
+  ],
+  "names": [
+    "Wrapped Ether",
+    "Mock DAI",
+    "Mock WBTC"
+  ],
+  "symbols": [
+    "WETH",
+    "mDAI",
+    "mWBTC"
+  ],
+  "decimals": [
+    "18",
+    "18",
+    "8"
+  ]
+}

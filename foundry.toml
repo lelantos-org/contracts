@@ -1,0 +1,129 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+auto_detect_solc = true
+optimizer = true
+optimizer_runs = 1_000_000
+via_ir = true
+evm_version = "cancun"
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "forge-std/=lib/forge-std/src/",
+    "poseidon-solidity/=lib/poseidon-solidity/",
+    "permit2/=lib/permit2/",
+]
+
+fs_permissions = [
+    { access = "read", path = "test/fixtures" },
+    { access = "read", path = "out" },
+    { access = "read", path = "script/config" },
+]
+# OZ 5.6.1 ECDSA.sol uses `error` as identifier — warning 6335 (future keyword). Upstream unfixed.
+ignored_warnings_from = ["lib"]
+chain_id = 31337
+
+[invariant]
+runs = 256
+depth = 64
+fail_on_revert = false
+
+# Iteration profile: drops SMT model checker + tames optimizer runs for
+# fast local rebuilds. CI keeps the default profile.
+# Use: `FOUNDRY_PROFILE=fast forge build` / `... forge test`.
+[profile.fast]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+auto_detect_solc = true
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+evm_version = "cancun"
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "forge-std/=lib/forge-std/src/",
+    "poseidon-solidity/=lib/poseidon-solidity/",
+    "permit2/=lib/permit2/",
+]
+fs_permissions = [
+    { access = "read", path = "test/fixtures" },
+    { access = "read", path = "out" },
+    { access = "read", path = "script/config" },
+]
+ignored_warnings_from = ["lib"]
+chain_id = 31337
+
+[fuzz]
+runs = 256
+
+# Heavy nightly profile — driven by the `fuzz` workflow (see
+# .github/workflows/fuzz.yml). PR/CI keeps the default profile (256 runs /
+# depth 64); this profile cranks both fuzz and invariant depth so rare
+# corner cases surface before they reach prod.
+[profile.fuzz.fuzz]
+runs = 10_000
+
+[profile.fuzz.invariant]
+runs = 1_024
+depth = 256
+fail_on_revert = false
+
+[lint]
+# snarkjs-generated verifier files use lowercase constants by codegen; regenerated on circuit change.
+# unsafe-cheatcode (`vm.readFile`) is intentional for fixture loading in tests/scripts.
+exclude_lints = ["unsafe-cheatcode"]
+ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.sol"]
+
+# Deploy profile: keeps via_ir (avoids stack-too-deep) but lowers
+# optimizer_runs so MASP fits under EIP-170 (24576 B) on Arbitrum/L1/etc.
+# Use: `FOUNDRY_PROFILE=deploy forge script ...`. Default profile keeps
+# optimizer_runs = 1_000_000 for best hot-path gas in tests.
+[profile.deploy]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+auto_detect_solc = true
+optimizer = true
+optimizer_runs = 10_000
+via_ir = true
+evm_version = "cancun"
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "forge-std/=lib/forge-std/src/",
+    "poseidon-solidity/=lib/poseidon-solidity/",
+    "permit2/=lib/permit2/",
+]
+fs_permissions = [
+    { access = "read", path = "test/fixtures" },
+    { access = "read", path = "out" },
+    { access = "read", path = "script/config" },
+]
+ignored_warnings_from = ["lib"]
+
+# Default profile: NO SMT model checker. SMT is opt-in via
+# `FOUNDRY_PROFILE=smt forge build` so day-to-day `forge build` /
+# `forge test` is fast. Heavy SMT lives in `[profile.smt.model_checker]`
+# below and runs in CI's dedicated SMT job.
+
+[profile.smt.model_checker]
+contracts = { "src/MASP.sol" = ["MASP"], "src/AssetRegistry.sol" = ["AssetRegistry"], "src/CommitmentTree.sol" = ["CommitmentTree"], "src/FeeConfig.sol" = ["FeeConfig"], "src/NullifierSet.sol" = ["NullifierSet"], "src/swap/SwapWrapper.sol" = ["SwapWrapper"], "src/swap/UniV3Adapter.sol" = ["UniV3Adapter"] }
+engine = "all"
+timeout = 120000
+targets = ["assert", "underflow", "overflow", "divByZero", "constantCondition", "popEmptyArray", "outOfBounds", "balance", "assertions"]
+invariants = ["contract", "reentrancy"]
+show_unproved = true
+solvers = ["z3"]
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = true
+# snarkjs-generated verifier files; regenerated on circuit change.
+ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.sol"]
