@@ -19,8 +19,10 @@ import { ISwapAdapter } from "./ISwapAdapter.sol";
 ///   2. `ISwapAdapter.swap` — A→B, `actualOut >= minOut`.
 ///   3. `MASP.submitIntentAuthorized` — escrow B back via Permit2.
 ///
-/// SNARK `payer`/`recipient` bind wrapper as sole caller. `minOut`
-/// re-checked. Adapter allowlisted. `tokenOut` must be `prepareToken`'d.
+/// `pi_w.recipient` binds the wrapper as the sole unshield destination and
+/// `pi_w.payer` binds who may drive the swap. `minOut` is re-checked and,
+/// via `pulled`, ties the escrowed leg to the venue output. Adapter
+/// allowlisted. `tokenOut` must be `prepareToken`'d.
 contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     using SafeERC20 for IERC20;
 
@@ -48,7 +50,9 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     error InsufficientOut(uint256 actualOut, uint256 minOut);
     error LeftoverBalance(address token, uint256 amount);
     error MaspPullExceedsActualOut(uint256 actualOut, uint256 pulled);
+    error MaspPullBelowMinOut(uint256 pulled, uint256 minOut);
     error InsufficientWithdraw(uint256 received, uint256 amountIn);
+    error UnauthorizedSwapCaller(address caller, address authorized);
     error WrapperNotPayer();
     error WrapperNotRecipient();
     error WrapperNotRelayer();
@@ -169,6 +173,14 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         if (a.pi_w.recipient != address(this)) revert WrapperNotRecipient();
         if (a.pi_w.relayer != address(this)) revert WrapperNotRelayer();
         if (a.intent_d.payer != address(this)) revert WrapperNotPayer();
+        // `swap` is permissionless and `intent_d` — which names the output
+        // note's recipient and commitments — is plain calldata. Without this
+        // check anyone who sees `p_w`/`pi_w` in the mempool could replay them
+        // under their own intent and take the swap output. `payer` is a
+        // public input of the withdraw proof and is otherwise unconstrained
+        // on the spend path, so the prover uses it to name the one address
+        // allowed to drive this swap.
+        if (msg.sender != a.pi_w.payer) revert UnauthorizedSwapCaller(msg.sender, a.pi_w.payer);
     }
 
     function _executeAdapterSwap(SwapArgs calldata a, uint256 amountIn) private returns (uint256 actualOut) {
@@ -187,6 +199,12 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         intentId = POOL.submitIntentAuthorized(a.intent_d, a.aux_d);
         uint256 pulled = balanceBefore - outToken.balanceOf(address(this));
         if (pulled > actualOut) revert MaspPullExceedsActualOut(actualOut, pulled);
+        // Sandwiching the pull by `minOut` is what makes `intent_d` honest:
+        // it forces the escrowed leg to be denominated in `tokenOut` (a
+        // different asset pulls nothing) and to carry at least the output the
+        // caller demanded, instead of escrowing a token amount and routing
+        // the venue output to the treasury as dust.
+        if (pulled < a.minOut) revert MaspPullBelowMinOut(pulled, a.minOut);
 
         // Forward venue output above what MASP pulled (slippage cushion).
         dust = actualOut - pulled;

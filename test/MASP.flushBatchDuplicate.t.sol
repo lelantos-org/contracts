@@ -115,7 +115,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         token.approve(address(permit2), type(uint256).max);
 
         PubInputs.DepositIntent memory d;
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
         d.payer = payer;

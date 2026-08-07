@@ -74,7 +74,7 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         view
         returns (PubInputs.DepositIntent memory d)
     {
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
         d.payer = payerAddr;

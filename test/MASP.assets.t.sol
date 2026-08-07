@@ -97,7 +97,7 @@ contract MASPAssetsTest is MASPTestBase {
         masp.setAssetDisabled(ASSET_ID, true);
 
         PubInputs.DepositIntent memory d;
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = 100;
         d.payer = address(0xface);
@@ -115,7 +115,7 @@ contract MASPAssetsTest is MASPTestBase {
 
     function testUnknownAssetSubmitReverts() public {
         PubInputs.DepositIntent memory d;
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = 99;
         d.publicIn = 100;
         d.payer = address(0xface);

@@ -37,6 +37,11 @@ contract MockMASPSwap is IMASPSwap {
     /// Sequential id returned to the wrapper by `submitIntentAuthorized`.
     uint256 public nextIntentId;
 
+    /// Last intent seen by `submitIntentAuthorized`, for binding assertions.
+    address public lastIntentRecipient;
+    uint64 public lastIntentAssetId;
+    uint64 public lastIntentPublicIn;
+
     event MockWithdraw(address indexed recipient, address token, uint256 amount);
     event MockIntent(uint256 indexed id, address indexed payer, address token, uint256 pulled);
 
@@ -78,6 +83,9 @@ contract MockMASPSwap is IMASPSwap {
         returns (uint256 id)
     {
         require(msg.sender == d.payer, "MockMASPSwap: sender != payer");
+        lastIntentRecipient = d.recipient;
+        lastIntentAssetId = d.publicAssetId;
+        lastIntentPublicIn = d.publicIn;
         address token = assetToken[d.publicAssetId];
         uint256 scale = assetScale[d.publicAssetId];
         uint256 inAmt = uint256(d.publicIn) * scale;

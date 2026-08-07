@@ -7,19 +7,149 @@ import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { SnarkCompression } from "../src/SnarkCompression.sol";
 
+/// Exposes both compression paths across an external call boundary so the
+/// `calldata` fast paths get real calldata to read from.
+contract PubInputsHarness {
+    using PubInputs for PubInputs.TreeUpdateBatch;
+    using PubInputs for PubInputs.Transact;
+
+    function batch(PubInputs.TreeUpdateBatch calldata tpi) external pure returns (uint256[2] memory) {
+        return tpi.compress();
+    }
+
+    function batchRef(PubInputs.TreeUpdateBatch calldata tpi) external pure returns (uint256[2] memory) {
+        // Forces the calldata → memory decode, then runs the reference path.
+        PubInputs.TreeUpdateBatch memory m = tpi;
+        return PubInputs.compressRef(m);
+    }
+
+    function transact(PubInputs.Transact calldata pi, AuxValidation.Output[2] calldata aux)
+        external
+        pure
+        returns (uint256[2] memory)
+    {
+        return PubInputs.compress(pi, aux);
+    }
+
+    function transactRef(PubInputs.Transact calldata pi, AuxValidation.Output[2] calldata aux)
+        external
+        pure
+        returns (uint256[2] memory)
+    {
+        PubInputs.Transact memory m = pi;
+        return PubInputs.compressRef(m, aux);
+    }
+}
+
 /// Smoke + property tests for `PubInputs.compress`. Cross-checks the
 /// `TreeUpdateBatch` flatten order against the contract's manual
-/// PolyEval to lock in the on-chain ↔ circuit coefficient layout.
+/// PolyEval to lock in the on-chain ↔ circuit coefficient layout, and
+/// pins the calldata fast path to the memory reference path.
 contract PubInputsTest is Test {
-    using PubInputs for PubInputs.TreeUpdateBatch;
-
     uint256 internal constant R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
-    // --- TreeUpdateBatch ---------------------------------------------------
+    PubInputsHarness internal h;
 
-    function test_compressTreeUpdateBatch_layoutMatchesManualPolyEval() public pure {
+    function setUp() public {
+        h = new PubInputsHarness();
+    }
+
+    // --- fast path ≡ reference path ----------------------------------------
+
+    function test_batch_fastPathMatchesReference() public view {
+        PubInputs.TreeUpdateBatch memory tpi = _sampleBatch(3);
+        uint256[2] memory fast = h.batch(tpi);
+        uint256[2] memory ref = h.batchRef(tpi);
+        assertEq(fast[0], ref[0], "y mismatch");
+        assertEq(fast[1], ref[1], "z mismatch");
+    }
+
+    function testFuzz_batch_fastPathMatchesReference(
+        bytes32 ro,
+        bytes32 rn,
+        uint64 si,
+        uint64 ac,
+        uint256 cmSeed,
+        uint256 cvSeed,
+        uint64 asset0,
+        uint64 in0,
+        uint8 dep0
+    ) public view {
+        PubInputs.TreeUpdateBatch memory tpi;
+        tpi.oldRoot = bytes32(uint256(ro) % R);
+        tpi.newRoot = bytes32(uint256(rn) % R);
+        tpi.startIndex = si;
+        tpi.actualCount = uint64(bound(ac, 1, uint64(PubInputs.MAX_N_BATCH)));
+        for (uint256 i = 0; i < 2 * PubInputs.MAX_N_BATCH; i++) {
+            tpi.cms[i] = bytes32(uint256(keccak256(abi.encode(cmSeed, i))) % R);
+            tpi.cvDeps[i][0] = uint256(keccak256(abi.encode(cvSeed, i, uint256(0)))) % R;
+            tpi.cvDeps[i][1] = uint256(keccak256(abi.encode(cvSeed, i, uint256(1)))) % R;
+        }
+        tpi.pairAsset[0] = asset0;
+        tpi.pairPublicIn[0] = in0;
+        tpi.isDeposit[0] = dep0;
+        // Non-zero padding slots too — the SNARK must bind them.
+        tpi.pairAsset[PubInputs.MAX_N_BATCH - 1] = asset0;
+        tpi.isDeposit[PubInputs.MAX_N_BATCH - 1] = dep0;
+
+        uint256[2] memory fast = h.batch(tpi);
+        uint256[2] memory ref = h.batchRef(tpi);
+        assertEq(fast[0], ref[0], "y mismatch");
+        assertEq(fast[1], ref[1], "z mismatch");
+    }
+
+    function testFuzz_transact_fastPathMatchesReference(
+        bytes32 root,
+        bytes32 nf0,
+        bytes32 nf1,
+        bytes32 cm0,
+        bytes32 cm1,
+        uint64 assetId,
+        uint64 pin,
+        uint64 pout,
+        address recipient,
+        address relayer,
+        uint256 cvSeed
+    ) public view {
+        PubInputs.Transact memory pi;
+        pi.merkleRoot = bytes32(uint256(root) % R);
+        pi.nullifier[0] = bytes32(uint256(nf0) % R);
+        pi.nullifier[1] = bytes32(uint256(nf1) % R);
+        pi.outCm[0] = bytes32(uint256(cm0) % R);
+        pi.outCm[1] = bytes32(uint256(cm1) % R);
+        pi.publicAssetId = assetId;
+        pi.publicIn = pin;
+        pi.publicOut = pout;
+        pi.recipient = recipient;
+        pi.relayer = relayer;
+        pi.payer = address(uint160(uint256(keccak256(abi.encode(cvSeed)))));
+        pi.chainId = block.chainid;
+        for (uint256 i = 0; i < 2; i++) {
+            for (uint256 k = 0; k < 2; k++) {
+                pi.inCv[i][k] = uint256(keccak256(abi.encode(cvSeed, "in", i, k))) % R;
+                pi.outCv[i][k] = uint256(keccak256(abi.encode(cvSeed, "out", i, k))) % R;
+                pi.outCvDep[i][k] = uint256(keccak256(abi.encode(cvSeed, "dep", i, k))) % R;
+            }
+        }
+
+        AuxValidation.Output[2] memory aux;
+        for (uint256 j = 0; j < 2; j++) {
+            aux[j].clueRx = uint256(keccak256(abi.encode(cvSeed, "rx", j))) % R;
+            aux[j].clueRy = uint256(keccak256(abi.encode(cvSeed, "ry", j))) % R;
+            aux[j].ciphertext = abi.encodePacked(uint16(0x0123), bytes32(cvSeed));
+        }
+
+        uint256[2] memory fast = h.transact(pi, aux);
+        uint256[2] memory ref = h.transactRef(pi, aux);
+        assertEq(fast[0], ref[0], "y mismatch");
+        assertEq(fast[1], ref[1], "z mismatch");
+    }
+
+    // --- TreeUpdateBatch layout --------------------------------------------
+
+    function test_compressTreeUpdateBatch_layoutMatchesManualPolyEval() public view {
         PubInputs.TreeUpdateBatch memory tpi = _sampleBatch(1);
-        uint256[2] memory got = tpi.compress();
+        uint256[2] memory got = h.batch(tpi);
 
         // Re-derive (z, y) manually to lock the coefficient layout.
         // Layout: 4 header + 2*MAX_N cms + 2*(2*MAX_N) cvDeps + MAX_N pairAsset
@@ -59,32 +189,32 @@ contract PubInputsTest is Test {
         assertEq(got[1], z, "z mismatch");
     }
 
-    function test_compressTreeUpdateBatch_actualCountAffectsHash() public pure {
+    function test_compressTreeUpdateBatch_actualCountAffectsHash() public view {
         PubInputs.TreeUpdateBatch memory a = _sampleBatch(1);
         PubInputs.TreeUpdateBatch memory b = _sampleBatch(1);
         b.actualCount = 2;
         // Both have all-zero cms beyond first slot; only actualCount differs.
         // PolyEval should distinguish.
-        uint256[2] memory ca = a.compress();
-        uint256[2] memory cb = b.compress();
+        uint256[2] memory ca = h.batch(a);
+        uint256[2] memory cb = h.batch(b);
         assertTrue(ca[0] != cb[0] || ca[1] != cb[1], "actualCount must affect compress");
     }
 
-    function test_compressTreeUpdateBatch_paddingSlotAffectsHash() public pure {
+    function test_compressTreeUpdateBatch_paddingSlotAffectsHash() public view {
         // Two batches identical except cms[2*MAX_N_BATCH - 1] (padding slot).
         // Compress MUST reflect ALL coefficients including padding so the
         // SNARK can constrain padding == 0.
         PubInputs.TreeUpdateBatch memory a = _sampleBatch(1);
         PubInputs.TreeUpdateBatch memory b = _sampleBatch(1);
         b.cms[2 * PubInputs.MAX_N_BATCH - 1] = bytes32(uint256(0xdeadbeef));
-        uint256[2] memory ca = a.compress();
-        uint256[2] memory cb = b.compress();
+        uint256[2] memory ca = h.batch(a);
+        uint256[2] memory cb = h.batch(b);
         assertTrue(ca[0] != cb[0] || ca[1] != cb[1], "padding slot must bind");
     }
 
     function testFuzz_compressTreeUpdateBatch_zInField(bytes32 ro, bytes32 rn, uint64 si, uint64 ac, bytes32 c0)
         public
-        pure
+        view
     {
         // Clamp roots/cms into the BN254 scalar field — compress reverts with
         // CoefficientOutOfField when any coefficient is >= R.
@@ -98,8 +228,15 @@ contract PubInputsTest is Test {
         tpi.startIndex = si;
         tpi.actualCount = ac;
         tpi.cms[0] = c0;
-        uint256[2] memory got = tpi.compress();
+        uint256[2] memory got = h.batch(tpi);
         assertLt(got[1], R, "z must be in field");
+    }
+
+    function test_compressTreeUpdateBatch_outOfFieldReverts() public {
+        PubInputs.TreeUpdateBatch memory tpi = _sampleBatch(1);
+        tpi.cms[0] = bytes32(R);
+        vm.expectRevert(SnarkCompression.CoefficientOutOfField.selector);
+        h.batch(tpi);
     }
 
     // --- helpers -----------------------------------------------------------

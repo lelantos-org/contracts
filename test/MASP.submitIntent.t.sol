@@ -71,7 +71,7 @@ contract MASPSubmitIntentTest is Test {
     }
 
     function _intent(uint64 publicIn) internal view returns (PubInputs.DepositIntent memory d) {
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
         d.payer = payer;
@@ -183,7 +183,7 @@ contract MASPSubmitIntentTest is Test {
     function test_revert_BadChainId() public {
         _fund(100);
         PubInputs.DepositIntent memory d = _intent(100);
-        d.chainId = uint64(block.chainid + 1);
+        d.chainId = block.chainid + 1;
         vm.expectRevert(MASP.BadChainId.selector);
         masp.submitIntent(d, _sig(type(uint256).max), _aux());
     }

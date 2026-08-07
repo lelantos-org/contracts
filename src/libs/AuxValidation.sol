@@ -26,6 +26,7 @@ library AuxValidation {
     }
 
     error CiphertextTooLong();
+    error CiphertextTooShort();
     error BadClueBits();
     error OffCurvePoint();
     error LowOrderPoint();
@@ -37,7 +38,8 @@ library AuxValidation {
             Output calldata o = aux[j];
             bytes calldata ct = o.ciphertext;
             uint256 len = ct.length;
-            if (len < MIN_CIPHERTEXT_LEN || len > MAX_CIPHERTEXT_LEN) revert CiphertextTooLong();
+            if (len < MIN_CIPHERTEXT_LEN) revert CiphertextTooShort();
+            if (len > MAX_CIPHERTEXT_LEN) revert CiphertextTooLong();
             if (uint16(bytes2(ct[0:2])) & ~CLUE_BITS_MASK != 0) revert BadClueBits();
             if (!BabyJubJub.isOnCurve(o.clueRx, o.clueRy)) revert OffCurvePoint();
             if (BabyJubJub.isLowOrder(o.clueRx, o.clueRy)) revert LowOrderPoint();

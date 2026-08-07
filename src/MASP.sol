@@ -96,12 +96,10 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     /// Emitted on shield + unshield; skipped for pure transfers (in==out==0).
     event AssetMoved(uint64 indexed assetId, IERC20 indexed token, uint256 inAmount, uint256 outAmount);
 
-    /// "Note exists" signal for indexers tracking commitments only. Encrypted
-    /// payload is split into `NotePayload`.
-    event NotesCreated(bytes32 indexed cm0, bytes32 indexed cm1);
-
     /// Encrypted-note payload for spend flows (FMD clue, ephemeral pubkey,
-    /// ciphertext, Pedersen value commitments). Emitted with `NotesCreated`.
+    /// ciphertext, Pedersen value commitments). Doubles as the "note exists"
+    /// signal: `cm0`/`cm1` are indexed, so indexers tracking commitments only
+    /// can filter on the topics and ignore the data.
     event NotePayload(
         bytes32 indexed cm0,
         bytes32 indexed cm1,
@@ -123,7 +121,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
 
     /// Escrow-flow note signal. Carries the per-intent payload relayers need
     /// to assemble a `flushBatch`, including Pedersen value commitments
-    /// (cvDep0, cvDep1) and `rcvTotal = rcv_dep_0 + rcv_dep_1`. `NotesCreated`
+    /// (cvDep0, cvDep1) and `rcvTotal = rcv_dep_0 + rcv_dep_1`. `NotePayload`
     /// is NOT emitted on this path.
     event IntentEscrowed(
         uint256 indexed id,
@@ -247,8 +245,10 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         if (pi.publicOut == 0) revert MustHaveWithdraw();
         AssetEntry memory a = _preflight(pi, tpi, aux);
         _finalize(p, pi, tp, tpi, aux);
-        _unshieldLeg(a.token, pi.recipient, uint256(pi.publicOut) * a.scale, NativeBridge.None);
-        _emitFlow(a, pi, aux);
+        uint256 outAmt = uint256(pi.publicOut) * a.scale;
+        _unshieldLeg(a.token, pi.recipient, outAmt, NativeBridge.None);
+        emit AssetMoved(pi.publicAssetId, a.token, 0, outAmt);
+        _emitNotes(pi, aux);
     }
 
     /// Internal transfer between shielded notes. No token movement.
@@ -261,9 +261,13 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     ) external nonReentrant {
         if (pi.publicIn != 0) revert MustNotHaveDeposit();
         if (pi.publicOut != 0) revert MustNotHaveWithdraw();
-        AssetEntry memory a = _preflight(pi, tpi, aux);
+        _validateRequest(pi, tpi, aux);
+        // No tokens move, so neither `token` nor `scale` is needed — only the
+        // registry existence check. `_requireAssetKnown` touches slot 0 alone,
+        // skipping the cold SLOAD of the `scale` slot that `_getAsset` forces.
+        _requireAssetKnown(pi.publicAssetId);
         _finalize(p, pi, tp, tpi, aux);
-        _emitFlow(a, pi, aux);
+        _emitNotes(pi, aux);
     }
 
     /// Unshield to native coin: unwrap `outAmt - fee` and forward raw native;
@@ -281,8 +285,10 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         AssetEntry memory a = _preflight(pi, tpi, aux);
         if (address(a.token) != address(WRAPPED_NATIVE)) revert AssetNotWrappedNative();
         _finalize(p, pi, tp, tpi, aux);
-        _unshieldLeg(a.token, pi.recipient, uint256(pi.publicOut) * a.scale, NativeBridge.WithdrawUnwrap);
-        _emitFlow(a, pi, aux);
+        uint256 outAmt = uint256(pi.publicOut) * a.scale;
+        _unshieldLeg(a.token, pi.recipient, outAmt, NativeBridge.WithdrawUnwrap);
+        emit AssetMoved(pi.publicAssetId, a.token, 0, outAmt);
+        _emitNotes(pi, aux);
     }
 
     // ============== Escrow flow ==============================================
@@ -700,18 +706,13 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         }
     }
 
-    /// Spend-path event emit. `NotesCreated` always; `AssetMoved` only on
-    /// shield/unshield (skipped for pure transfer).
-    function _emitFlow(AssetEntry memory a, PubInputs.Transact calldata pi, AuxValidation.Output[2] calldata aux)
-        private
-    {
-        uint256 inAmt = uint256(pi.publicIn) * a.scale;
-        uint256 outAmt = uint256(pi.publicOut) * a.scale;
-        if (inAmt > 0 || outAmt > 0) emit AssetMoved(pi.publicAssetId, a.token, inAmt, outAmt);
-
+    /// Spend-path note emit, common to every entry point. `AssetMoved` is
+    /// emitted by the unshield paths themselves — every spend entry point
+    /// forces `publicIn == 0`, so the shield side of it is always zero and
+    /// `transfer` has nothing to report at all.
+    function _emitNotes(PubInputs.Transact calldata pi, AuxValidation.Output[2] calldata aux) private {
         AuxValidation.Output calldata a0 = aux[0];
         AuxValidation.Output calldata a1 = aux[1];
-        emit NotesCreated(pi.outCm[0], pi.outCm[1]);
         emit NotePayload(
             pi.outCm[0],
             pi.outCm[1],

@@ -77,15 +77,18 @@ contract SwapWrapperTest is Test {
         // Default-zero AuxValidation.Output. ciphertext bytes default to empty.
     }
 
-    function _piWithdraw(uint64 publicOut, address recipient) internal pure returns (PubInputs.Transact memory pi) {
+    function _piWithdraw(uint64 publicOut, address recipient) internal view returns (PubInputs.Transact memory pi) {
         pi.publicAssetId = ASSET_A;
         pi.publicOut = publicOut;
         pi.recipient = recipient;
         pi.relayer = recipient;
+        // Names the address authorized to drive the swap (see
+        // SwapWrapper.UnauthorizedSwapCaller). Tests call as themselves.
+        pi.payer = address(this);
     }
 
     function _intent(uint64 publicIn, address payer) internal view returns (PubInputs.DepositIntent memory d) {
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = ASSET_B;
         d.publicIn = publicIn;
         d.payer = payer;

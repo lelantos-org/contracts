@@ -97,13 +97,21 @@ contract MASPBoundariesTest is Test {
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, aux);
     }
 
-    function _expectCtTooLong(bytes memory c0, bytes memory c1) internal {
+    function _expectCtLenRevert(bytes memory c0, bytes memory c1, bytes4 expected) internal {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
         AuxValidation.Output[2] memory aux = _aux(c0, c1);
         vm.prank(relayer);
-        vm.expectRevert(AuxValidation.CiphertextTooLong.selector);
+        vm.expectRevert(expected);
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, aux);
+    }
+
+    function _expectCtTooShort(bytes memory c0, bytes memory c1) internal {
+        _expectCtLenRevert(c0, c1, AuxValidation.CiphertextTooShort.selector);
+    }
+
+    function _expectCtTooLong(bytes memory c0, bytes memory c1) internal {
+        _expectCtLenRevert(c0, c1, AuxValidation.CiphertextTooLong.selector);
     }
 
     function _expectBadClueBits(bytes memory c0, bytes memory c1) internal {
@@ -126,11 +134,11 @@ contract MASPBoundariesTest is Test {
     }
 
     function testCiphertextLenZeroRejected() public {
-        _expectCtTooLong(new bytes(0), _validCt(2));
+        _expectCtTooShort(new bytes(0), _validCt(2));
     }
 
     function testCiphertextLenOneRejected() public {
-        _expectCtTooLong(new bytes(1), _validCt(2));
+        _expectCtTooShort(new bytes(1), _validCt(2));
     }
 
     function testCiphertextLenMaxPlusOneRejected() public {

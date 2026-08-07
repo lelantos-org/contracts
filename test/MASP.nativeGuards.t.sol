@@ -145,7 +145,7 @@ contract MASPNativeGuardsTest is Test {
         view
         returns (PubInputs.DepositIntent memory d)
     {
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = assetId;
         d.publicIn = 1;
         d.payer = payer;

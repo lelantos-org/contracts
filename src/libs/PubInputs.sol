@@ -51,7 +51,11 @@ library PubInputs {
     /// Depositor-signed payload (bound via Permit2 witness). `cvDep*` are
     /// per-output Pedersen commitments. `rcvTotal = rcv_dep_0 + rcv_dep_1`.
     struct DepositIntent {
-        uint64 chainId;
+        /// Full-width to match `Transact.chainId`. Both ABI-encode to one
+        /// word, so the Permit2 witness preimage is unchanged; the wider type
+        /// also means dirty high bits fail the `!= block.chainid` gate instead
+        /// of being masked away before it.
+        uint256 chainId;
         uint64 publicAssetId;
         uint64 publicIn;
         address payer;
@@ -62,10 +66,131 @@ library PubInputs {
         uint256 rcvTotal;
     }
 
+    /// Coefficient-vector lengths. Both structs are fully static, so their
+    /// ABI calldata block is exactly the coefficient vector, word for word —
+    /// the calldata `compress` overloads below exploit that. `PubInputs.t.sol`
+    /// pins the layout equivalence against the `memory` reference paths.
+    uint256 private constant TRANSACT_COEFFS = 30;
+    uint256 private constant TRANSACT_CALLDATA_WORDS = 24;
+    uint256 private constant BATCH_COEFFS = 4 + 9 * MAX_N_BATCH;
+
+    uint256 private constant MASK_U64 = 0xffffffffffffffff;
+    uint256 private constant MASK_U160 = 0x00ffffffffffffffffffffffffffffffffffffffff;
+
+    // ================= calldata fast paths (hot) =============================
+
+    /// `compress(Transact)` straight off calldata. Words [0..23] are copied
+    /// verbatim; [24..29] are derived from `aux`. Avoids the calldata→memory
+    /// ABI decode of the struct and the `abi.encode` copy in `_finalize`.
+    function compress(Transact calldata pi, AuxValidation.Output[2] calldata aux)
+        internal
+        pure
+        returns (uint256[2] memory)
+    {
+        // Lay out `abi.encode(uint256[] memory)` in place: offset word, length
+        // word, then the coefficients. Hashing that region reproduces the
+        // reference preimage without a second copy.
+        uint256 n = TRANSACT_COEFFS;
+        uint256 copyLen = TRANSACT_CALLDATA_WORDS * 0x20;
+        uint256 head;
+        assembly ("memory-safe") {
+            head := mload(0x40)
+            mstore(head, 0x20)
+            mstore(add(head, 0x20), n)
+            calldatacopy(add(head, 0x40), pi, copyLen)
+            mstore(0x40, add(head, add(0x40, mul(n, 0x20))))
+        }
+        uint256 d = head + 0x40;
+
+        // Re-clean sub-word members: raw calldata may carry dirty high bits
+        // that member reads would have masked off.
+        assembly ("memory-safe") {
+            let p := add(d, 0xa0) // [5] publicAssetId, [6] publicIn, [7] publicOut
+            mstore(p, and(mload(p), MASK_U64))
+            p := add(p, 0x20)
+            mstore(p, and(mload(p), MASK_U64))
+            p := add(p, 0x20)
+            mstore(p, and(mload(p), MASK_U64))
+            p := add(d, 0x200) // [16] recipient
+            mstore(p, and(mload(p), MASK_U160))
+            p := add(d, 0x240) // [18] payer, [19] relayer
+            mstore(p, and(mload(p), MASK_U160))
+            p := add(p, 0x20)
+            mstore(p, and(mload(p), MASK_U160))
+        }
+
+        for (uint256 j; j < 2;) {
+            AuxValidation.Output calldata o = aux[j];
+            uint256 rx = o.clueRx;
+            uint256 ry = o.clueRy;
+            uint256 clueBits = uint256(uint16(bytes2(o.ciphertext[0:2])));
+            uint256 slot = d + (24 + 3 * j) * 0x20;
+            assembly ("memory-safe") {
+                mstore(slot, rx)
+                mstore(add(slot, 0x20), ry)
+                mstore(add(slot, 0x40), clueBits)
+            }
+            unchecked {
+                ++j;
+            }
+        }
+        return _finalizeRaw(head, n);
+    }
+
+    /// `compress(TreeUpdateBatch)` straight off calldata — the whole
+    /// coefficient vector is one `calldatacopy`.
+    function compress(TreeUpdateBatch calldata tpi) internal pure returns (uint256[2] memory) {
+        uint256 n = BATCH_COEFFS;
+        uint256 head;
+        assembly ("memory-safe") {
+            head := mload(0x40)
+            mstore(head, 0x20)
+            mstore(add(head, 0x20), n)
+            calldatacopy(add(head, 0x40), tpi, mul(n, 0x20))
+            mstore(0x40, add(head, add(0x40, mul(n, 0x20))))
+        }
+        uint256 d = head + 0x40;
+
+        // Re-clean sub-word members (see the Transact path).
+        // [4 + 6*MAX_N .. 4 + 8*MAX_N) = pairAsset ++ pairPublicIn (uint64),
+        // then [4 + 8*MAX_N .. n) = isDeposit (uint8).
+        uint256 u64Start = d + (4 + 6 * MAX_N_BATCH) * 0x20;
+        uint256 u64End = d + (4 + 8 * MAX_N_BATCH) * 0x20;
+        uint256 u8End = d + n * 0x20;
+        assembly ("memory-safe") {
+            // [2] startIndex, [3] actualCount
+            let p := add(d, 0x40)
+            mstore(p, and(mload(p), MASK_U64))
+            p := add(p, 0x20)
+            mstore(p, and(mload(p), MASK_U64))
+            for { p := u64Start } lt(p, u64End) { p := add(p, 0x20) } { mstore(p, and(mload(p), MASK_U64)) }
+            for { } lt(p, u8End) { p := add(p, 0x20) } { mstore(p, and(mload(p), 0xff)) }
+        }
+        return _finalizeRaw(head, n);
+    }
+
+    /// `head` points at an in-memory `abi.encode(uint256[] memory)` image:
+    /// `0x20 || n || coefficients`. Hash it for `z`, Horner-eval for `y`.
+    function _finalizeRaw(uint256 head, uint256 n) private pure returns (uint256[2] memory out) {
+        bytes32 h;
+        assembly ("memory-safe") {
+            h := keccak256(head, add(0x40, mul(n, 0x20)))
+        }
+        uint256 z = uint256(h) % SnarkCompression.R;
+        out[0] = SnarkCompression.evaluatePolyAtRaw(head + 0x40, n, z);
+        out[1] = z;
+    }
+
+    // ================= memory reference paths ================================
+    //
+    // Straight-line spec for the coefficient layout, kept independent of the
+    // calldata fast paths above. Not used on-chain; `PubInputs.t.sol` fuzzes
+    // `compressRef == compress` so the two can never drift apart silently.
+
     /// Pack `Transact` into 30 coeffs and derive `(y, z)`. Coeffs [20..23] =
     /// out_cv_dep, [24..29] = (clueRx, clueRy, clueBits) per output. Order
     /// matches `2x2.circom` PolyEval.
-    function compress(Transact memory pi, AuxValidation.Output[2] calldata aux)
+    function compressRef(Transact memory pi, AuxValidation.Output[2] calldata aux)
         internal
         pure
         returns (uint256[2] memory)
@@ -115,7 +240,7 @@ library PubInputs {
 
     /// Pack `TreeUpdateBatch` into `4 + 9*MAX_N_BATCH = 76` coeffs and
     /// derive `(y, z)`. Order matches `tree_update_batch.circom`.
-    function compress(TreeUpdateBatch memory tpi) internal pure returns (uint256[2] memory) {
+    function compressRef(TreeUpdateBatch memory tpi) internal pure returns (uint256[2] memory) {
         uint256 n = 4 + 9 * MAX_N_BATCH;
         // Allocate uninitialized — every slot [0..n-1] is written below.
         uint256[] memory s;
