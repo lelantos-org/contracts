@@ -41,10 +41,10 @@ contract PubInputsHarness {
     }
 }
 
-/// Smoke + property tests for `PubInputs.compress`. Cross-checks the
-/// `TreeUpdateBatch` flatten order against the contract's manual
-/// PolyEval to lock in the on-chain ↔ circuit coefficient layout, and
-/// pins the calldata fast path to the memory reference path.
+/// Smoke and property tests for `PubInputs.compress`. Cross-checks the
+/// `TreeUpdateBatch` flatten order against a manual PolyEval to fix the
+/// on-chain to circuit coefficient layout, and pins the calldata fast path to
+/// the memory reference path.
 contract PubInputsTest is Test {
     uint256 internal constant R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
@@ -88,7 +88,7 @@ contract PubInputsTest is Test {
         tpi.pairAsset[0] = asset0;
         tpi.pairPublicIn[0] = in0;
         tpi.isDeposit[0] = dep0;
-        // Non-zero padding slots too — the SNARK must bind them.
+        // Padding slots are non-zero as well; the SNARK must bind them.
         tpi.pairAsset[PubInputs.MAX_N_BATCH - 1] = asset0;
         tpi.isDeposit[PubInputs.MAX_N_BATCH - 1] = dep0;
 
@@ -193,8 +193,8 @@ contract PubInputsTest is Test {
         PubInputs.TreeUpdateBatch memory a = _sampleBatch(1);
         PubInputs.TreeUpdateBatch memory b = _sampleBatch(1);
         b.actualCount = 2;
-        // Both have all-zero cms beyond first slot; only actualCount differs.
-        // PolyEval should distinguish.
+        // Both have all-zero cms beyond the first slot; only actualCount
+        // differs. PolyEval must distinguish them.
         uint256[2] memory ca = h.batch(a);
         uint256[2] memory cb = h.batch(b);
         assertTrue(ca[0] != cb[0] || ca[1] != cb[1], "actualCount must affect compress");
@@ -216,8 +216,8 @@ contract PubInputsTest is Test {
         public
         view
     {
-        // Clamp roots/cms into the BN254 scalar field — compress reverts with
-        // CoefficientOutOfField when any coefficient is >= R.
+        // Clamp roots and cms into the BN254 scalar field; compress reverts
+        // with CoefficientOutOfField when any coefficient is >= R.
         ro = bytes32(uint256(ro) % R);
         rn = bytes32(uint256(rn) % R);
         c0 = bytes32(uint256(c0) % R);
@@ -249,6 +249,6 @@ contract PubInputsTest is Test {
         for (uint64 i = 0; i < 2 * ac; i++) {
             tpi.cms[i] = bytes32(uint256(0xc1 + i));
         }
-        // remaining cms[i] for i ≥ 2*ac stay zero
+        // Remaining cms[i] for i >= 2*ac stay zero.
     }
 }

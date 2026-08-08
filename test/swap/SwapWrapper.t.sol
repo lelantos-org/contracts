@@ -16,10 +16,8 @@ import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockSwapAdapter } from "./mocks/MockSwapAdapter.sol";
 import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
 
-/// Unit tests for `SwapWrapper`. Uses a stub MASP and stub adapter so
-/// the orchestration logic can be exercised without real Groth16 proofs.
-/// Real-MASP integration is covered by an upcoming end-to-end test
-/// against deployed contracts on a fork.
+/// Unit tests for `SwapWrapper`. Uses a stub MASP and stub adapter so the
+/// orchestration logic can be exercised without real Groth16 proofs.
 contract SwapWrapperTest is Test {
     uint64 internal constant ASSET_A = 1;
     uint64 internal constant ASSET_B = 2;
@@ -345,12 +343,11 @@ contract SwapWrapperTest is Test {
         wrapper.swap(a);
     }
 
-    /// MASP fee can push the pulled total above what the venue delivered.
-    /// Before the balance-delta refactor this would silently leave the
-    /// wrapper short of `dust` to forward; the explicit guard fails fast
-    /// instead. Pre-mints exactly `fee` extra B to the wrapper so the
-    /// Permit2 pull itself does not run out of balance — only the wrapper-
-    /// level invariant `pulled <= actualOut` is being exercised here.
+    /// The MASP fee can push the pulled total above what the venue delivered,
+    /// leaving the wrapper short of `dust` to forward. The explicit guard
+    /// rejects this. Pre-mints exactly `fee` extra B to the wrapper so the
+    /// Permit2 pull does not run out of balance, isolating the wrapper-level
+    /// invariant `pulled <= actualOut`.
     function testRevertWhenMaspPullExceedsActualOut() public {
         uint256 grossIn = 1_000 * SCALE;
         uint256 netIn = grossIn - (grossIn * FEE_BPS) / 10_000;
@@ -362,8 +359,8 @@ contract SwapWrapperTest is Test {
 
         _mintToPool(grossIn);
         _fundAdapter(actualOut);
-        // Make sure Permit2 has the balance to satisfy `minOut + fee` so
-        // we exercise the wrapper guard rather than a Permit2 underflow.
+        // Give Permit2 the balance to satisfy `minOut + fee` so the wrapper
+        // guard is exercised rather than a Permit2 underflow.
         tokenB.mint(address(wrapper), expectedFeeOnB);
         pool.setNextWithdrawAmount(grossIn);
         adapter.setNextActualOut(actualOut);

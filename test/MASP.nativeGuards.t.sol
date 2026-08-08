@@ -176,6 +176,75 @@ contract MASPNativeGuardsTest is Test {
         maspWithWeth.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
     }
 
+    // --- withdrawNative success path ---------------------------------------
+
+    /// Fund the pool with WETH so an unshield has backing, and accept any
+    /// proof. The guard tests above all revert before `_finalize`, so the
+    /// unwrap and native-send legs are only reached from here.
+    function _armWethWithdraw(uint256 wethAmount) internal {
+        vm.deal(address(this), wethAmount);
+        weth.deposit{ value: wethAmount }();
+        weth.transfer(address(maspWithWeth), wethAmount);
+        vm.mockCall(
+            address(maspWithWeth.VERIFIER()), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true)
+        );
+        vm.mockCall(
+            address(maspWithWeth.TREE_UPDATE_BATCH_VERIFIER()),
+            abi.encodeWithSelector(IVerifier.verifyProof.selector),
+            abi.encode(true)
+        );
+    }
+
+    function test_withdrawNative_unwrapsAndSendsNative() public {
+        uint64 publicOut = 7;
+        uint256 gross = uint256(publicOut) * SCALE;
+        uint256 fee = (gross * FEE_BPS) / 10_000;
+        uint256 net = gross - fee;
+        _armWethWithdraw(gross);
+
+        PubInputs.Transact memory pi = _validTransactPi(maspWithWeth, ASSET_WETH);
+        pi.publicOut = publicOut;
+        PubInputs.TreeUpdateBatch memory tpi = _validTpi(maspWithWeth, pi);
+
+        uint64 countBefore = maspWithWeth.committedCount();
+
+        vm.expectEmit(true, true, true, true, address(maspWithWeth));
+        emit MASP.AssetMoved(ASSET_WETH, IERC20(address(weth)), 0, gross);
+
+        vm.prank(RELAYER);
+        maspWithWeth.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+
+        // Recipient is paid in raw native, not WETH.
+        assertEq(RECIPIENT.balance, net, "recipient native");
+        assertEq(weth.balanceOf(RECIPIENT), 0, "recipient holds no WETH");
+        // The fee stays wrapped and is claimable via `sweep`.
+        assertEq(maspWithWeth.accruedFee(IERC20(address(weth))), fee, "accrued fee in WETH");
+        assertEq(weth.balanceOf(address(maspWithWeth)), fee, "pool retains only the fee");
+        assertEq(address(maspWithWeth).balance, 0, "pool holds no leftover native");
+        assertEq(maspWithWeth.committedCount(), countBefore + 2, "two leaves committed");
+        assertTrue(maspWithWeth.spent(pi.nullifier[0]), "nf0 spent");
+        assertTrue(maspWithWeth.spent(pi.nullifier[1]), "nf1 spent");
+    }
+
+    /// The unwrap leg pushes raw native to `pi.recipient`; a recipient that
+    /// rejects it must surface `NativeTransferFailed` rather than stranding
+    /// the funds.
+    function test_withdrawNative_recipientRejectsNative() public {
+        uint64 publicOut = 7;
+        uint256 gross = uint256(publicOut) * SCALE;
+        _armWethWithdraw(gross);
+
+        address rejector = address(new NativeRejector());
+        PubInputs.Transact memory pi = _validTransactPi(maspWithWeth, ASSET_WETH);
+        pi.publicOut = publicOut;
+        pi.recipient = rejector;
+        PubInputs.TreeUpdateBatch memory tpi = _validTpi(maspWithWeth, pi);
+
+        vm.prank(RELAYER);
+        vm.expectRevert(MASP.NativeTransferFailed.selector);
+        maspWithWeth.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+    }
+
     // --- submitIntentNative guards -----------------------------------------
 
     function test_submitIntentNative_WrappedNativeNotConfigured() public {
@@ -226,8 +295,16 @@ contract MASPNativeGuardsTest is Test {
 
         vm.deal(PAYER, correct);
         vm.prank(PAYER);
-        // MockWETH9 accepts any deposit value → should succeed to _finalizeIntent.
+        // MockWETH9 accepts any deposit value, so the call reaches
+        // _finalizeIntent.
         uint256 id = maspWithWeth.submitIntentNative{ value: correct }(d, _validAux());
         assertEq(id, 0);
+    }
+}
+
+/// Rejects raw native, forcing the `_sendNative` low-level call to fail.
+contract NativeRejector {
+    receive() external payable {
+        revert("no native");
     }
 }

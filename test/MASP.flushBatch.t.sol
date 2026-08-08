@@ -20,9 +20,8 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
 
 /// `flushBatch` contract-level coverage. SNARK verification is mocked via
-/// `vm.mockCall` so we isolate the storage/event/sentinel logic from
-/// circuit-side correctness (which is its own concern, tested with real
-/// fixtures).
+/// `vm.mockCall`, isolating the storage/event/sentinel logic from circuit-side
+/// correctness, which is covered separately with real fixtures.
 contract MASPFlushBatchTest is Test {
     uint64 internal constant ASSET_ID = 1;
     uint64 internal constant ASSET_ID_ALT = 2;
@@ -456,8 +455,9 @@ contract MASPFlushBatchTest is Test {
         _mockSnark(true);
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
 
-        // Replay with refreshed tpi (root + startIndex aligned with post-flush state)
-        // hits the sentinel; without the refresh we'd revert on StaleOldRoot first.
+        // Replay with a refreshed tpi (root + startIndex aligned to post-flush
+        // state) reaches the sentinel; without the refresh StaleOldRoot fires
+        // first.
         PubInputs.TreeUpdateBatch memory tpi2 = _tpi(1, cms);
         _fillPairPI(tpi2, a, p);
         vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id));

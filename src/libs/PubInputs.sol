@@ -51,10 +51,10 @@ library PubInputs {
     /// Depositor-signed payload (bound via Permit2 witness). `cvDep*` are
     /// per-output Pedersen commitments. `rcvTotal = rcv_dep_0 + rcv_dep_1`.
     struct DepositIntent {
-        /// Full-width to match `Transact.chainId`. Both ABI-encode to one
-        /// word, so the Permit2 witness preimage is unchanged; the wider type
-        /// also means dirty high bits fail the `!= block.chainid` gate instead
-        /// of being masked away before it.
+        /// Full-width, matching `Transact.chainId`. Both encode to a single
+        /// ABI word, so the Permit2 witness preimage is identical either way.
+        /// The wider type also causes dirty high bits to fail the
+        /// `!= block.chainid` gate rather than being masked before it.
         uint256 chainId;
         uint64 publicAssetId;
         uint64 publicIn;
@@ -66,10 +66,10 @@ library PubInputs {
         uint256 rcvTotal;
     }
 
-    /// Coefficient-vector lengths. Both structs are fully static, so their
-    /// ABI calldata block is exactly the coefficient vector, word for word —
-    /// the calldata `compress` overloads below exploit that. `PubInputs.t.sol`
-    /// pins the layout equivalence against the `memory` reference paths.
+    /// Coefficient-vector lengths. Both structs are fully static, so their ABI
+    /// calldata block is word-for-word identical to the coefficient vector,
+    /// which the calldata `compress` overloads rely on. `PubInputs.t.sol` pins
+    /// that equivalence against the `memory` reference paths.
     uint256 private constant TRANSACT_COEFFS = 30;
     uint256 private constant TRANSACT_CALLDATA_WORDS = 24;
     uint256 private constant BATCH_COEFFS = 4 + 9 * MAX_N_BATCH;
@@ -79,9 +79,10 @@ library PubInputs {
 
     // ================= calldata fast paths (hot) =============================
 
-    /// `compress(Transact)` straight off calldata. Words [0..23] are copied
-    /// verbatim; [24..29] are derived from `aux`. Avoids the calldata→memory
-    /// ABI decode of the struct and the `abi.encode` copy in `_finalize`.
+    /// `compress(Transact)` read directly from calldata. Words [0..23] are
+    /// copied verbatim; [24..29] are derived from `aux`. Avoids the
+    /// calldata-to-memory ABI decode of the struct and the `abi.encode` copy
+    /// performed by `_finalize`.
     function compress(Transact calldata pi, AuxValidation.Output[2] calldata aux)
         internal
         pure
@@ -103,7 +104,7 @@ library PubInputs {
         uint256 d = head + 0x40;
 
         // Re-clean sub-word members: raw calldata may carry dirty high bits
-        // that member reads would have masked off.
+        // that a typed member read would have masked off.
         assembly ("memory-safe") {
             let p := add(d, 0xa0) // [5] publicAssetId, [6] publicIn, [7] publicOut
             mstore(p, and(mload(p), MASK_U64))
@@ -137,8 +138,8 @@ library PubInputs {
         return _finalizeRaw(head, n);
     }
 
-    /// `compress(TreeUpdateBatch)` straight off calldata — the whole
-    /// coefficient vector is one `calldatacopy`.
+    /// `compress(TreeUpdateBatch)` read directly from calldata. The entire
+    /// coefficient vector is a single `calldatacopy`.
     function compress(TreeUpdateBatch calldata tpi) internal pure returns (uint256[2] memory) {
         uint256 n = BATCH_COEFFS;
         uint256 head;
@@ -183,9 +184,9 @@ library PubInputs {
 
     // ================= memory reference paths ================================
     //
-    // Straight-line spec for the coefficient layout, kept independent of the
-    // calldata fast paths above. Not used on-chain; `PubInputs.t.sol` fuzzes
-    // `compressRef == compress` so the two can never drift apart silently.
+    // Straight-line specification of the coefficient layout, implemented
+    // independently of the calldata fast paths above. Not used on-chain;
+    // `PubInputs.t.sol` fuzzes `compressRef == compress` to detect drift.
 
     /// Pack `Transact` into 30 coeffs and derive `(y, z)`. Coeffs [20..23] =
     /// out_cv_dep, [24..29] = (clueRx, clueRy, clueBits) per output. Order

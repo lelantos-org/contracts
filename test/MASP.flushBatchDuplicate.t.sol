@@ -213,7 +213,7 @@ contract MASPFlushBatchDuplicateTest is Test {
 
         vm.roll(block.number + masp.cancelDelay());
 
-        // Both should fail.
+        // Both must revert.
         uint256[2] memory zCv;
         vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id0));
         masp.cancelIntent(id0, _pre[id0].publicIn, _pre[id0].cm0, _pre[id0].cm1, zCv, zCv, ASSET_ID, FEE_BPS, payer, 0);

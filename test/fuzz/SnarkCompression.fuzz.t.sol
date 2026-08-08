@@ -86,9 +86,8 @@ contract SnarkCompressionFuzzTest is Test {
         assertEq(SnarkCompression.evaluatePolyAt(c, zr), expected);
     }
 
-    /// Differing coefficients with non-zero leading-difference index should
-    /// disagree at z=0 trivially (constant term differs) — quick sanity that
-    /// distinct polynomials are not collapsed by the eval.
+    /// Coefficient vectors differing in the constant term disagree at z=0,
+    /// confirming distinct polynomials are not collapsed by the evaluation.
     function testFuzz_DistinctConstantTermsDiffer(uint256[4] memory rawA, uint256 deltaConst) public pure {
         deltaConst = bound(deltaConst, 1, R - 1);
         uint256[] memory a = _toReduced(rawA);

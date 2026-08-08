@@ -9,8 +9,8 @@ import { IMASPSwap } from "../../../src/swap/IMASPSwap.sol";
 import { PubInputs } from "../../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../../src/libs/AuxValidation.sol";
 
-/// Test-only MASP stub. Skips Groth16 verification and tree mutation;
-/// reproduces just the side-effects `SwapWrapper` orchestrates against:
+/// Test-only MASP stub. Skips Groth16 verification and tree mutation,
+/// reproducing only the side effects `SwapWrapper` orchestrates against:
 ///   - `withdraw` pushes `nextWithdrawAmount` NET of the configured `feeBps`
 ///     (mirroring MASP's unshield fee) to `pi.recipient` (= the wrapper).
 ///   - `submitIntentAuthorized` pulls `intent.publicIn * scale + fee` of

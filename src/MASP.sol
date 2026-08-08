@@ -97,9 +97,9 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     event AssetMoved(uint64 indexed assetId, IERC20 indexed token, uint256 inAmount, uint256 outAmount);
 
     /// Encrypted-note payload for spend flows (FMD clue, ephemeral pubkey,
-    /// ciphertext, Pedersen value commitments). Doubles as the "note exists"
-    /// signal: `cm0`/`cm1` are indexed, so indexers tracking commitments only
-    /// can filter on the topics and ignore the data.
+    /// ciphertext, Pedersen value commitments). `cm0`/`cm1` are indexed, so
+    /// this also serves as the note-creation signal for indexers that track
+    /// commitments only and ignore the data.
     event NotePayload(
         bytes32 indexed cm0,
         bytes32 indexed cm1,
@@ -192,7 +192,6 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     error MsgValueMismatch();
     error AmountOverflowsAllowance();
     error CvDepMismatch();
-    error PublicInMismatch();
     error BadDepositMode();
     /// Caller-supplied digest preimage mismatch on flush/cancel.
     error DigestMismatch(uint256 id);
@@ -262,9 +261,10 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         if (pi.publicIn != 0) revert MustNotHaveDeposit();
         if (pi.publicOut != 0) revert MustNotHaveWithdraw();
         _validateRequest(pi, tpi, aux);
-        // No tokens move, so neither `token` nor `scale` is needed — only the
-        // registry existence check. `_requireAssetKnown` touches slot 0 alone,
-        // skipping the cold SLOAD of the `scale` slot that `_getAsset` forces.
+        // No tokens move, so neither `token` nor `scale` is read; only the
+        // registry existence check applies. `_requireAssetKnown` touches slot 0
+        // alone, avoiding the cold SLOAD of the `scale` slot that `_getAsset`
+        // performs.
         _requireAssetKnown(pi.publicAssetId);
         _finalize(p, pi, tp, tpi, aux);
         _emitNotes(pi, aux);
@@ -707,9 +707,9 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     }
 
     /// Spend-path note emit, common to every entry point. `AssetMoved` is
-    /// emitted by the unshield paths themselves — every spend entry point
-    /// forces `publicIn == 0`, so the shield side of it is always zero and
-    /// `transfer` has nothing to report at all.
+    /// emitted by the unshield paths themselves: every spend entry point forces
+    /// `publicIn == 0`, so its shield side is always zero and `transfer` moves
+    /// no tokens at all.
     function _emitNotes(PubInputs.Transact calldata pi, AuxValidation.Output[2] calldata aux) private {
         AuxValidation.Output calldata a0 = aux[0];
         AuxValidation.Output calldata a1 = aux[1];

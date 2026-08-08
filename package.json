@@ -2,6 +2,7 @@
   "name": "masp-contracts-fixtures",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "TypeScript fixture generators for MASP Foundry tests. Consumes @lelantos/sdk for crypto + witness building, snarkjs for Groth16 proving against ../circuits/build artifacts.",
   "scripts": {

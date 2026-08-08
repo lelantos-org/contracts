@@ -40,7 +40,7 @@ contract MASPDeployTest is Test {
             tokens[i] = IERC20(address(new MockERC20(names[i], symbols[i], uint8(decs[i]))));
         }
 
-        // Predict MASP address so we can scope expectEmit to its events.
+        // Predict the MASP address to scope `expectEmit` to its events.
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
 
         for (uint256 i; i < n; ++i) {

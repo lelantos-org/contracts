@@ -17,9 +17,9 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 /// Any of those getting out of sync silently breaks signature scoping (a
 /// leaked Permit2 sig could be re-targeted at a different intent payload).
 contract MASPPermit2WitnessTest is MASPTestBase {
-    /// Permit2 sub-type-string format requires the witness type appended
-    /// just before `TokenPermissions(...)` so Permit2's domain hash absorbs
-    /// the witness shape. See permit2/src/libraries/PermitHash.sol.
+    /// The Permit2 sub-type-string format requires the witness type appended
+    /// immediately before `TokenPermissions(...)` so Permit2's domain hash
+    /// absorbs the witness shape. See permit2/src/libraries/PermitHash.sol.
     string internal constant PERMIT2_TOKEN_PERMISSIONS_SUFFIX = "TokenPermissions(address token,uint256 amount)";
     string internal constant WITNESS_INNER_TYPE = "MASPDeposit(bytes32 piHash)";
     string internal constant WITNESS_ARG_PREFIX = "MASPDeposit witness)";
@@ -56,8 +56,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     /// Golden-hash regression: pins the `keccak256(abi.encode(d, aux))`
     /// derivation against a fixed `(DepositIntent, aux)` fixture. If the
     /// `DepositIntent` struct layout or the `AuxValidation.Output` shape
-    /// changes, the digest drifts and this test breaks loudly — exactly
-    /// the regression we want.
+    /// changes, the digest drifts and this test fails.
     ///
     /// Update the constant only when the wallet signature shape intentionally
     /// changes; coordinate with off-chain signers + circuits.

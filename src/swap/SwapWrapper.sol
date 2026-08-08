@@ -19,10 +19,11 @@ import { ISwapAdapter } from "./ISwapAdapter.sol";
 ///   2. `ISwapAdapter.swap` — A→B, `actualOut >= minOut`.
 ///   3. `MASP.submitIntentAuthorized` — escrow B back via Permit2.
 ///
-/// `pi_w.recipient` binds the wrapper as the sole unshield destination and
-/// `pi_w.payer` binds who may drive the swap. `minOut` is re-checked and,
-/// via `pulled`, ties the escrowed leg to the venue output. Adapter
-/// allowlisted. `tokenOut` must be `prepareToken`'d.
+/// `pi_w.recipient` binds the wrapper as the sole unshield destination;
+/// `pi_w.payer` binds the address permitted to drive the swap. `minOut` is
+/// re-checked and bounds the measured MASP pull, tying the escrowed leg to the
+/// venue output. The adapter must be allowlisted and `tokenOut` must have been
+/// passed to `prepareToken`.
 contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     using SafeERC20 for IERC20;
 
@@ -68,9 +69,10 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         // --- tokens + amounts ---
         address tokenIn;
         address tokenOut;
-        // Floor on tokenIn received from `MASP.withdraw` (net of its fee). The
-        // wrapper swaps the measured receipt, not this value; reverts
-        // `InsufficientWithdraw` if less arrives. Set to `publicOut*scale - fee`.
+        // Floor on tokenIn received from `MASP.withdraw`, net of its fee; set
+        // to `publicOut * scale - fee`. The swap uses the balance-delta
+        // receipt, not this value. Reverts `InsufficientWithdraw` if less
+        // arrives.
         uint256 amountIn;
         uint256 minOut; // must equal intent_d.publicIn * scale
         // --- venue ---
@@ -139,12 +141,13 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         uint256 inBefore = inToken.balanceOf(address(this));
         uint256 outBefore = outToken.balanceOf(address(this));
 
-        // Leg 1: unshield A. Measure the receipt (MASP nets a withdraw fee).
+        // Leg 1: unshield A. The receipt is measured by balance delta because
+        // MASP nets a withdraw fee.
         POOL.withdraw(a.p_w, a.pi_w, a.tp_w, a.tpi_w, a.aux_w);
         uint256 received = inToken.balanceOf(address(this)) - inBefore;
         if (received < a.amountIn) revert InsufficientWithdraw(received, a.amountIn);
 
-        // Leg 2a: hand the measured A to the adapter; receive `actualOut` of B.
+        // Leg 2a: forward the received A to the adapter; receive `actualOut` of B.
         actualOut = _executeAdapterSwap(a, received);
 
         // Leg 2b: escrow into MASP via Permit2 + settle dust.
@@ -173,13 +176,13 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         if (a.pi_w.recipient != address(this)) revert WrapperNotRecipient();
         if (a.pi_w.relayer != address(this)) revert WrapperNotRelayer();
         if (a.intent_d.payer != address(this)) revert WrapperNotPayer();
-        // `swap` is permissionless and `intent_d` — which names the output
-        // note's recipient and commitments — is plain calldata. Without this
-        // check anyone who sees `p_w`/`pi_w` in the mempool could replay them
-        // under their own intent and take the swap output. `payer` is a
-        // public input of the withdraw proof and is otherwise unconstrained
-        // on the spend path, so the prover uses it to name the one address
-        // allowed to drive this swap.
+        // `swap` is permissionless and `intent_d`, which names the output
+        // note's commitments and recipient, is unauthenticated calldata.
+        // Without this check the withdraw proof can be replayed from the
+        // mempool under a different intent, redirecting the swap output.
+        // `payer` is a public input of the withdraw proof and carries no other
+        // constraint on the spend path, so it names the address permitted to
+        // drive the swap.
         if (msg.sender != a.pi_w.payer) revert UnauthorizedSwapCaller(msg.sender, a.pi_w.payer);
     }
 
@@ -189,9 +192,10 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         if (actualOut < a.minOut) revert InsufficientOut(actualOut, a.minOut);
     }
 
-    /// Escrow B via Permit2; forward dust to treasury. Pull measured via
-    /// balance delta (fee total unknown to wrapper). The leftover invariant
-    /// is enforced by the caller against pre-swap balance snapshots.
+    /// Escrow B via Permit2; forward dust to treasury. The pull is measured by
+    /// balance delta because the fee total is not visible to the wrapper. The
+    /// leftover invariant is enforced by the caller against the pre-swap
+    /// balance snapshots.
     function _escrowAndSettle(SwapArgs calldata a, uint256 actualOut) private returns (uint256 intentId, uint256 dust) {
         IERC20 outToken = IERC20(a.tokenOut);
 
@@ -199,11 +203,10 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         intentId = POOL.submitIntentAuthorized(a.intent_d, a.aux_d);
         uint256 pulled = balanceBefore - outToken.balanceOf(address(this));
         if (pulled > actualOut) revert MaspPullExceedsActualOut(actualOut, pulled);
-        // Sandwiching the pull by `minOut` is what makes `intent_d` honest:
-        // it forces the escrowed leg to be denominated in `tokenOut` (a
-        // different asset pulls nothing) and to carry at least the output the
-        // caller demanded, instead of escrowing a token amount and routing
-        // the venue output to the treasury as dust.
+        // Bounding the pull below by `minOut` constrains `intent_d`: the
+        // escrowed leg must be denominated in `tokenOut`, since any other
+        // asset yields a zero delta, and must carry at least the requested
+        // output rather than routing it to the treasury as dust.
         if (pulled < a.minOut) revert MaspPullBelowMinOut(pulled, a.minOut);
 
         // Forward venue output above what MASP pulled (slippage cushion).

@@ -22,25 +22,20 @@ library SnarkCompression {
     }
 
     /// Horner eval over `length` words of ascending-order coefficients laid
-    /// out contiguously from `dataPtr`. Identical semantics to
-    /// `evaluatePolyAt`, without the per-element bounds check — callers pass
-    /// a region they own. Reverts `CoefficientOutOfField` if any word >= R.
+    /// out contiguously from `dataPtr`. Semantics match `evaluatePolyAt`
+    /// without the per-element bounds check; the caller owns the region.
+    /// Reverts `CoefficientOutOfField` if any word is >= R.
     function evaluatePolyAtRaw(uint256 dataPtr, uint256 length, uint256 z) internal pure returns (uint256 y) {
-        // Reverting in-place beats a flag + post-loop branch, and unrolling by
-        // two halves the loop-control overhead — which dominates, since
-        // MULMOD/ADDMOD are only 8 gas each. Both live coefficient vectors
-        // (30 and 76) are even, so the scalar step below never runs on-chain.
+        // Loop control dominates: MULMOD and ADDMOD are 8 gas each, so the
+        // body is unrolled by two and the field check reverts in place rather
+        // than setting a flag for a post-loop branch. Both on-chain
+        // coefficient vectors (30 and 76) are even.
         uint256 errSel = uint256(uint32(CoefficientOutOfField.selector)) << 224;
         assembly ("memory-safe") {
             let r := R
             let p := add(dataPtr, shl(5, length))
-            // Odd length: fold the top coefficient on its own, then the
-            // remaining span is a whole number of pairs.
-            //
-            // Skipping leading (highest-degree) zero coefficients would also
-            // be exact — Horner starts at y = 0 and 0*z + 0 = 0 — but it
-            // measured only ~220 gas on a real spend while costing gas on
-            // dense batches, so the scan is not worth the extra branch.
+            // Odd length: fold the top coefficient alone so the remaining span
+            // is a whole number of pairs.
             if and(length, 1) {
                 p := sub(p, 0x20)
                 let c := mload(p)
@@ -54,8 +49,8 @@ library SnarkCompression {
                 p := sub(p, 0x40)
                 let hi := mload(add(p, 0x20))
                 let lo := mload(p)
-                // Range-check both before either is folded in, so a bad
-                // coefficient can never influence the result.
+                // Both are range-checked before either is folded in, so an
+                // out-of-field coefficient cannot influence the result.
                 if iszero(and(lt(hi, r), lt(lo, r))) {
                     mstore(0x00, errSel)
                     revert(0x00, 0x04)

@@ -144,9 +144,9 @@ contract MaspFlowHandler is Test {
 
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
-        // SNARK is mocked so the new-root value can be anything; we DO
-        // bind to (current count, current root) so the handler ghost stays
-        // honest about `committedCount` advancement.
+        // The SNARK is mocked, so the new-root value is arbitrary. It is
+        // still bound to (current count, current root) so the handler ghost
+        // tracks `committedCount` advancement accurately.
         tpi.newRoot = keccak256(abi.encode("flushed", id, block.number));
         tpi.startIndex = masp.committedCount();
         tpi.actualCount = 1;

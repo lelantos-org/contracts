@@ -63,9 +63,9 @@ contract BabyJubJubNegTest is Test {
     //  result is meaningless — callers gate on isOnCurve first)
     // -----------------------------------------------------------------------
 
-    /// Verifies that points passing both `isOnCurve` and `isLowOrder` form a
-    /// valid gate: (0,0) is off-curve so should not be classified as low-order
-    /// (the check is caller-responsible, but guarding against obvious misuse).
+    /// (0,0) is off-curve and must not be classified as low-order. Ordering
+    /// the two checks is the caller's responsibility; this guards against
+    /// misuse.
     function testZeroZero_isNotOnCurve() public pure {
         assertFalse(BabyJubJub.isOnCurve(0, 0));
     }
@@ -138,14 +138,14 @@ contract BabyJubJubNegTest is Test {
         y = y % P;
         if (!BabyJubJub.isOnCurve(x, y)) return;
         if (!BabyJubJub.isLowOrder(x, y)) return;
-        // Reached here: on-curve AND low-order. With overwhelming probability
-        // this is one of the 8 small-subgroup points. We assert the x=0 cases
-        // that are analytically known; other small-subgroup points would
-        // require off-chain computation to enumerate.
+        // On-curve and low-order. With overwhelming probability this is one
+        // of the 8 small-subgroup points. Only the analytically known x=0
+        // cases are asserted; enumerating the rest requires off-chain
+        // computation.
         bool isIdentity = (x == 0 && y == 1);
         bool isOrderTwo = (x == 0 && y == P - 1);
-        // If it's neither of the x=0 cases, it's another small-subgroup point —
-        // still low-order, so just confirm the flag is consistent.
+        // Any other small-subgroup point is still low-order, so the check
+        // below only confirms the flag is consistent.
         if (isIdentity || isOrderTwo) {
             assertTrue(BabyJubJub.isLowOrder(x, y));
         }

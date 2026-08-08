@@ -122,9 +122,8 @@ contract SwapWrapperNegTest is Test {
         SwapWrapper.SwapArgs memory a = _args({
             amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, intentIn: 990, deadline: block.timestamp
         });
-        // At exactly block.timestamp the swap should not revert on deadline check.
-        // It will fail later (no pool funds), but NOT with SwapExpired.
-        // We just verify deadline=now is not treated as expired.
+        // At exactly block.timestamp the deadline check must pass. The call
+        // still fails later (no pool funds), but not with SwapExpired.
         vm.expectRevert(); // some other error, not SwapExpired
         wrapper.swap(a);
         // Verify it was not a SwapExpired revert by checking a clearly past deadline.

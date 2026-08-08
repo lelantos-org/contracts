@@ -17,9 +17,9 @@ import { MockSwapAdapter } from "./mocks/MockSwapAdapter.sol";
 import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
 
 /// Binding between the leg-1 withdraw proof and the leg-2 deposit intent.
-/// `swap` is permissionless, so `pi_w.payer` must name the only address
-/// allowed to drive the swap, and the measured MASP pull must sandwich
-/// `minOut` so `intent_d` cannot name a different asset or a token amount.
+/// `swap` is permissionless, so `pi_w.payer` names the sole address permitted
+/// to drive the swap, and the measured MASP pull is bounded below by `minOut`
+/// so `intent_d` cannot name a different asset or a smaller amount.
 contract SwapWrapperBindingTest is Test {
     uint64 internal constant ASSET_A = 1;
     uint64 internal constant ASSET_B = 2;
@@ -74,8 +74,8 @@ contract SwapWrapperBindingTest is Test {
     {
         a.p_w = _emptyProof();
         a.tp_w = _emptyProof();
-        // The victim's proof. It can only name the wrapper — there is no
-        // public input that could name whoever calls `swap`.
+        // The originating proof names only the wrapper; no public input
+        // identifies the caller of `swap`.
         a.pi_w.publicAssetId = ASSET_A;
         a.pi_w.publicOut = uint64(grossIn / SCALE);
         a.pi_w.recipient = address(wrapper);
@@ -99,8 +99,8 @@ contract SwapWrapperBindingTest is Test {
         a.minOut = minOut;
     }
 
-    /// A front-runner copies the victim's withdraw proof verbatim and swaps
-    /// in its own `intent_d`. The output note must not be redirectable.
+    /// Replaying the withdraw proof verbatim under a substituted `intent_d`
+    /// must not redirect the output note.
     function test_revert_frontRunnerCannotRedirectOutputNote() public {
         uint256 grossIn = 1_000 * SCALE;
         uint64 minPublicIn = 990;
@@ -113,7 +113,7 @@ contract SwapWrapperBindingTest is Test {
         adapter.setNextActualOut(actualOut);
 
         SwapWrapper.SwapArgs memory a = _baseArgs(grossIn, minOut, minPublicIn);
-        // Same proof, same PIs. Only the unbound deposit intent changes.
+        // Identical proof and public inputs; only the deposit intent changes.
         a.intent_d.recipient = ATTACKER_NOTE;
         a.intent_d.outCm[0] = bytes32(uint256(0xA77ACC));
         a.intent_d.outCm[1] = bytes32(uint256(0xA77ACD));
@@ -146,8 +146,8 @@ contract SwapWrapperBindingTest is Test {
         assertEq(pool.lastIntentAssetId(), ASSET_B, "escrowed asset");
     }
 
-    /// `intent_d.publicAssetId` must denominate the pull in `tokenOut`; a
-    /// third token the wrapper happens to hold must not be escrowable.
+    /// `intent_d.publicAssetId` must denominate the pull in `tokenOut`. Any
+    /// other token held by the wrapper must not be escrowable.
     function test_revert_intentAssetMustMatchTokenOut() public {
         uint256 grossIn = 1_000 * SCALE;
         uint64 minPublicIn = 990;
@@ -156,7 +156,7 @@ contract SwapWrapperBindingTest is Test {
 
         tokenA.mint(address(pool), grossIn);
         tokenB.mint(address(adapter), actualOut);
-        // Somebody donated token C to the wrapper.
+        // Token C was donated to the wrapper.
         tokenC.mint(address(wrapper), 5_000 * SCALE);
         pool.setNextWithdrawAmount(grossIn);
         adapter.setNextActualOut(actualOut);
@@ -172,8 +172,8 @@ contract SwapWrapperBindingTest is Test {
         assertEq(tokenC.balanceOf(address(wrapper)), 5_000 * SCALE, "donated token C must stay put");
     }
 
-    /// Escrowing less than the caller demanded (routing the rest to the
-    /// treasury as "dust") must not be possible either.
+    /// Escrowing less than the requested output, routing the remainder to the
+    /// treasury as dust, must be rejected.
     function test_revert_intentCannotUnderEscrowOutput() public {
         uint256 grossIn = 1_000 * SCALE;
         uint64 minPublicIn = 990;
@@ -186,7 +186,7 @@ contract SwapWrapperBindingTest is Test {
         adapter.setNextActualOut(actualOut);
 
         SwapWrapper.SwapArgs memory a = _baseArgs(grossIn, minOut, minPublicIn);
-        a.intent_d.publicIn = 1; // escrow ~nothing, dump the rest to treasury
+        a.intent_d.publicIn = 1; // escrow a negligible amount, rest to treasury
 
         uint256 pulled = uint256(1) * SCALE;
         pulled += (pulled * FEE_BPS) / 10_000;

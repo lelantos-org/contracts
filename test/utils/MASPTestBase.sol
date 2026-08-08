@@ -26,7 +26,7 @@ import { FixtureLoader } from "./FixtureLoader.sol";
 /// against the fixture asset id so the bundled proof verifies end-to-end.
 ///
 /// The fixture payer is a hard-coded address (`0xface`) with no associated
-/// private key. To produce Permit2 signatures from that payer we install a
+/// private key. Permit2 signatures from that payer are produced by etching a
 /// permissive ERC-1271 stub at the payer address via `vm.etch`; Permit2's
 /// `SignatureVerification` routes verification through `IERC1271` when the
 /// signer has code, so the stub causes any signature bytes to be accepted.
@@ -74,14 +74,14 @@ contract MASPTestBase is Test {
             OWNER
         );
 
-        // Default test addresses; subclasses override if they need fixture-
-        // bound payer/relayer addresses for the legacy Transact PI shape.
+        // Default test addresses; subclasses override to supply fixture-bound
+        // payer/relayer addresses for the legacy Transact PI shape.
         payer = address(0xface);
         relayer = address(0xcafe);
     }
 
-    /// Etch the permissive ERC-1271 stub bytecode at `target`. Idempotent —
-    /// re-etching at the same address is a no-op for our purposes.
+    /// Etch the permissive ERC-1271 stub bytecode at `target`. Idempotent:
+    /// re-etching at the same address has no effect.
     function _installPermissiveERC1271(address target) internal {
         MockERC1271 stub = new MockERC1271();
         vm.etch(target, address(stub).code);

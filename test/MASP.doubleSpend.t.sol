@@ -18,7 +18,7 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 
 /// Cross-transaction double-spend regression.
 ///
-/// Both Groth16 verifiers are mocked to accept any proof so we isolate the
+/// Both Groth16 verifiers are mocked to accept any proof, isolating the
 /// nullifier-bitmap logic from circuit correctness. The first `withdraw` call
 /// succeeds and marks both nullifiers spent; the second call with the same
 /// nullifiers reverts with `DoubleSpend` inside `_consumeNullifier`.

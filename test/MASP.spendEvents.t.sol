@@ -16,8 +16,9 @@ import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 
 /// Spend-path event emission. `AssetMoved` is emitted by the unshield entry
-/// points themselves (not from the shared note-emit helper), so pin which
-/// paths emit it and with what arguments. Both verifiers are mocked to accept.
+/// points rather than the shared note-emit helper, so these tests fix which
+/// paths emit it and with which arguments. Both verifiers are mocked to
+/// accept.
 contract MASPSpendEventsTest is Test {
     uint64 internal constant ASSET_ID = 1;
     uint256 internal constant SCALE = 1e10;
@@ -123,8 +124,8 @@ contract MASPSpendEventsTest is Test {
         tpi.cms[1] = pi.outCm[1];
     }
 
-    /// `withdraw` reports the GROSS unshielded amount (before the pool fee)
-    /// as `outAmount`, and zero on the shield side.
+    /// `withdraw` reports the gross unshielded amount, before the pool fee, as
+    /// `outAmount`, and zero on the shield side.
     function test_withdraw_emitsAssetMovedGrossOut() public {
         (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(7);
         uint256 gross = 7 * SCALE;
@@ -135,14 +136,13 @@ contract MASPSpendEventsTest is Test {
         vm.prank(RELAYER);
         masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
 
-        // Recipient got gross minus fee; the fee accrued to the pool.
+        // The recipient receives gross minus fee; the fee accrues to the pool.
         uint256 fee = (gross * FEE_BPS) / 10_000;
         assertEq(token.balanceOf(RECIPIENT), gross - fee, "recipient net");
         assertEq(masp.accruedFee(IERC20(address(token))), fee, "accrued fee");
     }
 
-    /// `transfer` moves no tokens, so `AssetMoved` must NOT be emitted —
-    /// only the note payload.
+    /// `transfer` moves no tokens, so only the note payload is emitted.
     function test_transfer_emitsNoAssetMoved() public {
         (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(0);
 
@@ -163,8 +163,8 @@ contract MASPSpendEventsTest is Test {
         assertEq(notePayloads, 1, "exactly one NotePayload");
     }
 
-    /// `NotePayload` carries the commitments as indexed topics, so it is the
-    /// sole "note exists" signal for commitment-only indexers.
+    /// `NotePayload` carries the commitments as indexed topics, serving as the
+    /// note-creation signal for commitment-only indexers.
     function test_spend_notePayloadIndexesCommitments() public {
         (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(0);
 

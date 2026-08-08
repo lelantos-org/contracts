@@ -11,8 +11,8 @@ import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 
 /// Test-only subclass exposing internal entrypoints so invariant handlers can
 /// drive state transitions without going through the SNARK pipeline. The full
-/// `transact` flow needs valid Groth16 proofs which we cannot synthesize in
-/// Foundry alone — this harness lets us still exercise the storage layer.
+/// `transact` flow requires valid Groth16 proofs, which Foundry cannot
+/// synthesize; this harness exercises the storage layer in isolation.
 contract MASPHarness is MASP {
     constructor(IVerifier v, IVerifier tub, ISignatureTransfer permit2_, address treasury_, address owner_)
         MASP(

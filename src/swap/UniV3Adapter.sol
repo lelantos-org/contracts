@@ -36,8 +36,8 @@ interface ISwapRouter02 {
 /// of `tokenIn` here; this contract approves the router, executes, and
 /// resets the approval.
 ///
-/// `swap` is restricted to the pinned `WRAPPER`; otherwise any caller could
-/// drain donated tokens by routing output to themselves.
+/// `swap` is restricted to the pinned `WRAPPER`. Without that restriction any
+/// caller could drain donated tokens by routing the output to themselves.
 contract UniV3Adapter is ISwapAdapter {
     using SafeERC20 for IERC20;
 
@@ -61,8 +61,9 @@ contract UniV3Adapter is ISwapAdapter {
         WRAPPER = wrapper;
     }
 
-    /// Approve, swap, reset. Trailing reset to 0 keeps USDT-style tokens
-    /// (reject non-zero→non-zero approval) working next swap.
+    /// Approve, swap, reset. The trailing reset to 0 keeps tokens that reject
+    /// non-zero to non-zero approval changes, such as USDT, usable on the next
+    /// swap.
     function swap(
         address tokenIn,
         address tokenOut,

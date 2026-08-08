@@ -20,9 +20,9 @@ import { CommitmentTree } from "../src/CommitmentTree.sol";
 /// Root ring-buffer eviction: a spend using a root that has been evicted from
 /// the 64-slot ring buffer must revert with `UnknownRoot`.
 ///
-/// `ROOT_HISTORY = 64`. After 64 root advances, slot 0 is overwritten and the
-/// genesis root is no longer `isKnownRoot`. Any subsequent spend that presents
-/// the genesis root as `pi.merkleRoot` must fail.
+/// `ROOT_HISTORY = 64`. After 64 root advances slot 0 is overwritten and the
+/// genesis root ceases to be `isKnownRoot`, so any subsequent spend presenting
+/// it as `pi.merkleRoot` must fail.
 contract MASPStaleRootTest is Test {
     address internal constant RELAYER = address(0xCA11);
     address internal constant PAYER = address(0xBEEF);
