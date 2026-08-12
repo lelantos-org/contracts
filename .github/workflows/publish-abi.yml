@@ -1,0 +1,63 @@
+name: publish-abi
+
+# Tag-driven release of `@lelantos-org/contracts` (ABIs only).
+# Bump packages/abi/package.json, then push a tag `abi-v<version>`:
+#   git tag abi-v0.1.0 && git push origin abi-v0.1.0
+# ABIs are regenerated from source here — never from a committed artifact —
+# so a published tarball always matches the contracts at that tag.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: [self-hosted]
+    timeout-minutes: 30
+    permissions:
+      packages: write
+    env:
+      FOUNDRY_PROFILE: default
+      FOUNDRY_VERSION: stable
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://npm.pkg.github.com
+          scope: "@lelantos-org"
+          always-auth: true
+
+      - name: Confirm tag version matches package.json
+        run: |
+          tag="${GITHUB_REF#refs/tags/abi-v}"
+          pkg=$(node -p "require('./packages/abi/package.json').version")
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag abi-v$tag does not match packages/abi/package.json version $pkg"
+            exit 1
+          fi
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - uses: extractions/setup-just@v2
+
+      - name: Build contracts + generate ABIs
+        run: just abi
+
+      - name: Publish to GitHub Packages
+        run: npm publish
+        working-directory: packages/abi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

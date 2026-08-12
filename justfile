@@ -29,6 +29,18 @@ size:
 clean:
     forge clean
 
+# === abi package ===
+
+# Regenerate + typecheck packages/abi (@lelantos-org/contracts) from the
+# current Foundry build. Sources under packages/abi/{src,json,dist} are
+# generated and git-ignored.
+abi: build
+    cd packages/abi && npm ci && npm run build
+
+# Pack the ABI package without publishing — inspect the tarball contents.
+abi-pack: abi
+    cd packages/abi && npm pack --dry-run
+
 install:
     forge install
 

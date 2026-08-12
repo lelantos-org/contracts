@@ -53,6 +53,24 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just size
 
+  abi:
+    name: ABI package
+    runs-on: [self-hosted]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: extractions/setup-just@v2
+      # Catches a contract rename/removal breaking the generator before a
+      # release tag does.
+      - run: just abi
+
   slither:
     name: Slither
     runs-on: [self-hosted]
