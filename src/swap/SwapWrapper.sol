@@ -86,10 +86,12 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         PubInputs.Transact pi_w;
         IMASPSwap.Proof tp_w;
         PubInputs.TreeUpdateBatch tpi_w;
-        AuxValidation.Output[2] aux_w;
+        AuxValidation.Output[3] aux_w;
         // --- leg 2: escrow B into MASP via Permit2 AllowanceTransfer ---
         PubInputs.DepositIntent intent_d;
-        AuxValidation.Output[2] aux_d;
+        // One leaf per deposit, hence one aux payload (leg 1's withdraw keeps
+        // two, one per transact output).
+        AuxValidation.Output aux_d;
     }
 
     constructor(IMASPSwap pool, IAllowanceTransfer permit2, address owner_, address treasury_) Ownable(owner_) {
@@ -155,10 +157,13 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         (intentId, dust) = _escrowAndSettle(a, actualOut);
 
         // Donation-tolerant leftover invariant: pre-swap balances untouched.
+        // The drift is reported as a magnitude; a balance below the snapshot
+        // is as much a violation as one above, and subtracting in a fixed
+        // direction would underflow before the error could be raised.
         uint256 leftIn = inToken.balanceOf(address(this));
-        if (leftIn != inBefore) revert LeftoverBalance(a.tokenIn, leftIn - inBefore);
+        if (leftIn != inBefore) revert LeftoverBalance(a.tokenIn, _absDiff(leftIn, inBefore));
         uint256 leftOut = outToken.balanceOf(address(this));
-        if (leftOut != outBefore) revert LeftoverBalance(a.tokenOut, leftOut - outBefore);
+        if (leftOut != outBefore) revert LeftoverBalance(a.tokenOut, _absDiff(leftOut, outBefore));
 
         emit SwapExecuted(a.adapter, a.tokenIn, a.tokenOut, received, actualOut, dust, intentId);
     }
@@ -184,6 +189,10 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         // constraint on the spend path, so it names the address permitted to
         // drive the swap.
         if (msg.sender != a.pi_w.payer) revert UnauthorizedSwapCaller(msg.sender, a.pi_w.payer);
+    }
+
+    function _absDiff(uint256 x, uint256 y) private pure returns (uint256) {
+        return x > y ? x - y : y - x;
     }
 
     function _executeAdapterSwap(SwapArgs calldata a, uint256 amountIn) private returns (uint256 actualOut) {

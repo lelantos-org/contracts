@@ -52,7 +52,7 @@ contract MASPStaleRootTest is Test {
         );
     }
 
-    function _validAux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _validAux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -63,6 +63,11 @@ contract MASPStaleRootTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
@@ -96,17 +101,20 @@ contract MASPStaleRootTest is Test {
         pi.relayer = RELAYER;
         pi.nullifier[0] = bytes32(uint256(1));
         pi.nullifier[1] = bytes32(uint256(2));
+        pi.nullifier[2] = bytes32(uint256(3));
         pi.outCm[0] = bytes32(uint256(3));
         pi.outCm[1] = bytes32(uint256(4));
+        pi.outCm[2] = bytes32(uint256(5));
         pi.merkleRoot = genesis; // evicted — no longer known
 
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
         tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 1;
+        tpi.actualCount = 3;
         tpi.cms[0] = pi.outCm[0];
         tpi.cms[1] = pi.outCm[1];
+        tpi.cms[2] = pi.outCm[2];
 
         vm.prank(RELAYER);
         vm.expectRevert(MASP.UnknownRoot.selector);

@@ -75,7 +75,7 @@ contract MASPDoubleSpendTest is Test {
 
     // --- helpers -----------------------------------------------------------
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -86,6 +86,11 @@ contract MASPDoubleSpendTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
@@ -108,17 +113,20 @@ contract MASPDoubleSpendTest is Test {
         pi.relayer = RELAYER;
         pi.nullifier[0] = bytes32(uint256(0x1111));
         pi.nullifier[1] = bytes32(uint256(0x2222));
+        pi.nullifier[2] = bytes32(uint256(0x2223));
         pi.outCm[0] = bytes32(uint256(0x3333));
         pi.outCm[1] = bytes32(uint256(0x4444));
+        pi.outCm[2] = bytes32(uint256(0x4445));
         pi.merkleRoot = merkleRoot;
         // outCvDep: all zero
 
         tpi.oldRoot = oldRoot;
         tpi.newRoot = newRoot;
         tpi.startIndex = startIndex;
-        tpi.actualCount = 1;
+        tpi.actualCount = 3;
         tpi.cms[0] = pi.outCm[0];
         tpi.cms[1] = pi.outCm[1];
+        tpi.cms[2] = pi.outCm[2];
         // isDeposit[0] = 0 (spend); cvDeps zero
     }
 
@@ -141,7 +149,7 @@ contract MASPDoubleSpendTest is Test {
         // Second withdraw — same nullifiers, updated root context.
         bytes32 newRoot1 = tpi1.newRoot;
         (PubInputs.Transact memory pi2, PubInputs.TreeUpdateBatch memory tpi2) =
-            _makeWithdraw(newRoot1, newRoot1, 2, bytes32(uint256(0xDEAD)));
+            _makeWithdraw(newRoot1, newRoot1, 3, bytes32(uint256(0xDEAD)));
 
         vm.prank(RELAYER);
         vm.expectRevert(NullifierSet.DoubleSpend.selector);
@@ -188,17 +196,23 @@ contract MASPDoubleSpendTest is Test {
         pi.relayer = RELAYER;
         pi.nullifier[0] = nf0;
         pi.nullifier[1] = nf1;
+        // Distinct from both fuzzed values so the pairwise check targets the
+        // nf0/nf1 relationship under test. Reduced into the field for the same
+        // reason nf0/nf1 are.
+        pi.nullifier[2] = bytes32(uint256(keccak256(abi.encode(nf0, nf1))) % R);
         pi.outCm[0] = bytes32(uint256(0x3333));
         pi.outCm[1] = bytes32(uint256(0x4444));
+        pi.outCm[2] = bytes32(uint256(0x4445));
         pi.merkleRoot = genesis;
 
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = genesis;
         tpi.newRoot = bytes32(uint256(0xABCD));
         tpi.startIndex = 0;
-        tpi.actualCount = 1;
+        tpi.actualCount = 3;
         tpi.cms[0] = pi.outCm[0];
         tpi.cms[1] = pi.outCm[1];
+        tpi.cms[2] = pi.outCm[2];
 
         vm.prank(RELAYER);
         masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
@@ -208,7 +222,7 @@ contract MASPDoubleSpendTest is Test {
         pi.merkleRoot = newRoot1;
         tpi.oldRoot = newRoot1;
         tpi.newRoot = bytes32(uint256(0xDEAD));
-        tpi.startIndex = 2;
+        tpi.startIndex = 3;
 
         vm.prank(RELAYER);
         vm.expectRevert(NullifierSet.DoubleSpend.selector);

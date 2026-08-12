@@ -23,7 +23,7 @@ contract PubInputsHarness {
         return PubInputs.compressRef(m);
     }
 
-    function transact(PubInputs.Transact calldata pi, AuxValidation.Output[2] calldata aux)
+    function transact(PubInputs.Transact calldata pi, AuxValidation.Output[3] calldata aux)
         external
         pure
         returns (uint256[2] memory)
@@ -31,7 +31,7 @@ contract PubInputsHarness {
         return PubInputs.compress(pi, aux);
     }
 
-    function transactRef(PubInputs.Transact calldata pi, AuxValidation.Output[2] calldata aux)
+    function transactRef(PubInputs.Transact calldata pi, AuxValidation.Output[3] calldata aux)
         external
         pure
         returns (uint256[2] memory)
@@ -79,18 +79,18 @@ contract PubInputsTest is Test {
         tpi.oldRoot = bytes32(uint256(ro) % R);
         tpi.newRoot = bytes32(uint256(rn) % R);
         tpi.startIndex = si;
-        tpi.actualCount = uint64(bound(ac, 1, uint64(PubInputs.MAX_N_BATCH)));
-        for (uint256 i = 0; i < 2 * PubInputs.MAX_N_BATCH; i++) {
+        tpi.actualCount = uint64(bound(ac, 1, uint64(PubInputs.MAX_L_BATCH)));
+        for (uint256 i = 0; i < PubInputs.MAX_L_BATCH; i++) {
             tpi.cms[i] = bytes32(uint256(keccak256(abi.encode(cmSeed, i))) % R);
             tpi.cvDeps[i][0] = uint256(keccak256(abi.encode(cvSeed, i, uint256(0)))) % R;
             tpi.cvDeps[i][1] = uint256(keccak256(abi.encode(cvSeed, i, uint256(1)))) % R;
         }
-        tpi.pairAsset[0] = asset0;
-        tpi.pairPublicIn[0] = in0;
+        tpi.leafAsset[0] = asset0;
+        tpi.leafPublicIn[0] = in0;
         tpi.isDeposit[0] = dep0;
         // Padding slots are non-zero as well; the SNARK must bind them.
-        tpi.pairAsset[PubInputs.MAX_N_BATCH - 1] = asset0;
-        tpi.isDeposit[PubInputs.MAX_N_BATCH - 1] = dep0;
+        tpi.leafAsset[PubInputs.MAX_L_BATCH - 1] = asset0;
+        tpi.isDeposit[PubInputs.MAX_L_BATCH - 1] = dep0;
 
         uint256[2] memory fast = h.batch(tpi);
         uint256[2] memory ref = h.batchRef(tpi);
@@ -132,8 +132,8 @@ contract PubInputsTest is Test {
             }
         }
 
-        AuxValidation.Output[2] memory aux;
-        for (uint256 j = 0; j < 2; j++) {
+        AuxValidation.Output[3] memory aux;
+        for (uint256 j = 0; j < 3; j++) {
             aux[j].clueRx = uint256(keccak256(abi.encode(cvSeed, "rx", j))) % R;
             aux[j].clueRy = uint256(keccak256(abi.encode(cvSeed, "ry", j))) % R;
             aux[j].ciphertext = abi.encodePacked(uint16(0x0123), bytes32(cvSeed));
@@ -152,30 +152,30 @@ contract PubInputsTest is Test {
         uint256[2] memory got = h.batch(tpi);
 
         // Re-derive (z, y) manually to lock the coefficient layout.
-        // Layout: 4 header + 2*MAX_N cms + 2*(2*MAX_N) cvDeps + MAX_N pairAsset
-        //       + MAX_N pairPublicIn + MAX_N isDeposit  =  4 + 9*MAX_N
-        uint256 N = PubInputs.MAX_N_BATCH;
-        uint256[] memory s = new uint256[](4 + 9 * N);
+        // Layout: 4 header + MAX_L cms + 2*MAX_L cvDeps + MAX_L leafAsset
+        //       + MAX_L leafPublicIn + MAX_L isDeposit  =  4 + 6*MAX_L
+        uint256 N = PubInputs.MAX_L_BATCH;
+        uint256[] memory s = new uint256[](4 + 6 * N);
         s[0] = uint256(tpi.oldRoot);
         s[1] = uint256(tpi.newRoot);
         s[2] = uint256(tpi.startIndex);
         s[3] = uint256(tpi.actualCount);
         uint256 off = 4;
-        for (uint256 i = 0; i < 2 * N; i++) {
-            s[off + i] = uint256(tpi.cms[i]);
-        }
-        off += 2 * N;
-        for (uint256 i = 0; i < 2 * N; i++) {
-            s[off + 2 * i + 0] = tpi.cvDeps[i][0];
-            s[off + 2 * i + 1] = tpi.cvDeps[i][1];
-        }
-        off += 4 * N;
         for (uint256 i = 0; i < N; i++) {
-            s[off + i] = uint256(tpi.pairAsset[i]);
+            s[off + i] = uint256(tpi.cms[i]);
         }
         off += N;
         for (uint256 i = 0; i < N; i++) {
-            s[off + i] = uint256(tpi.pairPublicIn[i]);
+            s[off + 2 * i + 0] = tpi.cvDeps[i][0];
+            s[off + 2 * i + 1] = tpi.cvDeps[i][1];
+        }
+        off += 2 * N;
+        for (uint256 i = 0; i < N; i++) {
+            s[off + i] = uint256(tpi.leafAsset[i]);
+        }
+        off += N;
+        for (uint256 i = 0; i < N; i++) {
+            s[off + i] = uint256(tpi.leafPublicIn[i]);
         }
         off += N;
         for (uint256 i = 0; i < N; i++) {
@@ -201,12 +201,12 @@ contract PubInputsTest is Test {
     }
 
     function test_compressTreeUpdateBatch_paddingSlotAffectsHash() public view {
-        // Two batches identical except cms[2*MAX_N_BATCH - 1] (padding slot).
+        // Two batches identical except cms[2*MAX_L_BATCH - 1] (padding slot).
         // Compress MUST reflect ALL coefficients including padding so the
         // SNARK can constrain padding == 0.
         PubInputs.TreeUpdateBatch memory a = _sampleBatch(1);
         PubInputs.TreeUpdateBatch memory b = _sampleBatch(1);
-        b.cms[2 * PubInputs.MAX_N_BATCH - 1] = bytes32(uint256(0xdeadbeef));
+        b.cms[PubInputs.MAX_L_BATCH - 1] = bytes32(uint256(0xdeadbeef));
         uint256[2] memory ca = h.batch(a);
         uint256[2] memory cb = h.batch(b);
         assertTrue(ca[0] != cb[0] || ca[1] != cb[1], "padding slot must bind");
@@ -221,7 +221,7 @@ contract PubInputsTest is Test {
         ro = bytes32(uint256(ro) % R);
         rn = bytes32(uint256(rn) % R);
         c0 = bytes32(uint256(c0) % R);
-        ac = uint64(bound(ac, 1, uint64(PubInputs.MAX_N_BATCH)));
+        ac = uint64(bound(ac, 1, uint64(PubInputs.MAX_L_BATCH)));
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = ro;
         tpi.newRoot = rn;

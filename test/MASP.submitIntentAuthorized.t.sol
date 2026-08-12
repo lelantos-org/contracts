@@ -79,11 +79,10 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         d.publicIn = publicIn;
         d.payer = payerAddr;
         d.recipient = recipient;
-        d.outCm[0] = keccak256(abi.encode(salt, "cm0"));
-        d.outCm[1] = keccak256(abi.encode(salt, "cm1"));
+        d.outCm = keccak256(abi.encode(salt, "cm0"));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -94,6 +93,11 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function _total(uint64 publicIn) internal pure returns (uint256) {
@@ -116,10 +120,10 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         uint256 poolBefore = token.balanceOf(address(masp));
 
         PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
 
         vm.prank(payer);
-        uint256 id = masp.submitIntentAuthorized(d, aux);
+        uint256 id = masp.submitIntentAuthorized(d, aux[0]);
 
         assertEq(id, 0);
         assertEq(token.balanceOf(address(masp)) - poolBefore, total, "MASP credited");
@@ -133,17 +137,17 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         token.mint(payer, total * 4);
         _setupAllowance(uint160(total * 3), uint48(block.timestamp + 1 days));
 
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
         for (uint256 i; i < 3; i++) {
             PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(i + 1));
             vm.prank(payer);
-            masp.submitIntentAuthorized(d, aux);
+            masp.submitIntentAuthorized(d, aux[0]);
         }
         // Fourth deposit must fail: allowance exhausted.
         PubInputs.DepositIntent memory d4 = _intent(amt, payer, bytes32(uint256(4)));
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.InsufficientAllowance.selector, uint160(0)));
-        masp.submitIntentAuthorized(d4, aux);
+        masp.submitIntentAuthorized(d4, aux[0]);
     }
 
     function testRevertsOnExpiredAllowance() public {
@@ -156,11 +160,11 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         vm.warp(uint256(exp) + 1);
 
         PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(exp)));
-        masp.submitIntentAuthorized(d, aux);
+        masp.submitIntentAuthorized(d, aux[0]);
     }
 
     function testRevertsOnSenderNotPayer() public {
@@ -170,12 +174,12 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         _setupAllowance(uint160(total), uint48(block.timestamp + 1 days));
 
         PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
 
         address other = address(0xdead);
         vm.prank(other);
         vm.expectRevert(MASP.PayerNotSender.selector);
-        masp.submitIntentAuthorized(d, aux);
+        masp.submitIntentAuthorized(d, aux[0]);
     }
 
     function testRevertsOnNoAllowance() public {
@@ -184,10 +188,10 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         // No allowance set up.
 
         PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(0)));
-        masp.submitIntentAuthorized(d, aux);
+        masp.submitIntentAuthorized(d, aux[0]);
     }
 }

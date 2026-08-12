@@ -87,8 +87,7 @@ contract SwapWrapperBindingTest is Test {
         a.intent_d.publicIn = intentIn;
         a.intent_d.payer = address(wrapper);
         a.intent_d.recipient = VICTIM_NOTE;
-        a.intent_d.outCm[0] = bytes32(uint256(1));
-        a.intent_d.outCm[1] = bytes32(uint256(2));
+        a.intent_d.outCm = bytes32(uint256(1));
 
         a.adapter = address(adapter);
         a.route = abi.encode(uint24(500), uint160(0));
@@ -115,8 +114,7 @@ contract SwapWrapperBindingTest is Test {
         SwapWrapper.SwapArgs memory a = _baseArgs(grossIn, minOut, minPublicIn);
         // Identical proof and public inputs; only the deposit intent changes.
         a.intent_d.recipient = ATTACKER_NOTE;
-        a.intent_d.outCm[0] = bytes32(uint256(0xA77ACC));
-        a.intent_d.outCm[1] = bytes32(uint256(0xA77ACD));
+        a.intent_d.outCm = bytes32(uint256(0xA77ACC));
 
         vm.prank(address(0xDEADBEEF)); // arbitrary caller, not the victim
         vm.expectRevert(

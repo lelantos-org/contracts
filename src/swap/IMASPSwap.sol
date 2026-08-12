@@ -17,10 +17,11 @@ interface IMASPSwap {
         PubInputs.Transact calldata pi,
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[2] calldata aux
+        AuxValidation.Output[3] calldata aux
     ) external;
 
-    function submitIntentAuthorized(PubInputs.DepositIntent calldata d, AuxValidation.Output[2] calldata aux)
+    /// A deposit occupies one leaf, hence a single aux payload.
+    function submitIntentAuthorized(PubInputs.DepositIntent calldata d, AuxValidation.Output calldata aux)
         external
         returns (uint256 id);
 }

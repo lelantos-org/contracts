@@ -76,11 +76,10 @@ contract MASPSubmitIntentTest is Test {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = recipient;
-        d.outCm[0] = bytes32(uint256(0xdead));
-        d.outCm[1] = bytes32(uint256(0xbeef));
+        d.outCm = bytes32(uint256(0xdead));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         // Baby-Jubjub prime-order generator in both point slots — passes the
         // low-order / identity rejection added to `AuxValidation`.
         aux[0].clueRx = BabyJubJub.BASE8_X;
@@ -93,6 +92,11 @@ contract MASPSubmitIntentTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function _fund(uint64 publicIn) internal returns (uint256 inAmt, uint256 fee) {
@@ -115,12 +119,12 @@ contract MASPSubmitIntentTest is Test {
         uint256 total = inAmt + fee;
 
         PubInputs.DepositIntent memory d = _intent(publicIn);
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
 
         uint256 poolBefore = token.balanceOf(address(masp));
         uint256 payerBefore = token.balanceOf(payer);
 
-        uint256 id = masp.submitIntent(d, _sig(total), aux);
+        uint256 id = masp.submitIntent(d, _sig(total), aux[0]);
 
         assertEq(id, 0, "first id");
         assertEq(token.balanceOf(address(masp)) - poolBefore, total, "pool gross");
@@ -135,10 +139,8 @@ contract MASPSubmitIntentTest is Test {
                 address(masp),
                 block.chainid,
                 id,
-                d.outCm[0],
-                d.outCm[1],
-                d.cvDep0,
-                d.cvDep1,
+                d.outCm,
+                d.cvDep,
                 uint64(ASSET_ID),
                 uint48(publicIn),
                 uint16(FEE_BPS),
@@ -154,14 +156,14 @@ contract MASPSubmitIntentTest is Test {
         _fund(publicIn);
         _fund(publicIn); // second deposit's funds
         PubInputs.DepositIntent memory d = _intent(publicIn);
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
         MASP.Permit2Sig memory s1 =
             MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
         MASP.Permit2Sig memory s2 =
             MASP.Permit2Sig({ nonce: 1, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
 
-        uint256 a = masp.submitIntent(d, s1, aux);
-        uint256 b = masp.submitIntent(d, s2, aux);
+        uint256 a = masp.submitIntent(d, s1, aux[0]);
+        uint256 b = masp.submitIntent(d, s2, aux[0]);
         assertEq(a, 0);
         assertEq(b, 1);
     }
@@ -169,7 +171,7 @@ contract MASPSubmitIntentTest is Test {
     function test_happy_sweep_nothingAccruedAtSubmit() public {
         uint64 publicIn = 100;
         _fund(publicIn);
-        masp.submitIntent(_intent(publicIn), _sig(type(uint256).max), _aux());
+        masp.submitIntent(_intent(publicIn), _sig(type(uint256).max), _aux()[0]);
 
         // Fees accrue only at flush, so a bare submit leaves nothing to sweep
         // — escrowed principal + fee stay out of `accruedFee` entirely.
@@ -185,13 +187,13 @@ contract MASPSubmitIntentTest is Test {
         PubInputs.DepositIntent memory d = _intent(100);
         d.chainId = block.chainid + 1;
         vm.expectRevert(MASP.BadChainId.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux());
+        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_MustHaveDeposit() public {
         PubInputs.DepositIntent memory d = _intent(0);
         vm.expectRevert(MASP.MustHaveDeposit.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux());
+        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_PublicInTooLarge() public {
@@ -199,40 +201,36 @@ contract MASPSubmitIntentTest is Test {
         PubInputs.DepositIntent memory d = _intent(0);
         d.publicIn = uint64(uint256(type(uint48).max) + 1);
         vm.expectRevert(MASP.PublicInTooLarge.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux());
+        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_ZeroPayer() public {
         PubInputs.DepositIntent memory d = _intent(100);
         d.payer = address(0);
         vm.expectRevert(MASP.ZeroPayer.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux());
+        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_ZeroRecipient() public {
         PubInputs.DepositIntent memory d = _intent(100);
         d.recipient = address(0);
         vm.expectRevert(MASP.ZeroRecipient.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux());
+        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_ZeroCm() public {
         PubInputs.DepositIntent memory d = _intent(100);
-        d.outCm[0] = bytes32(0);
+        // A deposit has exactly one leaf, so a zero cm is the whole check.
+        d.outCm = bytes32(0);
         vm.expectRevert(MASP.ZeroCm.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux());
-
-        d.outCm[0] = bytes32(uint256(1));
-        d.outCm[1] = bytes32(0);
-        vm.expectRevert(MASP.ZeroCm.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux());
+        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_UnknownAsset() public {
         PubInputs.DepositIntent memory d = _intent(100);
         d.publicAssetId = 999;
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, 999));
-        masp.submitIntent(d, _sig(type(uint256).max), _aux());
+        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     // --- admin / cancelDelay -----------------------------------------------

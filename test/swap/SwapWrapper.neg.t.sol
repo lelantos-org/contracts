@@ -62,7 +62,7 @@ contract SwapWrapperNegTest is Test {
         tpi.newRoot = bytes32(0);
     }
 
-    function _emptyAux() internal pure returns (AuxValidation.Output[2] memory) { }
+    function _emptyAux() internal pure returns (AuxValidation.Output[3] memory) { }
 
     function _piWithdraw(uint64 publicOut, address recipient) internal view returns (PubInputs.Transact memory pi) {
         pi.publicAssetId = ASSET_A;
@@ -80,8 +80,7 @@ contract SwapWrapperNegTest is Test {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = address(0xBEEF);
-        d.outCm[0] = bytes32(uint256(1));
-        d.outCm[1] = bytes32(uint256(2));
+        d.outCm = bytes32(uint256(1));
     }
 
     function _args(uint256 amountIn, uint256 minOut, uint64 piOut, uint64 intentIn, uint256 deadline)
@@ -95,7 +94,7 @@ contract SwapWrapperNegTest is Test {
         a.tpi_w = _emptyTpi();
         a.aux_w = _emptyAux();
         a.intent_d = _intent(intentIn, address(wrapper));
-        a.aux_d = _emptyAux();
+        a.aux_d = _emptyAux()[0];
         a.adapter = address(adapter);
         a.route = abi.encode(uint24(500), uint160(0));
         a.deadline = deadline;

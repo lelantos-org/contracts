@@ -71,7 +71,7 @@ contract SwapWrapperTest is Test {
         tpi.newRoot = bytes32(0);
     }
 
-    function _emptyAux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _emptyAux() internal pure returns (AuxValidation.Output[3] memory aux) {
         // Default-zero AuxValidation.Output. ciphertext bytes default to empty.
     }
 
@@ -91,8 +91,7 @@ contract SwapWrapperTest is Test {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = address(0xBEEF);
-        d.outCm[0] = bytes32(uint256(1));
-        d.outCm[1] = bytes32(uint256(2));
+        d.outCm = bytes32(uint256(1));
     }
 
     function _args(
@@ -110,7 +109,7 @@ contract SwapWrapperTest is Test {
         a.tpi_w = _emptyTpi();
         a.aux_w = _emptyAux();
         a.intent_d = _intent(intentIn, payer);
-        a.aux_d = _emptyAux();
+        a.aux_d = _emptyAux()[0];
         a.adapter = adapter_;
         a.route = abi.encode(uint24(500), uint160(0));
         a.deadline = type(uint256).max;

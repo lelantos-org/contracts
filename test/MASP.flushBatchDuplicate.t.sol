@@ -69,7 +69,7 @@ contract MASPFlushBatchDuplicateTest is Test {
 
     // --- helpers -----------------------------------------------------------
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -80,6 +80,11 @@ contract MASPFlushBatchDuplicateTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
@@ -99,15 +104,13 @@ contract MASPFlushBatchDuplicateTest is Test {
 
     struct _Pre {
         uint48 publicIn;
-        bytes32 cm0;
-        bytes32 cm1;
-        uint256[2] cvDep0;
-        uint256[2] cvDep1;
+        bytes32 cm;
+        uint256[2] cvDep;
     }
 
     mapping(uint256 => _Pre) internal _pre;
 
-    function _submit(uint64 publicIn, bytes32 cm0, bytes32 cm1) internal returns (uint256 id) {
+    function _submit(uint64 publicIn, bytes32 cm) internal returns (uint256 id) {
         uint256 inAmt = uint256(publicIn) * SCALE;
         uint256 fee = (inAmt * FEE_BPS) / 10_000;
         token.mint(payer, inAmt + fee);
@@ -120,14 +123,13 @@ contract MASPFlushBatchDuplicateTest is Test {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = recipient;
-        d.outCm[0] = cm0;
-        d.outCm[1] = cm1;
+        d.outCm = cm;
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
-        id = masp.submitIntent(d, sig, _aux());
-        _pre[id] = _Pre({ publicIn: uint48(publicIn), cm0: cm0, cm1: cm1, cvDep0: d.cvDep0, cvDep1: d.cvDep1 });
+        id = masp.submitIntent(d, sig, _aux()[0]);
+        _pre[id] = _Pre({ publicIn: uint48(publicIn), cm: cm, cvDep: d.cvDep });
     }
 
     function _buildTpi(uint256[] memory intentIds) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
@@ -137,12 +139,10 @@ contract MASPFlushBatchDuplicateTest is Test {
         tpi.actualCount = uint64(intentIds.length);
         for (uint256 i = 0; i < intentIds.length; i++) {
             _Pre memory p = _pre[intentIds[i]];
-            tpi.cms[2 * i] = p.cm0;
-            tpi.cms[2 * i + 1] = p.cm1;
-            tpi.cvDeps[2 * i] = p.cvDep0;
-            tpi.cvDeps[2 * i + 1] = p.cvDep1;
-            tpi.pairAsset[i] = ASSET_ID;
-            tpi.pairPublicIn[i] = p.publicIn;
+            tpi.cms[i] = p.cm;
+            tpi.cvDeps[i] = p.cvDep;
+            tpi.leafAsset[i] = ASSET_ID;
+            tpi.leafPublicIn[i] = p.publicIn;
             tpi.isDeposit[i] = 1;
         }
     }
@@ -152,7 +152,7 @@ contract MASPFlushBatchDuplicateTest is Test {
     /// `ids = [0, 0]`: after draining slot 0 on the first iteration,
     /// `escrowed[0] == bytes32(0)` → IntentNotPending(0) on second.
     function test_revert_duplicateIdInBatch() public {
-        uint256 id = _submit(100, bytes32(uint256(0x111)), bytes32(uint256(0x222)));
+        uint256 id = _submit(100, bytes32(uint256(0x111)));
         assertEq(id, 0);
 
         // Build a tpi as if draining id twice — but only the first slot is valid.
@@ -161,18 +161,16 @@ contract MASPFlushBatchDuplicateTest is Test {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
         tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 2; // claim 2 active slots
+        tpi.actualCount = 2; // two leaves, one per claimed slot
         // Slot 0: valid preimage for id 0.
         tpi.cms[0] = bytes32(uint256(0x111));
-        tpi.cms[1] = bytes32(uint256(0x222));
-        tpi.pairAsset[0] = ASSET_ID;
-        tpi.pairPublicIn[0] = 100;
+        tpi.leafAsset[0] = ASSET_ID;
+        tpi.leafPublicIn[0] = 100;
         tpi.isDeposit[0] = 1;
         // Slot 1: same id, same preimage — will fail after id 0 is deleted.
-        tpi.cms[2] = bytes32(uint256(0x111));
-        tpi.cms[3] = bytes32(uint256(0x222));
-        tpi.pairAsset[1] = ASSET_ID;
-        tpi.pairPublicIn[1] = 100;
+        tpi.cms[1] = bytes32(uint256(0x111));
+        tpi.leafAsset[1] = ASSET_ID;
+        tpi.leafPublicIn[1] = 100;
         tpi.isDeposit[1] = 1;
 
         uint256[] memory ids = new uint256[](2);
@@ -186,7 +184,7 @@ contract MASPFlushBatchDuplicateTest is Test {
     // --- tests: cancel after flush ----------------------------------------
 
     function test_revert_cancelAfterFlush() public {
-        uint256 id = _submit(100, bytes32(uint256(0xAAA)), bytes32(uint256(0xBBB)));
+        uint256 id = _submit(100, bytes32(uint256(0xAAA)));
 
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
@@ -198,12 +196,12 @@ contract MASPFlushBatchDuplicateTest is Test {
         _Pre memory p = _pre[id];
         uint256[2] memory zCv;
         vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id));
-        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, zCv, zCv, ASSET_ID, FEE_BPS, payer, 0);
+        masp.cancelIntent(id, p.publicIn, p.cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
     }
 
     function test_revert_cancelAfterFlush_multipleIntents() public {
-        uint256 id0 = _submit(50, bytes32(uint256(0x111)), bytes32(uint256(0x222)));
-        uint256 id1 = _submit(50, bytes32(uint256(0x333)), bytes32(uint256(0x444)));
+        uint256 id0 = _submit(50, bytes32(uint256(0x111)));
+        uint256 id1 = _submit(50, bytes32(uint256(0x333)));
 
         uint256[] memory ids = new uint256[](2);
         ids[0] = id0;
@@ -216,9 +214,9 @@ contract MASPFlushBatchDuplicateTest is Test {
         // Both must revert.
         uint256[2] memory zCv;
         vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id0));
-        masp.cancelIntent(id0, _pre[id0].publicIn, _pre[id0].cm0, _pre[id0].cm1, zCv, zCv, ASSET_ID, FEE_BPS, payer, 0);
+        masp.cancelIntent(id0, _pre[id0].publicIn, _pre[id0].cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
 
         vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id1));
-        masp.cancelIntent(id1, _pre[id1].publicIn, _pre[id1].cm0, _pre[id1].cm1, zCv, zCv, ASSET_ID, FEE_BPS, payer, 0);
+        masp.cancelIntent(id1, _pre[id1].publicIn, _pre[id1].cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
     }
 }

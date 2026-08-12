@@ -35,22 +35,14 @@ contract MASPSpendEventsTest is Test {
 
     event AssetMoved(uint64 indexed assetId, IERC20 indexed token, uint256 inAmount, uint256 outAmount);
     event NotePayload(
-        bytes32 indexed cm0,
-        bytes32 indexed cm1,
-        uint256 clueRx0,
-        uint256 clueRy0,
-        uint256 ephPubX0,
-        uint256 ephPubY0,
-        bytes ciphertext0,
-        uint256 clueRx1,
-        uint256 clueRy1,
-        uint256 ephPubX1,
-        uint256 ephPubY1,
-        bytes ciphertext1,
-        uint256 cvDep0X,
-        uint256 cvDep0Y,
-        uint256 cvDep1X,
-        uint256 cvDep1Y
+        bytes32 indexed cm,
+        uint256 clueRx,
+        uint256 clueRy,
+        uint256 ephPubX,
+        uint256 ephPubY,
+        bytes ciphertext,
+        uint256 cvDepX,
+        uint256 cvDepY
     );
 
     function setUp() public {
@@ -84,8 +76,8 @@ contract MASPSpendEventsTest is Test {
         vm.mockCall(address(tubVerifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
-        for (uint256 j = 0; j < 2; j++) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
+        for (uint256 j = 0; j < 3; j++) {
             aux[j].clueRx = BabyJubJub.BASE8_X;
             aux[j].clueRy = BabyJubJub.BASE8_Y;
             aux[j].ephPubX = BabyJubJub.BASE8_X;
@@ -112,16 +104,19 @@ contract MASPSpendEventsTest is Test {
         pi.relayer = RELAYER;
         pi.nullifier[0] = bytes32(uint256(0x1111));
         pi.nullifier[1] = bytes32(uint256(0x2222));
+        pi.nullifier[2] = bytes32(uint256(0x2223));
         pi.outCm[0] = bytes32(uint256(0x3333));
         pi.outCm[1] = bytes32(uint256(0x4444));
+        pi.outCm[2] = bytes32(uint256(0x4445));
         pi.merkleRoot = genesis;
 
         tpi.oldRoot = genesis;
         tpi.newRoot = bytes32(uint256(0xABCD));
         tpi.startIndex = 0;
-        tpi.actualCount = 1;
+        tpi.actualCount = 3;
         tpi.cms[0] = pi.outCm[0];
         tpi.cms[1] = pi.outCm[1];
+        tpi.cms[2] = pi.outCm[2];
     }
 
     /// `withdraw` reports the gross unshielded amount, before the pool fee, as
@@ -142,7 +137,8 @@ contract MASPSpendEventsTest is Test {
         assertEq(masp.accruedFee(IERC20(address(token))), fee, "accrued fee");
     }
 
-    /// `transfer` moves no tokens, so only the note payload is emitted.
+    /// `transfer` moves no tokens, so only the note payloads are emitted —
+    /// one per output leaf.
     function test_transfer_emitsNoAssetMoved() public {
         (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(0);
 
@@ -152,19 +148,17 @@ contract MASPSpendEventsTest is Test {
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 assetMovedSig = keccak256("AssetMoved(uint64,address,uint256,uint256)");
-        bytes32 notePayloadSig = keccak256(
-            "NotePayload(bytes32,bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256,uint256,uint256,bytes,uint256,uint256,uint256,uint256)"
-        );
+        bytes32 notePayloadSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
         uint256 notePayloads;
         for (uint256 i = 0; i < logs.length; i++) {
             assertTrue(logs[i].topics[0] != assetMovedSig, "transfer must not emit AssetMoved");
             if (logs[i].topics[0] == notePayloadSig) notePayloads++;
         }
-        assertEq(notePayloads, 1, "exactly one NotePayload");
+        assertEq(notePayloads, PubInputs.TRANSACT_OUT, "one NotePayload per output leaf");
     }
 
-    /// `NotePayload` carries the commitments as indexed topics, serving as the
-    /// note-creation signal for commitment-only indexers.
+    /// Each `NotePayload` carries its own commitment as the indexed topic, so
+    /// the set of emitted topics is exactly the set of output commitments.
     function test_spend_notePayloadIndexesCommitments() public {
         (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(0);
 
@@ -173,16 +167,13 @@ contract MASPSpendEventsTest is Test {
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux());
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 notePayloadSig = keccak256(
-            "NotePayload(bytes32,bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256,uint256,uint256,bytes,uint256,uint256,uint256,uint256)"
-        );
-        bool found;
+        bytes32 notePayloadSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
+        uint256 seen;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].topics[0] != notePayloadSig) continue;
-            found = true;
-            assertEq(logs[i].topics[1], pi.outCm[0], "cm0 topic");
-            assertEq(logs[i].topics[2], pi.outCm[1], "cm1 topic");
+            assertEq(logs[i].topics[1], pi.outCm[seen], string.concat("cm topic ", vm.toString(seen)));
+            seen++;
         }
-        assertTrue(found, "NotePayload emitted");
+        assertEq(seen, PubInputs.TRANSACT_OUT, "one NotePayload per output leaf");
     }
 }

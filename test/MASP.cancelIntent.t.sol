@@ -65,7 +65,7 @@ contract MASPCancelIntentTest is Test {
         vm.etch(payer, address(stub).code);
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -76,6 +76,11 @@ contract MASPCancelIntentTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     uint256 private _nextNonce;
@@ -83,10 +88,8 @@ contract MASPCancelIntentTest is Test {
     struct _Preimage {
         uint48 publicIn;
         uint16 fbps;
-        bytes32 cm0;
-        bytes32 cm1;
-        uint256[2] cvDep0;
-        uint256[2] cvDep1;
+        bytes32 cm;
+        uint256[2] cvDep;
         uint32 submittedAt;
     }
 
@@ -105,28 +108,21 @@ contract MASPCancelIntentTest is Test {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = recipient;
-        d.outCm[0] = bytes32(uint256(0x111 + _nextNonce));
-        d.outCm[1] = bytes32(uint256(0x222 + _nextNonce));
+        d.outCm = bytes32(uint256(0x111 + _nextNonce));
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
 
-        id = masp.submitIntent(d, sig, _aux());
+        id = masp.submitIntent(d, sig, _aux()[0]);
         _pre[id] = _Preimage({
-            publicIn: uint48(publicIn),
-            fbps: FEE_BPS,
-            cm0: d.outCm[0],
-            cm1: d.outCm[1],
-            cvDep0: d.cvDep0,
-            cvDep1: d.cvDep1,
-            submittedAt: uint32(block.number)
+            publicIn: uint48(publicIn), fbps: FEE_BPS, cm: d.outCm, cvDep: d.cvDep, submittedAt: uint32(block.number)
         });
     }
 
     function _cancel(uint256 id) internal {
         _Preimage memory p = _pre[id];
-        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID, p.fbps, payer, p.submittedAt);
+        masp.cancelIntent(id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps, payer, p.submittedAt);
     }
 
     // --- happy path --------------------------------------------------------
@@ -195,7 +191,7 @@ contract MASPCancelIntentTest is Test {
         // Caller picks any preimage; contract reverts on empty slot before
         // touching the digest, so the choice does not matter.
         uint256[2] memory zCv;
-        masp.cancelIntent(999, 0, bytes32(0), bytes32(0), zCv, zCv, 0, 0, address(0), 0);
+        masp.cancelIntent(999, 0, bytes32(0), zCv, 0, 0, address(0), 0);
     }
 
     function test_revert_replayCancel() public {
@@ -214,7 +210,7 @@ contract MASPCancelIntentTest is Test {
         vm.roll(block.number + masp.cancelDelay());
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID, p.fbps, bystander, p.submittedAt);
+        masp.cancelIntent(id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps, bystander, p.submittedAt);
     }
 
     function test_revert_DigestMismatch_wrongSubmittedAt() public {
@@ -223,7 +219,7 @@ contract MASPCancelIntentTest is Test {
         (uint256 id,,) = _submit(100);
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID, p.fbps, payer, p.submittedAt - 1);
+        masp.cancelIntent(id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps, payer, p.submittedAt - 1);
     }
 
     function test_revert_DigestMismatch_wrongFbps() public {
@@ -231,7 +227,7 @@ contract MASPCancelIntentTest is Test {
         vm.roll(block.number + masp.cancelDelay());
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID, p.fbps + 1, payer, p.submittedAt);
+        masp.cancelIntent(id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps + 1, payer, p.submittedAt);
     }
 
     function test_revert_DigestMismatch_wrongAsset() public {
@@ -239,7 +235,7 @@ contract MASPCancelIntentTest is Test {
         vm.roll(block.number + masp.cancelDelay());
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.cancelIntent(id, p.publicIn, p.cm0, p.cm1, p.cvDep0, p.cvDep1, ASSET_ID + 1, p.fbps, payer, p.submittedAt);
+        masp.cancelIntent(id, p.publicIn, p.cm, p.cvDep, ASSET_ID + 1, p.fbps, payer, p.submittedAt);
     }
 
     // --- accounting invariant ---------------------------------------------

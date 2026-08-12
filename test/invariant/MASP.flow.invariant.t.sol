@@ -60,7 +60,6 @@ contract MaspFlowHandler is Test {
     /// and the on-chain digest check binds them.
     mapping(uint256 => uint48) public preimagePublicIn;
     mapping(uint256 => bytes32) public preimageCm0;
-    mapping(uint256 => bytes32) public preimageCm1;
 
     /// Sum of principals for ids still `Pending`.
     uint256 public ghostPendingPrincipal;
@@ -89,7 +88,7 @@ contract MaspFlowHandler is Test {
         lastNewRoot = genesis;
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -100,6 +99,11 @@ contract MaspFlowHandler is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function submit(uint64 publicIn) external {
@@ -117,14 +121,13 @@ contract MaspFlowHandler is Test {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = address(0xb0b);
-        d.outCm[0] = bytes32(uint256(0x1000 + _nonce));
-        d.outCm[1] = bytes32(uint256(0x2000 + _nonce));
+        d.outCm = bytes32(uint256(0x1000 + _nonce));
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
 
-        uint256 id = masp.submitIntent(d, sig, _aux());
+        uint256 id = masp.submitIntent(d, sig, _aux()[0]);
         allIds.push(id);
         status[id] = Status.Pending;
         principalAt[id] = inAmt;
@@ -132,8 +135,7 @@ contract MaspFlowHandler is Test {
         submitBlock[id] = block.number;
         // forge-lint: disable-next-line(unsafe-typecast)
         preimagePublicIn[id] = uint48(publicIn);
-        preimageCm0[id] = d.outCm[0];
-        preimageCm1[id] = d.outCm[1];
+        preimageCm0[id] = d.outCm;
         ghostPendingPrincipal += inAmt;
         ghostPendingFee += fee;
     }
@@ -151,9 +153,8 @@ contract MaspFlowHandler is Test {
         tpi.startIndex = masp.committedCount();
         tpi.actualCount = 1;
         tpi.cms[0] = preimageCm0[id];
-        tpi.cms[1] = preimageCm1[id];
-        tpi.pairAsset[0] = ASSET_ID;
-        tpi.pairPublicIn[0] = uint64(preimagePublicIn[id]);
+        tpi.leafAsset[0] = ASSET_ID;
+        tpi.leafPublicIn[0] = uint64(preimagePublicIn[id]);
         tpi.isDeposit[0] = 1;
 
         uint256[] memory ids = new uint256[](1);
@@ -171,7 +172,7 @@ contract MaspFlowHandler is Test {
         ghostPendingFee -= feeAt[id];
         ghostShieldedPrincipal += principalAt[id];
         lastNewRoot = tpi.newRoot;
-        ghostInserted += 2;
+        ghostInserted += 1;
         flushCount += 1;
     }
 
@@ -186,16 +187,7 @@ contract MaspFlowHandler is Test {
         uint256[2] memory zCv;
         // forge-lint: disable-next-line(unsafe-typecast)
         masp.cancelIntent(
-            id,
-            preimagePublicIn[id],
-            preimageCm0[id],
-            preimageCm1[id],
-            zCv,
-            zCv,
-            ASSET_ID,
-            FEE_BPS,
-            payer,
-            uint32(submitBlock[id])
+            id, preimagePublicIn[id], preimageCm0[id], zCv, ASSET_ID, FEE_BPS, payer, uint32(submitBlock[id])
         );
 
         // Cancel-delay assertion: must have waited at least cancelDelay

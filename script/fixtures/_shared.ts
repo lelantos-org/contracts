@@ -3,7 +3,7 @@
 // sdk/src -> sdk/dist when the SDK ships built dist) hits one file.
 //
 // Layout invariants (DO NOT drift from circuit + PubInputs.sol):
-//   MAX_N        — tree_update_batch.circom :: MAX_N (76 = 4 + 9*MAX_N coeffs)
+//   MAX_L        — tree_update_batch.circom :: MAX_L (52 = 4 + 6*MAX_L coeffs)
 //   DEPTH        — CommitmentTree depth (quaternary, depth 10)
 //   BJJ_IDENTITY — Baby-Jubjub identity in twisted Edwards (cv_dep for value=0)
 //   leaf hash    — Poseidon(TAG_LEAF, cm, cv_dep_x, cv_dep_y)
@@ -33,7 +33,7 @@ import type { Poseidon } from "@lelantos-org/sdk/crypto";
 import { TAG_LEAF } from "@lelantos-org/sdk/crypto";
 
 export const DEPTH = 10;
-export const MAX_N = 8;
+export const MAX_L = 8;
 export const BJJ_IDENTITY: [Field, Field] = [0n, 1n];
 
 // snarkjs has no published TS types.
@@ -60,65 +60,65 @@ export interface BatchArgs {
     oldRoot: Field;
     newRoot: Field;
     startIndex: bigint;
-    actualCount: bigint;
-    cms: Field[]; // 2*MAX_N
-    cvDep: [Field, Field][]; // 2*MAX_N
-    pairAsset: Field[]; // MAX_N
-    pairPublicIn: Field[]; // MAX_N
-    isDeposit: Field[]; // MAX_N
+    actualCount: bigint; // LEAF count, 1..MAX_L (odd allowed)
+    cms: Field[]; // MAX_L
+    cvDep: [Field, Field][]; // MAX_L
+    leafAsset: Field[]; // MAX_L
+    leafPublicIn: Field[]; // MAX_L
+    isDeposit: Field[]; // MAX_L
 }
 
 // Coefficient order MUST match tree_update_batch.circom :: PolyEval and
-// PubInputs.sol :: compress(TreeUpdateBatch). Total = 4 + 9*MAX_N.
+// PubInputs.sol :: compress(TreeUpdateBatch). Total = 4 + 6*MAX_L.
 export function flattenTreeUpdateBatch(a: BatchArgs): Field[] {
-    if (a.cms.length !== 2 * MAX_N) throw new Error(`cms len ${2 * MAX_N}`);
-    if (a.cvDep.length !== 2 * MAX_N) throw new Error(`cvDep len ${2 * MAX_N}`);
-    if (a.pairAsset.length !== MAX_N) throw new Error(`pairAsset len ${MAX_N}`);
-    if (a.pairPublicIn.length !== MAX_N) throw new Error(`pairPublicIn len ${MAX_N}`);
-    if (a.isDeposit.length !== MAX_N) throw new Error(`isDeposit len ${MAX_N}`);
+    if (a.cms.length !== MAX_L) throw new Error(`cms len ${MAX_L}`);
+    if (a.cvDep.length !== MAX_L) throw new Error(`cvDep len ${MAX_L}`);
+    if (a.leafAsset.length !== MAX_L) throw new Error(`leafAsset len ${MAX_L}`);
+    if (a.leafPublicIn.length !== MAX_L) throw new Error(`leafPublicIn len ${MAX_L}`);
+    if (a.isDeposit.length !== MAX_L) throw new Error(`isDeposit len ${MAX_L}`);
     const out: Field[] = [a.oldRoot, a.newRoot, a.startIndex, a.actualCount];
     for (const c of a.cms) out.push(c);
     for (const pt of a.cvDep) {
         out.push(pt[0]);
         out.push(pt[1]);
     }
-    for (const v of a.pairAsset) out.push(v);
-    for (const v of a.pairPublicIn) out.push(v);
+    for (const v of a.leafAsset) out.push(v);
+    for (const v of a.leafPublicIn) out.push(v);
     for (const v of a.isDeposit) out.push(v);
     return out;
 }
 
-// Pad real prefix arrays to MAX_N. Inactive cv_dep slots MUST be zero
-// (not identity) — circuit enforces.
+// Pad real prefix arrays to MAX_L. Every array is leaf-indexed. Inactive
+// cv_dep slots MUST be zero (not identity) — circuit enforces.
 export function buildPaddedFields(
     realCms: Field[],
-    activeCvDep: [Field, Field][], // 2*actual_count
-    activePairAsset: bigint[], // actual_count
-    activePairPublicIn: bigint[], // actual_count
+    activeCvDep: [Field, Field][], // actual_count
+    activeLeafAsset: bigint[], // actual_count
+    activeLeafPublicIn: bigint[], // actual_count
     activeIsDeposit: bigint[], // actual_count
-    activeRcvTotal: bigint[], // actual_count
+    activeRcv: bigint[], // actual_count
 ) {
-    const cms: Field[] = new Array(2 * MAX_N).fill(0n);
+    const cms: Field[] = new Array(MAX_L).fill(0n);
     for (let i = 0; i < realCms.length; i++) cms[i] = realCms[i];
 
-    const cvDep: [Field, Field][] = new Array(2 * MAX_N).fill(0).map(() => [0n, 0n] as [Field, Field]);
+    const cvDep: [Field, Field][] = new Array(MAX_L).fill(0).map(() => [0n, 0n] as [Field, Field]);
     for (let i = 0; i < activeCvDep.length; i++) cvDep[i] = activeCvDep[i];
 
-    const pairAsset: Field[] = new Array(MAX_N).fill(0n);
-    const pairPublicIn: Field[] = new Array(MAX_N).fill(0n);
-    const isDeposit: Field[] = new Array(MAX_N).fill(0n);
-    const rcvTotal: Field[] = new Array(MAX_N).fill(0n);
-    for (let i = 0; i < activePairAsset.length; i++) {
-        pairAsset[i] = activePairAsset[i];
-        pairPublicIn[i] = activePairPublicIn[i];
+    const leafAsset: Field[] = new Array(MAX_L).fill(0n);
+    const leafPublicIn: Field[] = new Array(MAX_L).fill(0n);
+    const isDeposit: Field[] = new Array(MAX_L).fill(0n);
+    const rcv: Field[] = new Array(MAX_L).fill(0n);
+    for (let i = 0; i < activeLeafAsset.length; i++) {
+        leafAsset[i] = activeLeafAsset[i];
+        leafPublicIn[i] = activeLeafPublicIn[i];
         isDeposit[i] = activeIsDeposit[i];
-        rcvTotal[i] = activeRcvTotal[i];
+        rcv[i] = activeRcv[i];
     }
-    return { cms, cvDep, pairAsset, pairPublicIn, isDeposit, rcvTotal };
+    return { cms, cvDep, leafAsset, leafPublicIn, isDeposit, rcv };
 }
 
 // JSON input shape consumed by tree_update_batch.wasm.
-export function batchInputJson(a: BatchArgs & { frontier: Field[][]; z: Field; rcvTotal: Field[] }) {
+export function batchInputJson(a: BatchArgs & { frontier: Field[][]; z: Field; rcv: Field[] }) {
     return {
         z: a.z.toString(),
         old_root: a.oldRoot.toString(),
@@ -127,11 +127,11 @@ export function batchInputJson(a: BatchArgs & { frontier: Field[][]; z: Field; r
         actual_count: a.actualCount.toString(),
         cms: a.cms.map((c) => c.toString()),
         cv_dep: a.cvDep.map((pt) => [pt[0].toString(), pt[1].toString()]),
-        pair_asset: a.pairAsset.map((v) => v.toString()),
-        pair_public_in: a.pairPublicIn.map((v) => v.toString()),
+        leaf_asset: a.leafAsset.map((v) => v.toString()),
+        leaf_public_in: a.leafPublicIn.map((v) => v.toString()),
         is_deposit: a.isDeposit.map((v) => v.toString()),
         frontier_in: a.frontier.map((lvl) => lvl.map((s) => s.toString())),
-        rcv_total: a.rcvTotal.map((v) => v.toString()),
+        rcv: a.rcv.map((v) => v.toString()),
     };
 }
 

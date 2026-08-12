@@ -77,7 +77,7 @@ contract MASPFlushBatchTest is Test {
 
     // --- helpers -----------------------------------------------------------
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -88,9 +88,14 @@ contract MASPFlushBatchTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
-    function _intent(uint64 publicIn, uint64 assetId, bytes32 cm0, bytes32 cm1)
+    function _intent(uint64 publicIn, uint64 assetId, bytes32 cm)
         internal
         view
         returns (PubInputs.DepositIntent memory d)
@@ -100,8 +105,7 @@ contract MASPFlushBatchTest is Test {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = recipient;
-        d.outCm[0] = cm0;
-        d.outCm[1] = cm1;
+        d.outCm = cm;
     }
 
     function _fund(MockERC20 t, uint64 publicIn) internal {
@@ -112,15 +116,12 @@ contract MASPFlushBatchTest is Test {
         t.approve(address(permit2), type(uint256).max);
     }
 
-    function _submit(uint64 publicIn, uint64 assetId, bytes32 cm0, bytes32 cm1, uint256 nonce)
-        internal
-        returns (uint256 id)
-    {
-        PubInputs.DepositIntent memory d = _intent(publicIn, assetId, cm0, cm1);
+    function _submit(uint64 publicIn, uint64 assetId, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
+        PubInputs.DepositIntent memory d = _intent(publicIn, assetId, cm);
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
-        return masp.submitIntent(d, sig, _aux());
+        return masp.submitIntent(d, sig, _aux()[0]);
     }
 
     /// Digest meta for intents submitted in the current block by `payer` at
@@ -150,9 +151,9 @@ contract MASPFlushBatchTest is Test {
         tpi.startIndex = masp.committedCount();
         // forge-lint: disable-next-line(unsafe-typecast)
         tpi.actualCount = uint64(n);
-        // Clamp to `bytes32[2 * MAX_N_BATCH]` capacity; oversize cms arrays
+        // Clamp to `bytes32[MAX_L_BATCH]` capacity; oversize cms arrays
         // (used by oversize-batch revert tests) must not OOB tpi.cms.
-        uint256 cap = 2 * PubInputs.MAX_N_BATCH;
+        uint256 cap = PubInputs.MAX_L_BATCH;
         for (uint256 i = 0; i < cms.length && i < cap; i++) {
             tpi.cms[i] = cms[i];
         }
@@ -160,14 +161,14 @@ contract MASPFlushBatchTest is Test {
 
     /// Fill the per-active-slot PIs that `flushBatch` cross-checks against
     /// the escrow record. cvDep coords stay zero — `_intent` leaves
-    /// `DepositIntent.cvDep0/1` zero so the escrow digest is over (0,0).
-    function _fillPairPI(PubInputs.TreeUpdateBatch memory tpi, uint64[] memory assetIds, uint64[] memory publicIns)
+    /// `DepositIntent.cvDep` zero so the escrow digest is over (0,0).
+    function _fillLeafPI(PubInputs.TreeUpdateBatch memory tpi, uint64[] memory assetIds, uint64[] memory publicIns)
         internal
         pure
     {
         for (uint256 i = 0; i < assetIds.length; i++) {
-            tpi.pairAsset[i] = assetIds[i];
-            tpi.pairPublicIn[i] = publicIns[i];
+            tpi.leafAsset[i] = assetIds[i];
+            tpi.leafPublicIn[i] = publicIns[i];
             tpi.isDeposit[i] = 1;
         }
     }
@@ -177,18 +178,16 @@ contract MASPFlushBatchTest is Test {
     function test_happy_N1_advancesRootAndClearsSlot() public {
         _fund(token, 100);
         bytes32 cm0 = bytes32(uint256(0x111));
-        bytes32 cm1 = bytes32(uint256(0x222));
-        uint256 id = _submit(100, ASSET_ID, cm0, cm1, 0);
+        uint256 id = _submit(100, ASSET_ID, cm0, 0);
 
-        bytes32[] memory cms = new bytes32[](2);
+        bytes32[] memory cms = new bytes32[](1);
         cms[0] = cm0;
-        cms[1] = cm1;
         PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
         uint64[] memory a = new uint64[](1);
         uint64[] memory p = new uint64[](1);
         a[0] = ASSET_ID;
         p[0] = 100;
-        _fillPairPI(tpi, a, p);
+        _fillLeafPI(tpi, a, p);
 
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
@@ -198,7 +197,7 @@ contract MASPFlushBatchTest is Test {
 
         // Root advanced
         assertEq(masp.currentRoot(), tpi.newRoot, "root advanced");
-        assertEq(masp.committedCount(), 2, "count += 2*n");
+        assertEq(masp.committedCount(), 1, "count += n (one leaf per deposit)");
 
         // Slot cleared (sentinel check)
         assertEq(masp.escrowed(id), bytes32(0), "slot cleared");
@@ -213,17 +212,16 @@ contract MASPFlushBatchTest is Test {
         _fund(token, 100);
         _fund(token, 100);
 
-        uint256 id0 = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
-        uint256 id1 = _submit(100, ASSET_ID, bytes32(uint256(3)), bytes32(uint256(4)), 1);
-        uint256 id2 = _submit(100, ASSET_ID, bytes32(uint256(5)), bytes32(uint256(6)), 2);
+        uint256 id0 = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
+        uint256 id1 = _submit(100, ASSET_ID, bytes32(uint256(3)), 1);
+        uint256 id2 = _submit(100, ASSET_ID, bytes32(uint256(5)), 2);
 
-        bytes32[] memory cms = new bytes32[](6);
+        // Three intents, three leaves — an odd batch, which the leaf-granular
+        // circuit and `_advanceRoot(.., n, ..)` now express directly.
+        bytes32[] memory cms = new bytes32[](3);
         cms[0] = bytes32(uint256(1));
-        cms[1] = bytes32(uint256(2));
-        cms[2] = bytes32(uint256(3));
-        cms[3] = bytes32(uint256(4));
-        cms[4] = bytes32(uint256(5));
-        cms[5] = bytes32(uint256(6));
+        cms[1] = bytes32(uint256(3));
+        cms[2] = bytes32(uint256(5));
         PubInputs.TreeUpdateBatch memory tpi = _tpi(3, cms);
         uint64[] memory a = new uint64[](3);
         uint64[] memory p = new uint64[](3);
@@ -233,7 +231,7 @@ contract MASPFlushBatchTest is Test {
         p[0] = 100;
         p[1] = 100;
         p[2] = 100;
-        _fillPairPI(tpi, a, p);
+        _fillLeafPI(tpi, a, p);
 
         uint256[] memory ids = new uint256[](3);
         ids[0] = id0;
@@ -243,7 +241,7 @@ contract MASPFlushBatchTest is Test {
         _mockSnark(true);
         masp.flushBatch(ids, _meta(3), _emptyProof(), tpi);
 
-        assertEq(masp.committedCount(), 6, "count += 2*3");
+        assertEq(masp.committedCount(), 3, "count += 3 (odd leaf count)");
         uint256 feePer = (uint256(100) * SCALE * FEE_BPS) / 10_000;
         assertEq(masp.accruedFee(IERC20(address(token))), 3 * feePer, "all three fees accrued");
     }
@@ -259,9 +257,9 @@ contract MASPFlushBatchTest is Test {
     }
 
     function test_revert_BadBatchSize_overMax() public {
-        uint256 n = PubInputs.MAX_N_BATCH + 1;
+        uint256 n = PubInputs.MAX_L_BATCH + 1;
         uint256[] memory ids = new uint256[](n);
-        bytes32[] memory cms = new bytes32[](2 * n);
+        bytes32[] memory cms = new bytes32[](n);
         // forge-lint: disable-next-line(unsafe-typecast)
         PubInputs.TreeUpdateBatch memory tpi = _tpi(n, cms);
         vm.expectRevert(MASP.BadBatchSize.selector);
@@ -270,10 +268,9 @@ contract MASPFlushBatchTest is Test {
 
     function test_revert_BadBatchSize_metaLengthMismatch() public {
         _fund(token, 100);
-        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
-        bytes32[] memory cms = new bytes32[](2);
+        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
+        bytes32[] memory cms = new bytes32[](1);
         cms[0] = bytes32(uint256(1));
-        cms[1] = bytes32(uint256(2));
         PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
@@ -283,11 +280,10 @@ contract MASPFlushBatchTest is Test {
 
     function test_revert_BatchMisaligned_actualCountMismatch() public {
         _fund(token, 100);
-        _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
+        _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
 
-        bytes32[] memory cms = new bytes32[](2);
+        bytes32[] memory cms = new bytes32[](1);
         cms[0] = bytes32(uint256(1));
-        cms[1] = bytes32(uint256(2));
         PubInputs.TreeUpdateBatch memory tpi = _tpi(2, cms); // n=2 but ids.length=1
 
         uint256[] memory ids = new uint256[](1);
@@ -318,7 +314,7 @@ contract MASPFlushBatchTest is Test {
 
     function test_revert_DigestMismatch_cmTampered() public {
         _fund(token, 100);
-        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
+        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
 
         bytes32[] memory cms = new bytes32[](2);
         cms[0] = bytes32(uint256(99)); // tamper
@@ -328,7 +324,7 @@ contract MASPFlushBatchTest is Test {
         uint64[] memory p = new uint64[](1);
         a[0] = ASSET_ID;
         p[0] = 100;
-        _fillPairPI(tpi, a, p);
+        _fillLeafPI(tpi, a, p);
 
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
@@ -338,17 +334,16 @@ contract MASPFlushBatchTest is Test {
 
     function test_revert_DigestMismatch_metaTampered() public {
         _fund(token, 100);
-        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
+        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
 
-        bytes32[] memory cms = new bytes32[](2);
+        bytes32[] memory cms = new bytes32[](1);
         cms[0] = bytes32(uint256(1));
-        cms[1] = bytes32(uint256(2));
         PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
         uint64[] memory a = new uint64[](1);
         uint64[] memory p = new uint64[](1);
         a[0] = ASSET_ID;
         p[0] = 100;
-        _fillPairPI(tpi, a, p);
+        _fillLeafPI(tpi, a, p);
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
 
@@ -376,8 +371,8 @@ contract MASPFlushBatchTest is Test {
         // fees accrue independently in the tail loop.
         _fund(token, 100);
         _fund(tokenAlt, 100);
-        uint256 id0 = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
-        uint256 id1 = _submit(100, ASSET_ID_ALT, bytes32(uint256(3)), bytes32(uint256(4)), 1);
+        uint256 id0 = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
+        uint256 id1 = _submit(100, ASSET_ID_ALT, bytes32(uint256(3)), 1);
 
         // Pre-flush: nothing accrued for either token.
         uint256 inAmt = uint256(100) * SCALE;
@@ -385,11 +380,9 @@ contract MASPFlushBatchTest is Test {
         assertEq(masp.accruedFee(IERC20(address(token))), 0, "token nothing accrued pre-flush");
         assertEq(masp.accruedFee(IERC20(address(tokenAlt))), 0, "tokenAlt nothing accrued pre-flush");
 
-        bytes32[] memory cms = new bytes32[](4);
+        bytes32[] memory cms = new bytes32[](2);
         cms[0] = bytes32(uint256(1));
-        cms[1] = bytes32(uint256(2));
-        cms[2] = bytes32(uint256(3));
-        cms[3] = bytes32(uint256(4));
+        cms[1] = bytes32(uint256(3));
         PubInputs.TreeUpdateBatch memory tpi = _tpi(2, cms);
         uint64[] memory a = new uint64[](2);
         uint64[] memory p = new uint64[](2);
@@ -397,7 +390,7 @@ contract MASPFlushBatchTest is Test {
         a[1] = ASSET_ID_ALT;
         p[0] = 100;
         p[1] = 100;
-        _fillPairPI(tpi, a, p);
+        _fillLeafPI(tpi, a, p);
 
         uint256[] memory ids = new uint256[](2);
         ids[0] = id0;
@@ -409,22 +402,21 @@ contract MASPFlushBatchTest is Test {
         // Both tokens' fees accrued at flush.
         assertEq(masp.accruedFee(IERC20(address(token))), expectedFee, "token fee accrued");
         assertEq(masp.accruedFee(IERC20(address(tokenAlt))), expectedFee, "tokenAlt fee accrued");
-        assertEq(masp.committedCount(), 4, "count += 2*2");
+        assertEq(masp.committedCount(), 2, "count += 2 (one leaf per deposit)");
     }
 
     function test_revert_TreeUpdateRejected() public {
         _fund(token, 100);
-        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), bytes32(uint256(2)), 0);
+        uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
 
-        bytes32[] memory cms = new bytes32[](2);
+        bytes32[] memory cms = new bytes32[](1);
         cms[0] = bytes32(uint256(1));
-        cms[1] = bytes32(uint256(2));
         PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
         uint64[] memory a = new uint64[](1);
         uint64[] memory p = new uint64[](1);
         a[0] = ASSET_ID;
         p[0] = 100;
-        _fillPairPI(tpi, a, p);
+        _fillLeafPI(tpi, a, p);
 
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
@@ -436,18 +428,16 @@ contract MASPFlushBatchTest is Test {
     function test_revert_replay_secondFlushReverts() public {
         _fund(token, 100);
         bytes32 cm0 = bytes32(uint256(0x111));
-        bytes32 cm1 = bytes32(uint256(0x222));
-        uint256 id = _submit(100, ASSET_ID, cm0, cm1, 0);
+        uint256 id = _submit(100, ASSET_ID, cm0, 0);
 
-        bytes32[] memory cms = new bytes32[](2);
+        bytes32[] memory cms = new bytes32[](1);
         cms[0] = cm0;
-        cms[1] = cm1;
         PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
         uint64[] memory a = new uint64[](1);
         uint64[] memory p = new uint64[](1);
         a[0] = ASSET_ID;
         p[0] = 100;
-        _fillPairPI(tpi, a, p);
+        _fillLeafPI(tpi, a, p);
 
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
@@ -459,7 +449,7 @@ contract MASPFlushBatchTest is Test {
         // state) reaches the sentinel; without the refresh StaleOldRoot fires
         // first.
         PubInputs.TreeUpdateBatch memory tpi2 = _tpi(1, cms);
-        _fillPairPI(tpi2, a, p);
+        _fillLeafPI(tpi2, a, p);
         vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id));
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi2);
     }

@@ -1,9 +1,9 @@
 // Emit proof_deposit_batch.json fixture for tree_update_batch.circom.
-// Mirrors relayer flush flow. N=1 deposit case (1 deposit, 2 leaves)
-// over empty tree. Layout: see _shared.ts :: flattenTreeUpdateBatch.
+// Mirrors relayer flush flow. N=1 deposit case (1 deposit, 1 leaf) over an
+// empty tree. Layout: see _shared.ts :: flattenTreeUpdateBatch.
 //
-// Zero-value zero-blinder notes → cv_dep collapses to BJJ identity (0,1).
-// Per-pair aggregate holds trivially: identity + identity = 0·V + 0·H.
+// A zero-value zero-blinder note → cv_dep collapses to BJJ identity (0,1),
+// and the per-leaf binding holds trivially: identity = 0·V^0 + 0·H.
 
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -13,7 +13,7 @@ import { groth16 } from "snarkjs";
 import {
     BJJ_IDENTITY,
     DEPTH,
-    MAX_N,
+    MAX_L,
     MerkleTree,
     Poseidon,
     type Field,
@@ -31,10 +31,9 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const ACTUAL_COUNT = 1;
+const ACTUAL_COUNT = 1; // leaves
 const START_INDEX = 0;
 const CM0 = 0xc0ffeen;
-const CM1 = 0xfaceb00cn;
 
 const CIRCUITS_BUILD = requireCircuitsBuild();
 const TUB_WASM = resolve(CIRCUITS_BUILD, "tree_update_batch_js", "tree_update_batch.wasm");
@@ -46,8 +45,8 @@ async function main() {
     const P = await Poseidon.build();
 
     // Active cv_dep: BJJ identity. Inactive slots zero (enforced below).
-    const realCms: Field[] = [CM0, CM1];
-    const activeCvDep: [Field, Field][] = [BJJ_IDENTITY, BJJ_IDENTITY];
+    const realCms: Field[] = [CM0];
+    const activeCvDep: [Field, Field][] = [BJJ_IDENTITY];
     const leaves: Field[] = realCms.map((cm, j) => leafHash(P, cm, activeCvDep[j]));
 
     const tree = new MerkleTree(P, DEPTH);
@@ -56,16 +55,16 @@ async function main() {
     for (const leaf of leaves) tree.insert(leaf);
     const newRoot = tree.root();
 
-    // Pad to MAX_N. Inactive cv_dep MUST be (0,0).
-    const cms: Field[] = new Array(2 * MAX_N).fill(0n);
+    // Pad to MAX_L. Inactive cv_dep MUST be (0,0).
+    const cms: Field[] = new Array(MAX_L).fill(0n);
     for (let i = 0; i < realCms.length; i++) cms[i] = realCms[i];
-    const cvDep: [Field, Field][] = new Array(2 * MAX_N).fill(0).map(() => [0n, 0n] as [Field, Field]);
-    for (let i = 0; i < 2 * ACTUAL_COUNT; i++) cvDep[i] = activeCvDep[i];
+    const cvDep: [Field, Field][] = new Array(MAX_L).fill(0).map(() => [0n, 0n] as [Field, Field]);
+    for (let i = 0; i < ACTUAL_COUNT; i++) cvDep[i] = activeCvDep[i];
 
-    const pairAsset: Field[] = new Array(MAX_N).fill(0n);
-    const pairPublicIn: Field[] = new Array(MAX_N).fill(0n);
-    const isDeposit: Field[] = new Array(MAX_N).fill(0n);
-    const rcvTotal: Field[] = new Array(MAX_N).fill(0n);
+    const leafAsset: Field[] = new Array(MAX_L).fill(0n);
+    const leafPublicIn: Field[] = new Array(MAX_L).fill(0n);
+    const isDeposit: Field[] = new Array(MAX_L).fill(0n);
+    const rcv: Field[] = new Array(MAX_L).fill(0n);
     for (let i = 0; i < ACTUAL_COUNT; i++) isDeposit[i] = 1n;
 
     const args = {
@@ -75,8 +74,8 @@ async function main() {
         actualCount: BigInt(ACTUAL_COUNT),
         cms,
         cvDep,
-        pairAsset,
-        pairPublicIn,
+        leafAsset,
+        leafPublicIn,
         isDeposit,
     };
     const coeffs = flattenTreeUpdateBatch(args);
@@ -85,7 +84,7 @@ async function main() {
 
     console.log("==> proving tree_update_batch (N=1 deposit)");
     const prove = await groth16.fullProve(
-        batchInputJson({ ...args, frontier: oldFrontier, z, rcvTotal }),
+        batchInputJson({ ...args, frontier: oldFrontier, z, rcv }),
         TUB_WASM,
         TUB_ZKEY,
     );
@@ -98,15 +97,15 @@ async function main() {
     const out = resolve(process.env.PROOF_DEPOSIT_BATCH_OUT ?? DEFAULT_OUT);
     writeJsonFixture(out, {
         depth: DEPTH,
-        maxN: MAX_N,
+        maxL: MAX_L,
         actualCount: ACTUAL_COUNT,
         startIndex: START_INDEX,
         oldRoot: oldRoot.toString(),
         newRoot: newRoot.toString(),
         cms: cms.map((c) => c.toString()),
         cvDeps: cvDep.map((pt) => [pt[0].toString(), pt[1].toString()]),
-        pairAsset: pairAsset.map((v) => v.toString()),
-        pairPublicIn: pairPublicIn.map((v) => v.toString()),
+        leafAsset: leafAsset.map((v) => v.toString()),
+        leafPublicIn: leafPublicIn.map((v) => v.toString()),
         isDeposit: isDeposit.map((v) => v.toString()),
         proof: packProof(proof),
         publicSignals: signals, // [y, z] in solidity verifier convention

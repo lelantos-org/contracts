@@ -67,7 +67,7 @@ contract MockMASPSwap is IMASPSwap {
         PubInputs.Transact calldata pi,
         Proof calldata,
         PubInputs.TreeUpdateBatch calldata,
-        AuxValidation.Output[2] calldata
+        AuxValidation.Output[3] calldata
     ) external {
         address token = assetToken[pi.publicAssetId];
         // Net the unshield fee on the gross amount, mirroring MASP's
@@ -78,7 +78,7 @@ contract MockMASPSwap is IMASPSwap {
         emit MockWithdraw(pi.recipient, token, net);
     }
 
-    function submitIntentAuthorized(PubInputs.DepositIntent calldata d, AuxValidation.Output[2] calldata)
+    function submitIntentAuthorized(PubInputs.DepositIntent calldata d, AuxValidation.Output calldata)
         external
         returns (uint256 id)
     {

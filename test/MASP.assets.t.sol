@@ -102,15 +102,14 @@ contract MASPAssetsTest is MASPTestBase {
         d.publicIn = 100;
         d.payer = address(0xface);
         d.recipient = address(0xb0b);
-        d.outCm[0] = bytes32(uint256(0x1));
-        d.outCm[1] = bytes32(uint256(0x2));
+        d.outCm = bytes32(uint256(0x1));
 
-        AuxValidation.Output[2] memory aux = _emptyAux();
+        AuxValidation.Output[3] memory aux = _emptyAux();
         MASP.Permit2Sig memory sig =
             MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
 
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.AssetDisabled.selector, ASSET_ID));
-        masp.submitIntent(d, sig, aux);
+        masp.submitIntent(d, sig, aux[0]);
     }
 
     function testUnknownAssetSubmitReverts() public {
@@ -120,13 +119,12 @@ contract MASPAssetsTest is MASPTestBase {
         d.publicIn = 100;
         d.payer = address(0xface);
         d.recipient = address(0xb0b);
-        d.outCm[0] = bytes32(uint256(0x1));
-        d.outCm[1] = bytes32(uint256(0x2));
+        d.outCm = bytes32(uint256(0x1));
 
-        AuxValidation.Output[2] memory aux = _emptyAux();
+        AuxValidation.Output[3] memory aux = _emptyAux();
         MASP.Permit2Sig memory sig =
             MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(99)));
-        masp.submitIntent(d, sig, aux);
+        masp.submitIntent(d, sig, aux[0]);
     }
 }
