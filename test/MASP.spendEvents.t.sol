@@ -176,4 +176,71 @@ contract MASPSpendEventsTest is Test {
         }
         assertEq(seen, PubInputs.TRANSACT_OUT, "one NotePayload per output leaf");
     }
+
+    // --- leaf-index reconstruction ------------------------------------------
+
+    /// A wallet learns its note's Merkle leaf index by pairing `RootAdvanced`
+    /// with the per-leaf `NotePayload` events: leaf `k` sits at
+    /// `startIndex + k`. Nothing in the events states the index directly, so
+    /// the mapping rests entirely on emission order and count. A wrong index
+    /// yields a bad Merkle path and an unspendable note, and at the 3x3 shape
+    /// a mis-mapping misplaces three leaves rather than two.
+    ///
+    /// This pins the whole indexer contract for a spend: how many events of
+    /// each kind, in what order, and that the counts track
+    /// `PubInputs.TRANSACT_IN` / `TRANSACT_OUT` rather than a literal 2 or 3.
+    function test_spend_eventsAllowLeafIndexReconstruction() public {
+        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(0);
+        uint64 startBefore = masp.committedCount();
+
+        vm.recordLogs();
+        vm.prank(RELAYER);
+        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 nfSig = keccak256("NullifierConsumed(bytes32)");
+        bytes32 rootSig = keccak256("RootAdvanced(uint64,uint64,bytes32,bytes32)");
+        bytes32 noteSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
+
+        uint256 nfCount;
+        uint256 noteCount;
+        uint256 rootCount;
+        uint256 rootAt;
+        uint256 firstNoteAt;
+        bool sawNote;
+
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(masp)) continue;
+            bytes32 sig = logs[i].topics[0];
+            if (sig == nfSig) {
+                // Nullifiers are emitted in input order.
+                assertEq(logs[i].topics[1], pi.nullifier[nfCount], "nullifier order");
+                nfCount++;
+            } else if (sig == rootSig) {
+                (uint64 inserted,,) = abi.decode(logs[i].data, (uint64, bytes32, bytes32));
+                assertEq(uint256(logs[i].topics[1]), startBefore, "RootAdvanced.startIndex");
+                assertEq(inserted, PubInputs.TRANSACT_OUT, "leaves inserted per spend");
+                rootAt = i;
+                rootCount++;
+            } else if (sig == noteSig) {
+                // Leaf k of this spend lands at startIndex + k.
+                assertEq(logs[i].topics[1], pi.outCm[noteCount], "NotePayload order == leaf order");
+                if (!sawNote) {
+                    firstNoteAt = i;
+                    sawNote = true;
+                }
+                noteCount++;
+            }
+        }
+
+        assertEq(nfCount, PubInputs.TRANSACT_IN, "one NullifierConsumed per input");
+        assertEq(noteCount, PubInputs.TRANSACT_OUT, "one NotePayload per output leaf");
+        assertEq(rootCount, 1, "exactly one RootAdvanced");
+        // On the spend path the root advance precedes the note payloads. The
+        // flush path emits IntentFlushed BEFORE its RootAdvanced, so an indexer
+        // cannot assume a single global ordering across the two paths.
+        assertLt(rootAt, firstNoteAt, "spend path: RootAdvanced precedes NotePayload");
+
+        assertEq(masp.committedCount(), startBefore + PubInputs.TRANSACT_OUT, "committedCount advance");
+    }
 }

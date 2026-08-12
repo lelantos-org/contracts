@@ -89,7 +89,9 @@ jobs:
       # `--build-info` emits the solc standard-json output that crytic-compile
       # reads under `--ignore-compile`.
       - run: forge build --build-info
-      - uses: crytic/slither-action@v0.4.0
+      # v0.4.2 is the first release whose image is Python 3.10; the 3.9 images
+      # in v0.4.0/v0.4.1 cannot install slither 0.11.5 (Requires-Python >=3.10).
+      - uses: crytic/slither-action@v0.4.2
         with:
           target: .
           slither-config: slither.config.json
