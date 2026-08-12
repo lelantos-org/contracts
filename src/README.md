@@ -1,0 +1,481 @@
+# Contract Reference
+
+Source-level documentation for the Lelantos Multi-Asset Shielded Pool (MASP). This document describes what each contract in `src/` does, how they compose, and the exact sequence of checks each entry point performs.
+
+For build instructions, gas figures, and deployed sizes, see the [repository README](../README.md).
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Module Map](#module-map)
+- [Core State](#core-state)
+  - [CommitmentTree](#commitmenttree)
+  - [NullifierSet](#nullifierset)
+  - [AssetRegistry](#assetregistry)
+  - [FeeConfig](#feeconfig)
+- [Proof Plumbing](#proof-plumbing)
+  - [SnarkCompression](#snarkcompression)
+  - [PubInputs](#pubinputs)
+  - [AuxValidation and BabyJubJub](#auxvalidation-and-babyjubjub)
+- [Flows](#flows)
+  - [Shield: intent escrow and batch flush](#shield-intent-escrow-and-batch-flush)
+  - [Spend: transfer and withdraw](#spend-transfer-and-withdraw)
+  - [Fee accounting](#fee-accounting)
+- [Shielded Swap](#shielded-swap)
+- [Constants](#constants)
+
+---
+
+## Overview
+
+The pool holds ERC-20 balances on behalf of a set of shielded *notes*. A note is a commitment `cm` inserted as a leaf of a quaternary Merkle tree; spending it publishes a nullifier `nf` and produces new commitments. Ownership, value conservation, and Merkle membership are proven in zero knowledge — the chain sees only commitments, nullifiers, and the public deposit/withdraw legs.
+
+Two design choices drive most of the contract structure:
+
+1. **Merkle insertion is proven, not computed.** The contract never hashes a Merkle path. A relayer computes the new root off-chain and submits a `tree_update_batch` proof; the contract verifies it and swaps the root. Per-transaction cost is therefore flat in tree depth.
+2. **Public inputs are compressed before pairing.** Both circuits expose dozens of logical public signals. Each set is folded into a single pair `(y, z)` via a Fiat–Shamir challenge and a Horner evaluation, so every `verifyProof` call takes exactly two field elements regardless of the logical signal count.
+
+Consequently every spend verifies **two** independent Groth16 proofs, and the contract — not the circuits — is what cross-binds them.
+
+```mermaid
+flowchart LR
+  subgraph OFFCHAIN["Off-chain"]
+    W["Wallet<br/>note secrets, FMD clues"]
+    R["Relayer<br/>tree witness, batching"]
+  end
+
+  subgraph ONCHAIN["On-chain"]
+    M["MASP"]
+    V1["Groth16Verifier<br/>transact 3x3"]
+    V2["TreeUpdateBatch<br/>Groth16Verifier"]
+    P2["Permit2"]
+    T["ERC-20 / Wrapped native"]
+  end
+
+  W -->|"proof + public inputs"| R
+  R -->|"tx"| M
+  M --> V1
+  M --> V2
+  M --> P2
+  M --> T
+  M -.->|"events: IntentEscrowed,<br/>NotePayload, RootAdvanced"| W
+```
+
+---
+
+## Module Map
+
+`MASP` is a single deployed contract composed by inheritance from four abstract state modules, plus three stateless libraries.
+
+```mermaid
+classDiagram
+  class MASP {
+    +mapping escrowed
+    +IVerifier VERIFIER
+    +IVerifier TREE_UPDATE_BATCH_VERIFIER
+    +submitIntent()
+    +submitIntentAuthorized()
+    +submitIntentNative()
+    +flushBatch()
+    +cancelIntent()
+    +transfer()
+    +withdraw()
+    +withdrawNative()
+  }
+  class CommitmentTree {
+    <<abstract>>
+    +bytes32 roots
+    +uint64 committedCount
+    +mapping isKnownRoot
+    #_advanceRoot()
+  }
+  class NullifierSet {
+    <<abstract>>
+    -mapping _spentBuckets
+    +spent()
+    #_consumeNullifier()
+  }
+  class AssetRegistry {
+    <<abstract>>
+    -mapping _assets
+    +addAsset()
+    +setAssetDisabled()
+  }
+  class FeeConfig {
+    <<abstract>>
+    +uint16 feeBps
+    +address treasury
+    +mapping accruedFee
+    +sweep()
+    #_accrueFee()
+  }
+  class PubInputs {
+    <<library>>
+    +compress()
+    +compressRef()
+    +auxDigest()
+  }
+  class AuxValidation {
+    <<library>>
+    +validate()
+  }
+  class SnarkCompression {
+    <<library>>
+    +evaluatePolyAt()
+  }
+  class BabyJubJub {
+    <<library>>
+    +isOnCurve()
+    +isLowOrder()
+  }
+
+  MASP --|> CommitmentTree
+  MASP --|> NullifierSet
+  MASP --|> AssetRegistry
+  MASP --|> FeeConfig
+  MASP ..> PubInputs
+  MASP ..> AuxValidation
+  PubInputs ..> SnarkCompression
+  AuxValidation ..> BabyJubJub
+```
+
+| File | Role |
+| --- | --- |
+| [MASP.sol](MASP.sol) | Pool entry points, escrow ledger, proof cross-binding, token movement. |
+| [CommitmentTree.sol](CommitmentTree.sol) | Lazy-root quaternary tree and 64-slot known-root ring buffer. |
+| [NullifierSet.sol](NullifierSet.sol) | Packed-bitmap spent-nullifier set. |
+| [AssetRegistry.sol](AssetRegistry.sol) | Owner-managed `assetId → (ERC-20, scale)` mapping. |
+| [FeeConfig.sol](FeeConfig.sol) | Fee basis points, treasury, per-token accrual, permissionless `sweep`. |
+| [libs/PubInputs.sol](libs/PubInputs.sol) | Public-input structs and Fiat–Shamir compression (calldata fast path + memory reference path). |
+| [libs/AuxValidation.sol](libs/AuxValidation.sol) | Bounds and curve checks on per-output FMD payloads. |
+| [SnarkCompression.sol](SnarkCompression.sol) | Horner evaluation over the coefficient vector, mod the BN254 scalar field. |
+| [BabyJubJub.sol](BabyJubJub.sol) | On-curve and prime-order-subgroup checks on the twisted Edwards curve. |
+| [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `transact_3x3` (`Groth16Verifier`). |
+| [verifiers/TreeUpdateBatchVerifier.sol](verifiers/TreeUpdateBatchVerifier.sol) | snarkJS codegen for `tree_update_batch` (`TreeUpdateBatchGroth16Verifier`). |
+| [interfaces/](interfaces/) | `IVerifier`, `IWrappedNative`. |
+| [swap/](swap/) | Atomic unshield → swap → re-shield wrapper and Uniswap v3 adapter. |
+
+The two files under `verifiers/` are generated output and carry `SPDX-License-Identifier: GPL-3.0` with their own upstream terms; everything else is MIT.
+
+---
+
+## Core State
+
+### CommitmentTree
+
+A depth-10, arity-4 tree holding up to `4^10 = 1_048_576` leaves. The contract stores no internal nodes — only a ring buffer of the last 64 roots, a membership map, and the number of leaves baked into the latest root.
+
+`_advanceRoot` is the sole mutator, and its callers must already have verified a tree-update proof and that `oldRoot == currentRoot()`.
+
+```mermaid
+flowchart TD
+  A["_advanceRoot(newRoot, inserted, oldRoot)"] --> B["newIdx = (rootIndex + 1) mod 64"]
+  B --> C{"evicted slot nonzero<br/>and != newRoot?"}
+  C -->|yes| D["isKnownRoot[evicted] = false"]
+  C -->|no| E["keep evicted marked known"]
+  D --> F["roots[newIdx] = newRoot<br/>rootIndex = newIdx<br/>isKnownRoot[newRoot] = true"]
+  E --> F
+  F --> G["committedCount += inserted"]
+  G --> H["emit RootAdvanced"]
+```
+
+The `evicted != newRoot` guard matters: if the same root value occupies two slots in the buffer, clearing on eviction would mark a still-live root unknown and invalidate proofs built against it.
+
+Spends prove membership against `pi.merkleRoot`, which need only be in `isKnownRoot` — any of the last 64 roots. The *update* leg is stricter: `tpi.oldRoot` must equal `currentRoot()` exactly, and `tpi.startIndex` must equal `committedCount`. Insertions therefore serialize, while proof generation tolerates a 64-root lag.
+
+```mermaid
+flowchart LR
+  subgraph RING["roots[64] ring buffer"]
+    direction LR
+    R0["r_n-2"] --> R1["r_n-1"] --> R2["r_n (currentRoot)"] --> R3["next slot<br/>(evicted on write)"]
+  end
+  S["Spend proof"] -.->|"membership vs any<br/>isKnownRoot entry"| R0
+  U["Tree update"] -->|"oldRoot must equal"| R2
+  U -->|"writes"| R3
+```
+
+### NullifierSet
+
+Spent nullifiers are stored as a packed bitmap: `_spentBuckets[nf >> 8]` holds 256 flags keyed by `nf & 0xff`. A spend consumes `TRANSACT_IN = 3` nullifiers; a repeat within the same word costs no extra storage slot.
+
+Two distinct guards apply:
+
+- `DuplicateNullifier` — raised in `_validateRequest` by a pairwise comparison across all three input slots, blocking the same note being spent twice *within one transaction*.
+- `DoubleSpend` — raised in `_consumeNullifier` when the bit is already set, blocking a spend *across transactions*.
+
+The pairwise loop is required rather than a single adjacent comparison: at `N_IN = 3`, checking only `[0] != [1]` would leave the third slot free to repeat either.
+
+### AssetRegistry
+
+Maps a circuit-visible `uint64 publicAssetId` to an ERC-20 address and a `scale` factor converting circuit units to token base units. The registry is **add-only**: `addAsset` reverts on a duplicate id, and there is no removal path. An asset may be *disabled*, which blocks new deposits (`_validateIntent`) while leaving existing notes and escrows spendable so funds can always exit.
+
+`scale` is bounded to `1e18` and must be nonzero. The hot path uses two lookups deliberately: `_getAsset` reads both slots, while `_requireAssetKnown` — used by `transfer`, which moves no tokens — touches only slot 0 and skips the cold `SLOAD` for `scale`.
+
+### FeeConfig
+
+Owner sets `feeBps` (capped at `MAX_FEE_BPS = 2000`, i.e. 20%) and `treasury`. Fees accumulate per token in `accruedFee` and are drained by `sweep`, which is permissionless — anyone may call it, but the destination is owner-pinned to `treasury`.
+
+`FeeConfig` also supplies the `ReentrancyGuardTransient` base used by every state-mutating entry point.
+
+The critical invariant: **escrowed principal is never counted as accrued fee.** A deposit locks `inAmt + fee` in the pool without touching `accruedFee`; the fee is accrued only when `flushBatch` commits the leaf; `cancelIntent` refunds principal and fee together. A sweep can therefore never drain a depositor's refundable balance.
+
+---
+
+## Proof Plumbing
+
+### SnarkCompression
+
+`evaluatePolyAt(coefficients, z)` evaluates the coefficient vector as a polynomial at `z` by Horner's method over the BN254 scalar field `R`. Soundness rests on Schwartz–Zippel: because `z` is drawn by Fiat–Shamir *after* the prover has committed to the coefficients, a prover substituting a different public-input vector succeeds with probability at most `deg(p) / R`.
+
+The inner loop is unrolled by two and reverts `CoefficientOutOfField` in place on any word `>= R`. Both operands of a pair are range-checked before either is folded in, so an out-of-field coefficient can never influence the result.
+
+### PubInputs
+
+Defines the three public-input structs and the compression that turns each into the `(y, z)` pair the verifiers consume.
+
+| Struct | Circuit | Coefficients |
+| --- | --- | --- |
+| `Transact` | `transact_3x3` | 42 = 32 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest |
+| `TreeUpdateBatch` | `tree_update_batch` | 52 = `4 + 6 × MAX_L_BATCH` |
+| `DepositIntent` | — (Permit2 witness only) | n/a |
+
+```mermaid
+flowchart TD
+  A["Transact calldata<br/>(32 static words)"] -->|calldatacopy| B["memory image:<br/>0x20 || n || coefficients"]
+  A2["aux[0..2]:<br/>clueRx, clueRy, clueBits"] --> B
+  A3["auxDigest(aux)<br/>keccak of dynamic tuple[] mod R"] --> B
+  B --> C["re-clean sub-word members<br/>(mask uint64 / address)"]
+  C --> D["z = keccak256(image) mod R"]
+  D --> E["y = HornerEval(coefficients, z)"]
+  E --> F["verifyProof(a, b, c, [y, z])"]
+```
+
+Three details are load-bearing:
+
+- **Static layout.** Both structs are fully static, so their ABI calldata block is word-for-word identical to the coefficient vector. Compression is a single `calldatacopy` plus a few masks — no ABI decode, no second copy.
+- **Re-cleaning.** Raw calldata may carry dirty high bits that a typed member read would have masked. Each sub-word field (`uint64`, `address`, `uint8`) is masked in place before hashing, so a caller cannot smuggle a different preimage past a value the contract already validated.
+- **The aux digest.** The per-output clue fields enter the coefficient vector individually, but `ephPub` and `ciphertext` would otherwise be unconstrained — a relayer could corrupt the payload beyond recovery while leaving the proof valid and the recipient's FMD scan still flagging the note. The final coefficient binds the whole aux array, recomputed on-chain rather than read from calldata. It is encoded as a *dynamic* `tuple[]` so the array length joins the preimage and arrays of different arity cannot collide.
+
+`compressRef` mirrors each layout as a straight-line cursor walk, implemented independently of the assembly fast path. It is never used on-chain; the test suite fuzzes `compressRef == compress` to detect drift between the two.
+
+> **Circuit coupling.** The coefficient order here must match the circuit-side PolyEval order byte-for-byte. Changing `TRANSACT_IN`, `TRANSACT_OUT`, or `MAX_L_BATCH` requires a new circuit, a new ceremony, and a new verifier.
+
+### AuxValidation and BabyJubJub
+
+Each output note carries an FMD (fuzzy message detection) payload: a clue point `R = [r]·G`, an ephemeral public key `E = [e]·G`, and a ciphertext prefixed by two bytes of clue bits.
+
+`AuxValidation.validate` enforces:
+
+- `2 ≤ len(ciphertext) ≤ 256`
+- the 2-byte prefix fits the 14-bit clue mask `0x3FFF`
+- `R` and `E` are on the Baby-Jubjub curve
+- neither is a low-order point
+
+`BabyJubJub.isLowOrder` performs three projective doublings and tests whether `[8]P` is the identity. The doubling formula is complete on Baby-Jubjub (`a` square, `d` non-square), so `Z` stays nonzero for any on-curve input. Rejecting cofactor-order points blocks small-subgroup attacks against the clue mechanism; it is defense-in-depth backing the equivalent in-circuit constraint.
+
+---
+
+## Flows
+
+### Shield: intent escrow and batch flush
+
+Depositing is split in two. Funds are escrowed with **no SNARK at submit time**, and a relayer later inserts up to eight escrowed intents into the tree under a single tree-update proof.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Pending: submitIntent variants
+  Pending --> Committed: flushBatch, digest matches, proof verifies
+  Pending --> Refunded: cancelIntent, after cancelDelay
+  Committed --> [*]: leaf in tree, fee accrued
+  Refunded --> [*]: inAmt plus fee returned to payer
+
+  note right of Pending
+    escrowed id = keccak of
+    address(this), chainId, id, cm, cvDep,
+    assetId, publicIn, feeBpsAtSubmit,
+    payer, submittedAt
+  end note
+```
+
+Three submit variants differ only in how funds arrive:
+
+| Entry point | Funding mechanism | Authorization |
+| --- | --- | --- |
+| `submitIntent` | Permit2 `permitWitnessTransferFrom` | Per-tx signature; witness binds `keccak256(abi.encode(d, aux))` |
+| `submitIntentAuthorized` | Permit2 `AllowanceTransfer.transferFrom` | Pre-signed `PermitSingle`; requires `msg.sender == d.payer` |
+| `submitIntentNative` | `msg.value`, wrapped via `IWrappedNative.deposit` | Funds arrive with the call; requires `msg.sender == d.payer` |
+
+For `submitIntent`, the signed `maxTotal` caps `inAmt + fee`, bounding any fee increase between signing and execution.
+
+The escrow ledger stores only a `bytes32` digest per id. The full preimage lives in the `IntentEscrowed` event; flush and cancel resupply it as calldata, and a single keccak equality binds every submit-time field — asset, amount, commitment, fee rate, payer, and block. A nonzero digest is the presence sentinel, and `delete` on drain is what rejects a repeated id within one batch.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as Depositor
+  participant P2 as Permit2
+  participant M as MASP
+  participant Rl as Relayer
+  participant TV as TreeUpdateBatchVerifier
+
+  U->>M: submitIntent(d, sig, aux)
+  M->>M: _validateIntent (chainId, amount bounds,<br/>asset enabled, aux curve checks)
+  M->>P2: permitWitnessTransferFrom(inAmt + fee)
+  P2-->>M: tokens
+  M->>M: escrowed[id] = digest
+  M-->>Rl: emit IntentEscrowed(id, ..., cvDep, rcv, aux)
+
+  Note over Rl: collect up to MAX_L_BATCH intents,<br/>build tree witness, prove tree_update_batch
+
+  Rl->>M: flushBatch(ids, meta, tp, tpi)
+  M->>M: header checks: n in [1,8], actualCount == n,<br/>oldRoot == currentRoot, startIndex == committedCount
+  loop each slot i
+    M->>M: _drainIntent: digest match, isDeposit[i] == 1,<br/>accumulate fee per token, delete escrowed[id]
+  end
+  M->>M: _accrueFee once per unique token
+  M->>TV: verifyProof(tp, compress(tpi))
+  TV-->>M: true
+  M->>M: _advanceRoot(newRoot, n, oldRoot)
+```
+
+Each deposit occupies exactly one leaf, so slot `i` is leaf `i` and a batch advances the tree by exactly `n` leaves — odd `n` included. The per-leaf Pedersen commitment `cvDep` pins `(asset, value)` directly, so there is no padding leaf whose split would be free.
+
+`cancelIntent` is permissionless but pays only the digest-bound `payer`, and only after `cancelDelay` blocks (default 7200, owner-tunable within `[3600, 50400]`). Because `submittedAt` is part of the digest, the delay check runs on a value the caller cannot forge. The escrow slot is cleared before the transfer (checks-effects-interactions).
+
+### Spend: transfer and withdraw
+
+All three spend entry points share the same skeleton and differ only in their public-leg constraints and settlement:
+
+| Entry point | `publicIn` | `publicOut` | Settlement |
+| --- | --- | --- | --- |
+| `transfer` | must be 0 | must be 0 | none — registry existence check only |
+| `withdraw` | must be 0 | must be nonzero | `safeTransfer(recipient, outAmt - fee)` |
+| `withdrawNative` | must be 0 | must be nonzero | unwrap, then raw native call; asset must be the wrapped-native token |
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Caller (relayer)
+  participant M as MASP
+  participant V as Groth16Verifier
+  participant TV as TreeUpdateBatchVerifier
+  participant T as ERC-20
+
+  C->>M: withdraw(p, pi, tp, tpi, aux)
+  M->>M: publicIn == 0, publicOut != 0
+  M->>M: _validateRequest
+  Note right of M: chainId, nonzero recipient/payer,<br/>relayer == msg.sender,<br/>pairwise nullifier distinctness,<br/>pi.outCm == tpi.cms,<br/>pi.outCvDep == tpi.cvDeps,<br/>tpi.isDeposit all zero,<br/>aux validation,<br/>isKnownRoot[pi.merkleRoot],<br/>tpi.oldRoot == currentRoot,<br/>tpi.startIndex == committedCount
+  M->>M: _getAsset(publicAssetId)
+  M->>V: verifyProof(p, compress(pi, aux))
+  V-->>M: true
+  M->>TV: verifyProof(tp, compress(tpi))
+  TV-->>M: true
+  M->>M: _consumeNullifier x3
+  M->>M: _advanceRoot(newRoot, 3, oldRoot)
+  M->>M: accrue fee on outAmt
+  M->>T: safeTransfer(recipient, outAmt - fee)
+  M-->>C: emit AssetMoved, NotePayload x3
+```
+
+**`_validateRequest` is the security centre of the spend path.** The two Groth16 proofs are independent; nothing in either circuit relates one to the other. The contract is what ties them together:
+
+- `pi.outCm[k] == tpi.cms[k]` — the leaves being inserted are exactly the notes the spend created.
+- `pi.outCvDep[k] == tpi.cvDeps[k]` — their value commitments agree.
+- `tpi.actualCount == TRANSACT_OUT_LEAVES` — the batch commits precisely the spend's output leaves, no more.
+- `tpi.isDeposit[k] == 0` for every output leaf. The batch circuit cannot distinguish a spend leaf from a deposit leaf, and deposit binding is per-leaf (`cv_dep == leaf_public_in·V^leaf_asset + rcv·H`). A spend output could satisfy that relation by declaring its own `(asset, value)` — which would publish the note's opening in the compressed public inputs. This must be pinned on-chain.
+- `pi.relayer == msg.sender` — the proof names its submitter, so it cannot be lifted from the mempool and replayed by a third party.
+
+Token movement binds to `payer` and `recipient`, both public inputs, rather than to `msg.sender`. Any relayer may therefore submit on a user's behalf without gaining control of the funds.
+
+### Fee accounting
+
+```mermaid
+flowchart TD
+  subgraph SHIELD["Shield leg"]
+    S1["submitIntent*<br/>pull inAmt + fee"] --> S2["escrowed[id] = digest<br/>(no accrual)"]
+    S2 --> S3{"outcome"}
+    S3 -->|flushBatch| S4["_accrueFee(token, fee)<br/>once per unique token"]
+    S3 -->|cancelIntent| S5["refund inAmt + fee<br/>to payer"]
+  end
+  subgraph UNSHIELD["Unshield leg"]
+    W1["withdraw / withdrawNative<br/>outAmt = publicOut * scale"] --> W2["fee = outAmt * feeBps / 10000"]
+    W2 --> W3["_accrueFee(token, fee)"]
+    W2 --> W4["send outAmt - fee<br/>to recipient"]
+  end
+  S4 --> A["accruedFee[token]"]
+  W3 --> A
+  A -->|"sweep(token), permissionless"| TR["treasury"]
+```
+
+Deposit fees use the `feeBps` snapshot taken at submit time and carried in the digest; withdraw fees use the live `feeBps`. `flushBatch` accumulates fees into a fixed `MAX_L_BATCH`-wide array keyed by token address and writes one `SSTORE` per *unique* token, rather than one per intent.
+
+---
+
+## Shielded Swap
+
+`SwapWrapper` composes an unshield, a venue swap, and a re-shield into one atomic transaction, so no intermediate balance is ever exposed to an observer as a user-held position.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User (pi_w.payer)
+  participant SW as SwapWrapper
+  participant M as MASP
+  participant AD as UniV3Adapter
+  participant RT as SwapRouter02
+  participant TR as Treasury
+
+  U->>SW: swap(SwapArgs)
+  SW->>SW: _validate: adapter allowlisted, deadline,<br/>pi_w.recipient == wrapper,<br/>pi_w.relayer == wrapper,<br/>intent_d.payer == wrapper,<br/>msg.sender == pi_w.payer
+  SW->>SW: snapshot balances of tokenIn / tokenOut
+  SW->>M: withdraw(p_w, pi_w, tp_w, tpi_w, aux_w)
+  M-->>SW: tokenIn (net of MASP fee)
+  SW->>SW: received = balance delta, revert if below amountIn
+  SW->>AD: transfer received, then swap(...)
+  AD->>RT: exactInputSingle / exactInput
+  RT-->>SW: actualOut of tokenOut
+  SW->>SW: revert if actualOut below minOut
+  SW->>M: submitIntentAuthorized(intent_d, aux_d)
+  M-->>SW: intentId (pulled via Permit2)
+  SW->>SW: check minOut, pulled, actualOut ordering
+  SW->>TR: transfer dust = actualOut - pulled
+  SW->>SW: leftover invariant: both balances<br/>back to snapshot
+  SW-->>U: (actualOut, intentId)
+```
+
+Every amount is measured as a **balance delta across an external call**, because neither the MASP withdraw fee nor the size of its escrow pull is visible to the wrapper. Four properties make that measurement safe:
+
+1. `nonReentrant` on both the wrapper and the MASP entry points.
+2. The adapter is owner-allowlisted, so the callee is not attacker-chosen.
+3. `minOut ≤ pulled ≤ actualOut` constrains `intent_d` to be denominated in `tokenOut` — any other asset yields a zero delta — and to carry at least the requested output rather than routing it to the treasury as dust.
+4. A closing leftover invariant reverts on any net drift in either token, measured against the pre-swap snapshot rather than against zero, so unrelated donations do not brick the swap.
+
+The `msg.sender == pi_w.payer` check is what stops a mempool replay: `swap` is permissionless and `intent_d` — which names the output note's commitment and recipient — is unauthenticated calldata. `payer` is a public input of the withdraw proof carrying no other constraint on the spend path, so it serves as the name of the address permitted to drive the swap.
+
+`UniV3Adapter` is a thin pull-then-push adapter: the wrapper pre-transfers `amountIn`, the adapter approves the router, swaps, resets the approval to zero (keeping tokens such as USDT, which reject non-zero-to-non-zero approval changes, usable on the next call), and returns the output to `msg.sender`. A 64-byte `route` is decoded as `(uint24 fee, uint160 sqrtPriceLimitX96)` and routed single-hop; any other length is treated as a packed multi-hop path. `swap` is restricted to the pinned `WRAPPER`, without which any caller could drain donated tokens by routing output to themselves.
+
+---
+
+## Constants
+
+| Constant | Value | Location |
+| --- | --- | --- |
+| `DEPTH` | 10 | `CommitmentTree` |
+| `ARITY` | 4 | `CommitmentTree` |
+| `MAX_LEAVES` | 1 048 576 (`4^10`) | `CommitmentTree` |
+| `ROOT_HISTORY` | 64 | `CommitmentTree` |
+| `TRANSACT_IN` / `TRANSACT_OUT` | 3 / 3 | `PubInputs` |
+| `MAX_L_BATCH` | 8 | `PubInputs` |
+| `TRANSACT_COEFFS` | 42 | `PubInputs` |
+| batch coefficients | 52 (`4 + 6 × 8`) | `PubInputs` |
+| `MAX_FEE_BPS` | 2 000 (20%) | `FeeConfig` |
+| `BPS_DENOMINATOR` | 10 000 | `FeeConfig` |
+| `CANCEL_DELAY_DEFAULT` | 7 200 blocks (~24 h at 12 s) | `MASP` |
+| `CANCEL_DELAY_MIN` / `MAX` | 3 600 / 50 400 blocks | `MASP` |
+| `MAX_CIPHERTEXT_LEN` | 256 bytes | `AuxValidation` |
+| `CLUE_BITS_MASK` | `0x3FFF` (14 bits) | `AuxValidation` |
+| `R` (BN254 scalar field) | `21888242871839275222246405745257275088548364400416034343698204186575808495617` | `SnarkCompression` |
+| Baby-Jubjub `a` / `d` | 168 700 / 168 696 | `BabyJubJub` |
+| max `scale` | `1e18` | `AssetRegistry` |

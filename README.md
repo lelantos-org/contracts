@@ -24,18 +24,6 @@ Every spend verifies two Groth16 proofs: a transaction proof (`transact_2x2`) an
 | `swap/SwapWrapper.sol` | Atomic unshield to swap to re-shield across a MASP pair. |
 | `swap/UniV3Adapter.sol` | Uniswap SwapRouter02 adapter for `SwapWrapper`. |
 
-## Entry Points
-
-| Function | Behavior |
-| --- | --- |
-| `submitIntent` / `submitIntentAuthorized` / `submitIntentNative` | Escrow deposit funds. No proof verified at submission. |
-| `flushBatch` | Insert up to `MAX_N_BATCH = 8` escrowed intents under one tree-update proof. |
-| `cancelIntent` | Refund the digest-bound payer after `cancelDelay`. |
-| `transfer` / `withdraw` / `withdrawNative` | Spend notes, verifying both proofs. |
-| `sweep` | Drain accrued fees to the treasury. |
-
-Escrowed funds are never counted as accrued fees: a deposit locks `inAmt + fee` without touching any fee map, `flushBatch` accrues the fee on insertion, and `cancelIntent` refunds principal and fee together.
-
 ## Gas
 
 Each Groth16 verifier costs 195 026 per `verifyProof` call, independent of the logical public-input count. End-to-end for a shielded transfer:
@@ -73,10 +61,6 @@ Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 | `UniV3Adapter` | 2 073 | 22 503 |
 | `Groth16Verifier` | 1 463 | 23 113 |
 | `TreeUpdateBatchGroth16Verifier` | 1 463 | 23 113 |
-
-## Circuit Coupling
-
-The public-input layouts in `libs/PubInputs.sol` must match the PolyEval coefficient order used by the circuits in `../circuits`. Both structs are fully static, so their calldata block is word-for-word identical to the coefficient vector; that equivalence is pinned against independent reference implementations in the test suite.
 
 ## Dependencies
 
