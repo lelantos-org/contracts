@@ -9,7 +9,6 @@
       "nIn": 3,
       "nOut": 3
     },
-    "deployed": false,
     "coeffCount": 42,
     "layout": [
       "merkleRoot",

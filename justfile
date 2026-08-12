@@ -1,23 +1,5 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-# === paths ===
-
-# Sibling circuits/build/, holding locally-rebuilt tree_update_batch
-# artifacts. Override for non-sibling layouts:
-#   CIRCUITS_BUILD=/abs/path just gen-proof-deposit-batch
-
-CIRCUITS_BUILD := env("CIRCUITS_BUILD", justfile_directory() / "../circuits/build")
-
-# 2x2 artifacts, from the published @lelantos-org/circuits tarball.
-
-TX_CIRCUITS_BUILD := justfile_directory() / "node_modules/@lelantos-org/circuits/build"
-
-# tree_update_batch artifacts as fetched from an npm release by
-# `just fetch-circuits` in e2e/. Override if that directory lives elsewhere.
-
-TUB_CIRCUITS_BUILD := env("TUB_CIRCUITS_BUILD", justfile_directory() / "../../e2e/circuits")
-BATCH_ZKEY := "tree_update_batch_final.zkey"
-
 # === deploy ===
 
 # Deploy profile keeps via_ir but lowers optimizer_runs so MASP fits under
@@ -37,11 +19,6 @@ ANVIL_FLAGS := "--rpc-url " + ANVIL_RPC + " --private-key " + ANVIL_KEY + " --br
 
 default:
     @just --list
-
-# Fail with an actionable message when a prerequisite artifact is missing.
-[private]
-_require-file path hint:
-    @test -f "{{ path }}" || { echo "missing {{ path }} — {{ hint }}" >&2; exit 1; }
 
 # === build ===
 
@@ -140,31 +117,16 @@ ci: version build test fmt-check size
 
 # === fixtures ===
 
-# Regenerate fixtures consumed by DeployTest.s.sol + tests.
+# Regenerate fixtures consumed by DeployTest.s.sol + tests. Proof fixtures
+# are no longer generated here — see test/fixtures/README.md.
 [doc('Regenerate every test fixture')]
 [group('fixtures')]
-gen-fixtures: gen-asset-registry gen-proof-deposit-batch
+gen-fixtures: gen-asset-registry
 
 [doc('Regenerate test/fixtures/asset_registry.json')]
 [group('fixtures')]
 gen-asset-registry:
     npm run --silent gen-asset-registry
-
-# Proves against the locally-rebuilt batch circuit (CIRCUITS_BUILD).
-[doc('Regenerate deposit-batch proof from a local circuits build')]
-[group('fixtures')]
-gen-proof-deposit-batch: (_require-file CIRCUITS_BUILD / BATCH_ZKEY "run 'cd ../circuits && just rebuild-batch'")
-    CIRCUITS_BUILD="{{ CIRCUITS_BUILD }}" npm run --silent gen-proof-deposit-batch
-
-# Regenerate proof_transfer.json against *released* zkeys — 2x2 from
-# TX_CIRCUITS_BUILD, tree_update_batch from TUB_CIRCUITS_BUILD.
-[doc('Regenerate proof_transfer.json from released zkeys')]
-[group('fixtures')]
-gen-proof-transfer: (_require-file TUB_CIRCUITS_BUILD / BATCH_ZKEY "run 'just fetch-circuits' in e2e/")
-    CIRCUITS_BUILD="{{ CIRCUITS_BUILD }}" \
-      TX_CIRCUITS_BUILD="{{ TX_CIRCUITS_BUILD }}" \
-      TUB_CIRCUITS_BUILD="{{ TUB_CIRCUITS_BUILD }}" \
-      npm run --silent gen-proof-transfer
 
 # === deploy: anvil ===
 
