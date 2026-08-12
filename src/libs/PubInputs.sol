@@ -241,7 +241,7 @@ library PubInputs {
         returns (uint256[2] memory)
     {
         uint256[] memory s = new uint256[](TRANSACT_COEFFS);
-        uint256 i;
+        uint256 i = 0;
         s[i++] = uint256(pi.merkleRoot);
         for (uint256 k; k < TRANSACT_IN; ++k) {
             s[i++] = uint256(pi.nullifier[k]);

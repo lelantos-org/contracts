@@ -95,3 +95,9 @@ jobs:
           slither-config: slither.config.json
           ignore-compile: true
           fail-on: medium
+          # Pinned deliberately. Unpinned, the action takes the latest release,
+          # so a new detector lands as a CI failure on an unrelated PR: 0.11.5
+          # added `reentrancy-balance` (high impact), which fires on every
+          # balance-delta measurement in SwapWrapper. Bump this on purpose,
+          # with the findings reviewed, rather than discovering them mid-PR.
+          slither-version: 0.11.5

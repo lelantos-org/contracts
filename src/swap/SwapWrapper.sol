@@ -133,6 +133,15 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     /// Execute the three-leg shielded swap atomically.
     /// @return actualOut Adapter-reported output (≥ minOut, asserted).
     /// @return intentId  MASP-assigned id for the deposit intent.
+    ///
+    /// Every amount here is measured as a balance delta across an external
+    /// call, because neither MASP's withdraw fee nor its escrow pull is
+    /// visible to the wrapper. That shape is what `reentrancy-balance` reports;
+    /// it cannot be restructured away. Re-entry is blocked on both sides —
+    /// `nonReentrant` here and on the MASP entry points — the adapter is
+    /// owner-allowlisted, and the closing leftover invariant reverts on any net
+    /// drift in either token, so a stale snapshot cannot settle silently.
+    // slither-disable-next-line reentrancy-balance
     function swap(SwapArgs calldata a) external nonReentrant returns (uint256 actualOut, uint256 intentId) {
         _validate(a);
 
@@ -205,6 +214,10 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     /// balance delta because the fee total is not visible to the wrapper. The
     /// leftover invariant is enforced by the caller against the pre-swap
     /// balance snapshots.
+    ///
+    /// Reached only from `swap`, which holds the reentrancy guard; see there
+    /// for why the balance-delta measurement is sound.
+    // slither-disable-next-line reentrancy-balance
     function _escrowAndSettle(SwapArgs calldata a, uint256 actualOut) private returns (uint256 intentId, uint256 dust) {
         IERC20 outToken = IERC20(a.tokenOut);
 

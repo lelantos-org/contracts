@@ -482,6 +482,12 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         uint256 nUnique
     ) private returns (uint256) {
         bytes32 stored = escrowed[id];
+        // Exact zero is the sentinel for "no pending intent". The slot holds a
+        // keccak digest, so zero is unreachable for a live escrow: this is a
+        // presence test, not arithmetic on an attacker-movable quantity.
+        // `flushBatch` relies on `delete` restoring it, which is what rejects a
+        // repeated id within one batch.
+        // slither-disable-next-line incorrect-equality
         if (stored == bytes32(0)) revert IntentNotPending(id);
         if (tpi.isDeposit[i] != 1) revert BadDepositMode();
         if (tpi.leafPublicIn[i] > type(uint48).max) revert PublicInTooLarge();
