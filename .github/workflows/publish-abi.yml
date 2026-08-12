@@ -1,11 +1,5 @@
 name: publish-abi
 
-# Tag-driven release of `@lelantos-org/contracts` (ABIs only).
-# Bump packages/abi/package.json, then push a tag `abi-v<version>`:
-#   git tag abi-v0.1.0 && git push origin abi-v0.1.0
-# ABIs are regenerated from source here — never from a committed artifact —
-# so a published tarball always matches the contracts at that tag.
-
 on:
   push:
     tags: ["v*"]
@@ -37,15 +31,25 @@ jobs:
           registry-url: https://npm.pkg.github.com
           scope: "@lelantos-org"
           always-auth: true
-
+          
       - name: Confirm tag version matches package.json
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          tag="${GITHUB_REF#refs/tags/abi-v}"
+          set -euo pipefail
+          case "$TAG" in
+            v*) version="${TAG#v}" ;;
+            *)
+              echo "::error::tag '$TAG' is not of the form v<version>"
+              exit 1
+              ;;
+          esac
           pkg=$(node -p "require('./packages/abi/package.json').version")
-          if [ "$tag" != "$pkg" ]; then
-            echo "::error::tag abi-v$tag does not match packages/abi/package.json version $pkg"
+          if [ "$version" != "$pkg" ]; then
+            echo "::error::tag '$TAG' implies version $version, but packages/abi/package.json is $pkg"
             exit 1
           fi
+          echo "tag '$TAG' matches packages/abi/package.json version $pkg"
 
       - uses: foundry-rs/foundry-toolchain@v1
         with:
