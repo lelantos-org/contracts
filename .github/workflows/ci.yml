@@ -17,7 +17,7 @@ env:
 jobs:
   test:
     name: Build & test
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,7 +31,7 @@ jobs:
 
   fmt:
     name: Format check
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
@@ -42,7 +42,7 @@ jobs:
 
   size:
     name: Contract size (EIP-170)
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,7 +55,7 @@ jobs:
 
   abi:
     name: ABI package
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,7 +73,7 @@ jobs:
 
   slither:
     name: Slither
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
         with:
