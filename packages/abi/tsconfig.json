@@ -5,12 +5,14 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "declaration": true,
-    "declarationMap": true,
+    "declarationMap": false,
     "sourceMap": false,
     "removeComments": false,
     "outDir": "dist",
     "rootDir": "src",
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }

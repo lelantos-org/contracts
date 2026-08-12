@@ -10,6 +10,10 @@
 //   src/abis/<Contract>.ts   — `as const` ABI, for viem/wagmi type inference
 //   src/index.ts             — barrel of named `<contract>Abi` exports
 //   json/<Contract>.json     — plain ABI array, for non-TS consumers
+//
+// `dist/` is wiped here too. tsc does not prune its own outDir, so a renamed or
+// dropped contract would otherwise leave a stale module behind — and the `./*`
+// subpath export would keep it importable and publishable.
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -70,7 +74,8 @@ function loadAbi(entry) {
 const srcDir = join(pkgDir, "src");
 const abisDir = join(srcDir, "abis");
 const jsonDir = join(pkgDir, "json");
-for (const dir of [srcDir, jsonDir]) rmSync(dir, { recursive: true, force: true });
+const distDir = join(pkgDir, "dist");
+for (const dir of [srcDir, jsonDir, distDir]) rmSync(dir, { recursive: true, force: true });
 mkdirSync(abisDir, { recursive: true });
 mkdirSync(jsonDir, { recursive: true });
 

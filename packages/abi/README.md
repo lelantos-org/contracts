@@ -31,6 +31,24 @@ const fee = await client.readContract({
 }); // number
 ```
 
+The barrel re-exports every ABI. The package is ESM and marked
+`sideEffects: false`, so a bundler drops the ones you do not reference.
+
+Without a bundler — Node, Deno, a plain `<script type="module">` — the barrel
+is not free: importing it parses all 13 modules (~137 KB) even if you use one.
+Import the contract directly to pay only for what you need:
+
+```ts
+import { maspAbi } from "@lelantos-org/contracts/MASP";
+```
+
+The subpath is the Solidity contract name, and each module exports the same
+symbol the barrel does. Useful when the ABI is only needed on one code path:
+
+```ts
+const { swapWrapperAbi } = await import("@lelantos-org/contracts/SwapWrapper");
+```
+
 Non-TypeScript consumers can read the plain arrays instead:
 
 ```js
