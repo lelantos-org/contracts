@@ -80,7 +80,7 @@ The public-input layouts in `libs/PubInputs.sol` must match the PolyEval coeffic
 
 ## Dependencies
 
-`@openzeppelin/contracts`, `forge-std`, `poseidon-solidity`, `permit2`. Built with [Foundry](https://book.getfoundry.sh/) against Solidity `^0.8.30`.
+`@openzeppelin/contracts`, `forge-std`, `permit2`. Built with [Foundry](https://book.getfoundry.sh/) against Solidity `^0.8.30`.
 
 ## License
 

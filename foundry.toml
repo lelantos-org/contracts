@@ -12,7 +12,6 @@ evm_version = "cancun"
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",
-    "poseidon-solidity/=lib/poseidon-solidity/",
     "permit2/=lib/permit2/",
 ]
 
@@ -47,7 +46,6 @@ evm_version = "cancun"
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",
-    "poseidon-solidity/=lib/poseidon-solidity/",
     "permit2/=lib/permit2/",
 ]
 fs_permissions = [
@@ -97,7 +95,6 @@ evm_version = "cancun"
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",
-    "poseidon-solidity/=lib/poseidon-solidity/",
     "permit2/=lib/permit2/",
 ]
 fs_permissions = [

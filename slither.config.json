@@ -10,7 +10,6 @@
   "solc_remaps": [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",
-    "poseidon-solidity/=lib/poseidon-solidity/",
     "permit2/=lib/permit2/"
   ]
 }
