@@ -115,19 +115,6 @@ fmt-check:
 [group('ci')]
 ci: version build test fmt-check size
 
-# === fixtures ===
-
-# Regenerate fixtures consumed by DeployTest.s.sol + tests. Proof fixtures
-# are no longer generated here — see test/fixtures/README.md.
-[doc('Regenerate every test fixture')]
-[group('fixtures')]
-gen-fixtures: gen-asset-registry
-
-[doc('Regenerate test/fixtures/asset_registry.json')]
-[group('fixtures')]
-gen-asset-registry:
-    npm run --silent gen-asset-registry
-
 # === deploy: anvil ===
 
 [doc('Start a local anvil on chain 31337')]
@@ -135,8 +122,8 @@ gen-asset-registry:
 anvil:
     anvil --chain-id 31337
 
-# Deploy Verifier + MASP + 3 MockERC20s to a running anvil. Requires
-# test/fixtures/asset_registry.json — run `just gen-fixtures` first.
+# Deploy Verifier + MASP + 3 MockERC20s to a running anvil. Reads the
+# committed test/fixtures/asset_registry.json.
 [doc('Deploy the test stack to a running anvil')]
 [group('deploy')]
 deploy-anvil:

@@ -1,6 +1,6 @@
 {
   "name": "@lelantos-org/contracts",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "Canonical ABIs for the Lelantos MASP contracts, generated from the Foundry build.",
   "license": "MIT",
   "type": "module",

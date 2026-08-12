@@ -19,7 +19,17 @@ Read by [DeployTest.s.sol](../../script/DeployTest.s.sol),
 [MASP.deploy.t.sol](../MASP.deploy.t.sol) and
 [BabyJubJub.t.sol](../BabyJubJub.t.sol).
 
-Regenerate with `just gen-asset-registry`.
+Edited by hand — the arrays are column-wise, so an entry is one element added
+at the same index in all five. Two constraints are not obvious from the file:
+
+- **Asset id 1 must keep the symbol `WETH`.** `DeployTest.s.sol` matches on
+  that symbol to wire the slot to `MockWETH9`; the e2e multi-asset and
+  eth-bridge paths depend on it. Every other slot is a plain `MockERC20`.
+- **`scale` collapses base units into circuit units**: `publicIn = baseUnits /
+  scale`, and `publicIn` must fit `uint48` (max ≈ 2.81e14). For an 18-decimal
+  token `scale = 1` overflows at ~0.000281 ETH, so the 18-decimal entries use
+  `1e10`, leaving 8 fractional digits and putting 1 ETH at 1e8 circuit units.
+  `mWBTC` is 8-decimal and uses `scale = 1`.
 
 ### `transact_3x3_vector.json`
 

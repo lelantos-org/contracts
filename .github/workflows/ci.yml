@@ -79,10 +79,11 @@ jobs:
         with:
           submodules: recursive
       # slither-action installs JS dependencies whenever the target directory
-      # has a lockfile, and the root one pulls @lelantos-org/* from GitHub
-      # Packages — which this job has no token for. Static analysis needs none
-      # of those (they are TypeScript fixture generators), so the build is done
-      # here and the action is told to skip its own toolchain setup entirely.
+      # has a lockfile, and would need a GitHub Packages token this job does
+      # not have. The repo root no longer carries one, so nothing triggers that
+      # today — but building here and telling the action to skip its own
+      # toolchain setup keeps the job independent of any lockfile reappearing,
+      # and skips a redundant solc/node/foundry install either way.
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
