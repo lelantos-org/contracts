@@ -20,7 +20,7 @@ import { MASPTestBase } from "./utils/MASPTestBase.sol";
 /// so there is no `depositEth` entry point to test.
 contract MASPEthTest is MASPTestBase {
     /// Boot MASP with WETH at the fixture asset id so `withdrawNative` lookups
-    /// resolve. Replaces the previous post-construction re-registration hack.
+    /// resolve.
     function _fixtureAssetToken() internal view override returns (IERC20) {
         return IERC20(address(weth));
     }

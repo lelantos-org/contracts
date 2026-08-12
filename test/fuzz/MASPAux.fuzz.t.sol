@@ -52,8 +52,10 @@ contract MASPAuxFuzzTest is Test {
         pi.merkleRoot = masp.currentRoot();
         pi.nullifier[0] = bytes32(uint256(1));
         pi.nullifier[1] = bytes32(uint256(2));
+        pi.nullifier[2] = bytes32(uint256(3));
         pi.outCm[0] = bytes32(uint256(3));
         pi.outCm[1] = bytes32(uint256(4));
+        pi.outCm[2] = bytes32(uint256(5));
         pi.recipient = recipient;
         pi.chainId = block.chainid;
         pi.payer = payer;
@@ -64,12 +66,13 @@ contract MASPAuxFuzzTest is Test {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdeadbeef));
         tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 1;
+        tpi.actualCount = 3;
         tpi.cms[0] = pi.outCm[0];
         tpi.cms[1] = pi.outCm[1];
+        tpi.cms[2] = pi.outCm[2];
     }
 
-    function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -78,8 +81,13 @@ contract MASPAuxFuzzTest is Test {
         aux[1].clueRy = BabyJubJub.BASE8_Y;
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
         aux[0].ciphertext = c0;
         aux[1].ciphertext = c1;
+        aux[2].ciphertext = c1;
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
@@ -109,7 +117,7 @@ contract MASPAuxFuzzTest is Test {
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux(ct0, ct1));
     }
 
-    /// Length below MIN_LEN or above MAX_LEN → CiphertextTooLong.
+    /// Length below MIN_LEN → CiphertextTooShort; above MAX_LEN → CiphertextTooLong.
     function testFuzz_LengthOutOfBoundsReverts(uint256 badLen, uint256 goodLen, bool badIsFirst, bytes32 fill) public {
         // `badLen` ∈ {0..MIN_LEN-1} ∪ {MAX_LEN+1..1024} — definitively OOB.
         // Half the seeds land below MIN_LEN, half above MAX_LEN.
@@ -128,7 +136,9 @@ contract MASPAuxFuzzTest is Test {
         PubInputs.TreeUpdateBatch memory tpi = _baseTpi(pi);
 
         vm.prank(relayer);
-        vm.expectRevert(AuxValidation.CiphertextTooLong.selector);
+        vm.expectRevert(
+            badLen < MIN_LEN ? AuxValidation.CiphertextTooShort.selector : AuxValidation.CiphertextTooLong.selector
+        );
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux(ct0, ct1));
     }
 

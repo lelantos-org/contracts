@@ -26,26 +26,34 @@ library AuxValidation {
     }
 
     error CiphertextTooLong();
+    error CiphertextTooShort();
     error BadClueBits();
     error OffCurvePoint();
     error LowOrderPoint();
 
-    /// Validate both aux blobs: length bounds, clue-bits prefix, and that
+    /// Validate every aux blob: length bounds, clue-bits prefix, and that
     /// clue R and ephemeral E are on-curve and in the prime-order subgroup.
-    function validate(Output[2] calldata aux) internal view {
-        for (uint256 j; j < 2;) {
-            Output calldata o = aux[j];
-            bytes calldata ct = o.ciphertext;
-            uint256 len = ct.length;
-            if (len < MIN_CIPHERTEXT_LEN || len > MAX_CIPHERTEXT_LEN) revert CiphertextTooLong();
-            if (uint16(bytes2(ct[0:2])) & ~CLUE_BITS_MASK != 0) revert BadClueBits();
-            if (!BabyJubJub.isOnCurve(o.clueRx, o.clueRy)) revert OffCurvePoint();
-            if (BabyJubJub.isLowOrder(o.clueRx, o.clueRy)) revert LowOrderPoint();
-            if (!BabyJubJub.isOnCurve(o.ephPubX, o.ephPubY)) revert OffCurvePoint();
-            if (BabyJubJub.isLowOrder(o.ephPubX, o.ephPubY)) revert LowOrderPoint();
+    function validate(Output[3] calldata aux) internal pure {
+        for (uint256 j; j < 3;) {
+            validate(aux[j]);
             unchecked {
                 ++j;
             }
         }
+    }
+
+    /// Single-blob form. A deposit occupies one leaf and so carries exactly
+    /// one aux payload; the `[3]` form above is the transact path's three
+    /// outputs run through the same checks.
+    function validate(Output calldata o) internal pure {
+        bytes calldata ct = o.ciphertext;
+        uint256 len = ct.length;
+        if (len < MIN_CIPHERTEXT_LEN) revert CiphertextTooShort();
+        if (len > MAX_CIPHERTEXT_LEN) revert CiphertextTooLong();
+        if (uint16(bytes2(ct[0:2])) & ~CLUE_BITS_MASK != 0) revert BadClueBits();
+        if (!BabyJubJub.isOnCurve(o.clueRx, o.clueRy)) revert OffCurvePoint();
+        if (BabyJubJub.isLowOrder(o.clueRx, o.clueRy)) revert LowOrderPoint();
+        if (!BabyJubJub.isOnCurve(o.ephPubX, o.ephPubY)) revert OffCurvePoint();
+        if (BabyJubJub.isLowOrder(o.ephPubX, o.ephPubY)) revert LowOrderPoint();
     }
 }

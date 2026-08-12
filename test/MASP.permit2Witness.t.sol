@@ -17,9 +17,9 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 /// Any of those getting out of sync silently breaks signature scoping (a
 /// leaked Permit2 sig could be re-targeted at a different intent payload).
 contract MASPPermit2WitnessTest is MASPTestBase {
-    /// Permit2 sub-type-string format requires the witness type appended
-    /// just before `TokenPermissions(...)` so Permit2's domain hash absorbs
-    /// the witness shape. See permit2/src/libraries/PermitHash.sol.
+    /// The Permit2 sub-type-string format requires the witness type appended
+    /// immediately before `TokenPermissions(...)` so Permit2's domain hash
+    /// absorbs the witness shape. See permit2/src/libraries/PermitHash.sol.
     string internal constant PERMIT2_TOKEN_PERMISSIONS_SUFFIX = "TokenPermissions(address token,uint256 amount)";
     string internal constant WITNESS_INNER_TYPE = "MASPDeposit(bytes32 piHash)";
     string internal constant WITNESS_ARG_PREFIX = "MASPDeposit witness)";
@@ -56,14 +56,13 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     /// Golden-hash regression: pins the `keccak256(abi.encode(d, aux))`
     /// derivation against a fixed `(DepositIntent, aux)` fixture. If the
     /// `DepositIntent` struct layout or the `AuxValidation.Output` shape
-    /// changes, the digest drifts and this test breaks loudly — exactly
-    /// the regression we want.
+    /// changes, the digest drifts and this test fails.
     ///
     /// Update the constant only when the wallet signature shape intentionally
     /// changes; coordinate with off-chain signers + circuits.
     function test_piHash_isStableForFixedFixture() public pure {
         PubInputs.DepositIntent memory d = _fixtureIntent();
-        AuxValidation.Output[2] memory aux = _fixtureAux();
+        AuxValidation.Output memory aux = _fixtureAux();
 
         bytes32 piHash = keccak256(abi.encode(d, aux));
         assertTrue(piHash != bytes32(0), "piHash must be non-zero for the fixture");
@@ -78,26 +77,19 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         d.publicIn = 100;
         d.payer = address(0xface);
         d.recipient = address(0xb0b);
-        d.outCm[0] = bytes32(uint256(0x1111));
-        d.outCm[1] = bytes32(uint256(0x2222));
-        d.cvDep0[0] = 0xaaaa;
-        d.cvDep0[1] = 0xbbbb;
-        d.cvDep1[0] = 0xcccc;
-        d.cvDep1[1] = 0xdddd;
-        d.rcvTotal = 0xeeee;
+        d.outCm = bytes32(uint256(0x1111));
+        d.cvDep[0] = 0xaaaa;
+        d.cvDep[1] = 0xbbbb;
+        d.rcv = 0xeeee;
     }
 
-    function _fixtureAux() private pure returns (AuxValidation.Output[2] memory aux) {
-        aux[0].clueRx = 0x111;
-        aux[0].clueRy = 0x112;
-        aux[0].ephPubX = 0x113;
-        aux[0].ephPubY = 0x114;
-        aux[0].ciphertext = hex"deadbeef";
-        aux[1].clueRx = 0x221;
-        aux[1].clueRy = 0x222;
-        aux[1].ephPubX = 0x223;
-        aux[1].ephPubY = 0x224;
-        aux[1].ciphertext = hex"cafebabe";
+    /// One aux blob: a deposit occupies a single leaf.
+    function _fixtureAux() private pure returns (AuxValidation.Output memory aux) {
+        aux.clueRx = 0x111;
+        aux.clueRy = 0x112;
+        aux.ephPubX = 0x113;
+        aux.ephPubY = 0x114;
+        aux.ciphertext = hex"deadbeef";
     }
 
     function _indexOf(bytes memory hay, bytes memory needle) private pure returns (uint256) {

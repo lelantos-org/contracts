@@ -4,7 +4,6 @@ pragma solidity ^0.8.30;
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { FeeConfig } from "../../src/FeeConfig.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { FeeConfigHarness } from "../FeeConfig.t.sol";
 
@@ -20,30 +19,6 @@ contract FeeConfigFuzzTest is Test {
         fc = new FeeConfigHarness(100, TREASURY, OWNER);
         // Pre-fund so sweep can transfer.
         token.mint(address(fc), type(uint128).max);
-    }
-
-    // --- Invariant: accruedFee >= pendingEscrowFee -------------------------
-
-    /// After any accrue + addPending pair (where pending <= accrued),
-    /// the invariant holds.
-    function testFuzz_invariant_accruedGeqPending(uint128 accrueAmt, uint128 pendingAmt) public {
-        vm.assume(pendingAmt <= accrueAmt);
-        IERC20 t = IERC20(address(token));
-        fc.accrue(t, accrueAmt);
-        fc.addPending(t, pendingAmt);
-        assertGe(fc.accruedFee(t), fc.pendingEscrowFee(t));
-    }
-
-    /// After a submit (accrue + addPending) and partial flush (subPending),
-    /// invariant still holds.
-    function testFuzz_invariant_afterPartialFlush(uint128 fee, uint128 flushFraction) public {
-        vm.assume(fee > 0);
-        flushFraction = uint128(bound(flushFraction, 0, fee));
-        IERC20 t = IERC20(address(token));
-        fc.accrue(t, fee);
-        fc.addPending(t, fee);
-        fc.subPending(t, flushFraction);
-        assertGe(fc.accruedFee(t), fc.pendingEscrowFee(t));
     }
 
     // --- Fee arithmetic: no overflow for realistic inputs ------------------
@@ -69,40 +44,20 @@ contract FeeConfigFuzzTest is Test {
         assertEq(fee + net, inAmt);
     }
 
-    // --- Underflow protection -----------------------------------------------
-
-    /// `decrue` beyond `accruedFee` must revert.
-    function testFuzz_decrue_underflow_reverts(uint128 accrueAmt, uint128 decrueAmt) public {
-        vm.assume(decrueAmt > accrueAmt);
-        IERC20 t = IERC20(address(token));
-        fc.accrue(t, accrueAmt);
-        vm.expectRevert(FeeConfig.PendingFeeUnderflow.selector);
-        fc.decrue(t, decrueAmt);
-    }
-
-    /// `subPending` beyond `pendingEscrowFee` must revert.
-    function testFuzz_subPending_underflow_reverts(uint128 addAmt, uint128 subAmt) public {
-        vm.assume(subAmt > addAmt);
-        IERC20 t = IERC20(address(token));
-        fc.addPending(t, addAmt);
-        vm.expectRevert(FeeConfig.PendingFeeUnderflow.selector);
-        fc.subPending(t, subAmt);
-    }
-
     // --- Sweep correctness -------------------------------------------------
 
-    /// Sweep transfers exactly `accruedFee - pendingEscrowFee` to treasury.
-    function testFuzz_sweep_transfersReleasable(uint128 accrueAmt, uint128 pendingAmt) public {
-        vm.assume(pendingAmt <= accrueAmt);
+    /// Sweep transfers exactly the full `accruedFee` to treasury and zeroes it.
+    /// uint120 so a1 + a2 stays under the uint128 pre-funded balance.
+    function testFuzz_sweep_transfersFullAccrual(uint120 a1, uint120 a2) public {
         IERC20 t = IERC20(address(token));
-        fc.accrue(t, accrueAmt);
-        fc.addPending(t, pendingAmt);
+        fc.accrue(t, a1);
+        fc.accrue(t, a2);
 
-        uint256 releasable = accrueAmt - pendingAmt;
+        uint256 total = uint256(a1) + uint256(a2);
         uint256 swept = fc.sweep(t);
-        assertEq(swept, releasable);
-        assertEq(token.balanceOf(TREASURY), releasable);
-        assertEq(fc.accruedFee(t), pendingAmt);
-        assertEq(fc.pendingEscrowFee(t), pendingAmt);
+        assertEq(swept, total);
+        assertEq(token.balanceOf(TREASURY), total);
+        assertEq(fc.accruedFee(t), 0);
+        assertEq(fc.sweep(t), 0, "second sweep finds nothing");
     }
 }

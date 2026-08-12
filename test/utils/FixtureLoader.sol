@@ -21,7 +21,7 @@ library FixtureLoader {
             PubInputs.Transact memory pi,
             MASP.Proof memory tp,
             PubInputs.TreeUpdateBatch memory tpi,
-            AuxValidation.Output[2] memory aux
+            AuxValidation.Output[3] memory aux
         )
     {
         string memory json = vm.readFile(path);
@@ -90,13 +90,18 @@ library FixtureLoader {
         aux[1].ephPubX = vm.parseJsonUint(json, ".aux[1].ephPubX");
         aux[1].ephPubY = vm.parseJsonUint(json, ".aux[1].ephPubY");
         aux[1].ciphertext = vm.parseJsonBytes(json, ".aux[1].ciphertext");
+        aux[2].clueRx = vm.parseJsonUint(json, ".aux[2].clueRx");
+        aux[2].clueRy = vm.parseJsonUint(json, ".aux[2].clueRy");
+        aux[2].ephPubX = vm.parseJsonUint(json, ".aux[2].ephPubX");
+        aux[2].ephPubY = vm.parseJsonUint(json, ".aux[2].ephPubY");
+        aux[2].ciphertext = vm.parseJsonBytes(json, ".aux[2].ciphertext");
     }
 
     /// Aux with empty (2-byte zero) ciphertext prefix in both slots — minimal
     /// valid input that always passes `AuxValidation.validate`. Points are set
     /// to the Baby-Jubjub prime-order generator `BASE8` so the low-order /
     /// identity rejection in `AuxValidation` does not trip.
-    function emptyAux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function emptyAux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -107,6 +112,11 @@ library FixtureLoader {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0000";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0000";
     }
 
     function emptyProof() internal pure returns (MASP.Proof memory) {

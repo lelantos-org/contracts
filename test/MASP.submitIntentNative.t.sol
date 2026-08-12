@@ -30,16 +30,15 @@ contract MASPSubmitIntentNativeTest is MASPTestBase {
     }
 
     function _intent(uint64 publicIn) internal view returns (PubInputs.DepositIntent memory d) {
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
         d.payer = natPayer;
         d.recipient = natRecipient;
-        d.outCm[0] = bytes32(uint256(0xdead));
-        d.outCm[1] = bytes32(uint256(0xbeef));
+        d.outCm = bytes32(uint256(0xdead));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -50,6 +49,11 @@ contract MASPSubmitIntentNativeTest is MASPTestBase {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function _expectedTotal(uint64 publicIn) internal pure returns (uint256) {
@@ -62,53 +66,67 @@ contract MASPSubmitIntentNativeTest is MASPTestBase {
         uint64 amt = 100;
         uint256 total = _expectedTotal(amt);
         PubInputs.DepositIntent memory d = _intent(amt);
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
 
         uint256 maspWethBefore = weth.balanceOf(address(masp));
         uint256 payerEthBefore = natPayer.balance;
 
         vm.prank(natPayer);
-        uint256 id = masp.submitIntentNative{ value: total }(d, aux);
+        uint256 id = masp.submitIntentNative{ value: total }(d, aux[0]);
 
         assertEq(id, 0);
         assertEq(weth.balanceOf(address(masp)), maspWethBefore + total, "MASP WETH credited");
         assertEq(natPayer.balance, payerEthBefore - total, "payer ETH debited");
 
-        (, address payerStored,, uint64 storedAssetId,) = masp.escrowed(id);
-        assertEq(payerStored, natPayer);
-        assertEq(uint256(storedAssetId), uint256(ASSET_ID));
+        // Escrow slot holds the digest binding payer + asset (and the rest
+        // of the preimage); reconstruct and compare.
+        bytes32 expectedDigest = keccak256(
+            abi.encode(
+                address(masp),
+                block.chainid,
+                id,
+                d.outCm,
+                d.cvDep,
+                uint64(ASSET_ID),
+                uint48(amt),
+                uint16(FEE_BPS),
+                natPayer,
+                uint32(block.number)
+            )
+        );
+        assertEq(masp.escrowed(id), expectedDigest, "digest binds payer + asset");
     }
 
     function testRevertsOnMsgValueTooLow() public {
         PubInputs.DepositIntent memory d = _intent(100);
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
         uint256 total = _expectedTotal(100);
 
         vm.prank(natPayer);
         vm.expectRevert(MASP.MsgValueMismatch.selector);
-        masp.submitIntentNative{ value: total - 1 }(d, aux);
+        masp.submitIntentNative{ value: total - 1 }(d, aux[0]);
     }
 
     function testRevertsOnMsgValueTooHigh() public {
         PubInputs.DepositIntent memory d = _intent(100);
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
         uint256 total = _expectedTotal(100);
 
         vm.prank(natPayer);
         vm.expectRevert(MASP.MsgValueMismatch.selector);
-        masp.submitIntentNative{ value: total + 1 }(d, aux);
+        masp.submitIntentNative{ value: total + 1 }(d, aux[0]);
     }
 
     function testRevertsOnSenderNotPayer() public {
         PubInputs.DepositIntent memory d = _intent(100);
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
         uint256 total = _expectedTotal(100);
 
         address other = address(0xdeadbeef);
         vm.deal(other, total);
         vm.prank(other);
         vm.expectRevert(MASP.PayerNotSender.selector);
-        masp.submitIntentNative{ value: total }(d, aux);
+        masp.submitIntentNative{ value: total }(d, aux[0]);
     }
 
     function testRevertsOnAssetNotWrappedNative() public {
@@ -120,20 +138,20 @@ contract MASPSubmitIntentNativeTest is MASPTestBase {
 
         PubInputs.DepositIntent memory d = _intent(100);
         d.publicAssetId = nonWethId;
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
         uint256 total = _expectedTotal(100);
 
         vm.prank(natPayer);
         vm.expectRevert(MASP.AssetNotWrappedNative.selector);
-        masp.submitIntentNative{ value: total }(d, aux);
+        masp.submitIntentNative{ value: total }(d, aux[0]);
     }
 
     function testRevertsOnZeroPublicIn() public {
         PubInputs.DepositIntent memory d = _intent(0);
-        AuxValidation.Output[2] memory aux = _aux();
+        AuxValidation.Output[3] memory aux = _aux();
 
         vm.prank(natPayer);
         vm.expectRevert(MASP.MustHaveDeposit.selector);
-        masp.submitIntentNative{ value: 0 }(d, aux);
+        masp.submitIntentNative{ value: 0 }(d, aux[0]);
     }
 }

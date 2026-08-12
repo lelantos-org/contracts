@@ -62,23 +62,25 @@ contract SwapWrapperNegTest is Test {
         tpi.newRoot = bytes32(0);
     }
 
-    function _emptyAux() internal pure returns (AuxValidation.Output[2] memory) { }
+    function _emptyAux() internal pure returns (AuxValidation.Output[3] memory) { }
 
-    function _piWithdraw(uint64 publicOut, address recipient) internal pure returns (PubInputs.Transact memory pi) {
+    function _piWithdraw(uint64 publicOut, address recipient) internal view returns (PubInputs.Transact memory pi) {
         pi.publicAssetId = ASSET_A;
         pi.publicOut = publicOut;
         pi.recipient = recipient;
         pi.relayer = recipient;
+        // Names the address authorized to drive the swap (see
+        // SwapWrapper.UnauthorizedSwapCaller). Tests call as themselves.
+        pi.payer = address(this);
     }
 
     function _intent(uint64 publicIn, address payer) internal view returns (PubInputs.DepositIntent memory d) {
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = ASSET_B;
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = address(0xBEEF);
-        d.outCm[0] = bytes32(uint256(1));
-        d.outCm[1] = bytes32(uint256(2));
+        d.outCm = bytes32(uint256(1));
     }
 
     function _args(uint256 amountIn, uint256 minOut, uint64 piOut, uint64 intentIn, uint256 deadline)
@@ -92,7 +94,7 @@ contract SwapWrapperNegTest is Test {
         a.tpi_w = _emptyTpi();
         a.aux_w = _emptyAux();
         a.intent_d = _intent(intentIn, address(wrapper));
-        a.aux_d = _emptyAux();
+        a.aux_d = _emptyAux()[0];
         a.adapter = address(adapter);
         a.route = abi.encode(uint24(500), uint160(0));
         a.deadline = deadline;
@@ -119,9 +121,8 @@ contract SwapWrapperNegTest is Test {
         SwapWrapper.SwapArgs memory a = _args({
             amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, intentIn: 990, deadline: block.timestamp
         });
-        // At exactly block.timestamp the swap should not revert on deadline check.
-        // It will fail later (no pool funds), but NOT with SwapExpired.
-        // We just verify deadline=now is not treated as expired.
+        // At exactly block.timestamp the deadline check must pass. The call
+        // still fails later (no pool funds), but not with SwapExpired.
         vm.expectRevert(); // some other error, not SwapExpired
         wrapper.swap(a);
         // Verify it was not a SwapExpired revert by checking a clearly past deadline.

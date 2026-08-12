@@ -4,10 +4,9 @@ pragma solidity ^0.8.30;
 import { Test } from "forge-std/Test.sol";
 import { CommitmentTreeHarness } from "./CommitmentTreeHarness.sol";
 
-/// Fuzz the lazy-root ring buffer in isolation. We do not care about the SNARK
-/// here — `_advanceRoot` is a state-machine over (roots, isKnownRoot,
-/// committedCount) and the invariants below should hold for any caller-supplied
-/// root sequence.
+/// Fuzz the lazy-root ring buffer in isolation, independent of the SNARK.
+/// `_advanceRoot` is a state machine over (roots, isKnownRoot, committedCount);
+/// the invariants below hold for any caller-supplied root sequence.
 contract CommitmentTreeFuzzTest is Test {
     CommitmentTreeHarness tree;
     uint256 internal ROOT_HISTORY;
@@ -45,9 +44,9 @@ contract CommitmentTreeFuzzTest is Test {
         }
     }
 
-    /// After ROOT_HISTORY+1 advances, the genesis root is evicted unless one
-    /// of the pushed roots happened to equal it. We force distinct roots to
-    /// keep the assertion deterministic.
+    /// After ROOT_HISTORY+1 advances the genesis root is evicted unless one of
+    /// the pushed roots equals it. Roots are forced distinct to keep the
+    /// assertion deterministic.
     function testFuzz_GenesisEvictedAfterFullCycle(bytes32 seed) public {
         bytes32 genesis = tree.currentRoot();
         // ROOT_HISTORY pushes evict slot 0 (the next index after genesis is 1,

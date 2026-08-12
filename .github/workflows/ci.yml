@@ -17,7 +17,7 @@ env:
 jobs:
   test:
     name: Build & test
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,7 +31,7 @@ jobs:
 
   fmt:
     name: Format check
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
@@ -42,7 +42,7 @@ jobs:
 
   size:
     name: Contract size (EIP-170)
-    runs-on: [self-hosted]
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,16 +53,53 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just size
 
-  slither:
-    name: Slither
-    runs-on: [self-hosted]
+  abi:
+    name: ABI package
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: crytic/slither-action@v0.4.0
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: extractions/setup-just@v2
+      # Catches a contract rename/removal breaking the generator before a
+      # release tag does.
+      - run: just abi
+
+  slither:
+    name: Slither
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # slither-action installs JS dependencies whenever the target directory
+      # has a lockfile, and the root one pulls @lelantos-org/* from GitHub
+      # Packages — which this job has no token for. Static analysis needs none
+      # of those (they are TypeScript fixture generators), so the build is done
+      # here and the action is told to skip its own toolchain setup entirely.
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      # `--build-info` emits the solc standard-json output that crytic-compile
+      # reads under `--ignore-compile`.
+      - run: forge build --build-info
+      # v0.4.2 is the first release whose image is Python 3.10; the 3.9 images
+      # in v0.4.0/v0.4.1 cannot install slither 0.11.5 (Requires-Python >=3.10).
+      - uses: crytic/slither-action@v0.4.2
         with:
           target: .
           slither-config: slither.config.json
-          solc-version: 0.8.35
+          ignore-compile: true
           fail-on: medium
+          # Pinned deliberately. Unpinned, the action takes the latest release,
+          # so a new detector lands as a CI failure on an unrelated PR: 0.11.5
+          # added `reentrancy-balance` (high impact), which fires on every
+          # balance-delta measurement in SwapWrapper. Bump this on purpose,
+          # with the findings reviewed, rather than discovering them mid-PR.
+          slither-version: 0.11.5

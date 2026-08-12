@@ -69,7 +69,7 @@ contract MASPFlushBatchSnarkTest is Test {
         vm.etch(payer, address(stub).code);
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -80,6 +80,11 @@ contract MASPFlushBatchSnarkTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function _loadFixture()
@@ -124,7 +129,7 @@ contract MASPFlushBatchSnarkTest is Test {
         // via `script/fixtures/gen_proof_deposit_batch.ts` with real Pedersen
         // value commitments (publicIn > 0, pair_asset = ASSET_ID) before
         // re-enabling. Loader also needs to read cvDeps/pairAsset/pairPublicIn
-        // /isDeposit and the cms array size must drop to 2*MAX_N_BATCH=16.
+        // /isDeposit and the cms array size must drop to 2*MAX_L_BATCH=16.
         vm.skip(true);
         // Body removed (unreachable) until fixture is regenerated with real
         // Pedersen commitments. See git history for original reference body.

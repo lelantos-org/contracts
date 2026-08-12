@@ -99,7 +99,7 @@ contract MASPNativeGuardsTest is Test {
         return MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
     }
 
-    function _validAux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _validAux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -110,6 +110,11 @@ contract MASPNativeGuardsTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     function _validTransactPi(MASP m, uint64 assetId) internal view returns (PubInputs.Transact memory pi) {
@@ -122,8 +127,10 @@ contract MASPNativeGuardsTest is Test {
         pi.relayer = RELAYER;
         pi.nullifier[0] = bytes32(uint256(0x1111));
         pi.nullifier[1] = bytes32(uint256(0x2222));
+        pi.nullifier[2] = bytes32(uint256(0x2223));
         pi.outCm[0] = bytes32(uint256(0x3333));
         pi.outCm[1] = bytes32(uint256(0x4444));
+        pi.outCm[2] = bytes32(uint256(0x4445));
         pi.merkleRoot = m.currentRoot();
     }
 
@@ -135,9 +142,10 @@ contract MASPNativeGuardsTest is Test {
         tpi.oldRoot = m.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
         tpi.startIndex = m.committedCount();
-        tpi.actualCount = 1;
+        tpi.actualCount = 3;
         tpi.cms[0] = pi.outCm[0];
         tpi.cms[1] = pi.outCm[1];
+        tpi.cms[2] = pi.outCm[2];
     }
 
     function _validIntent(MASP, uint64 assetId, address payer)
@@ -145,13 +153,12 @@ contract MASPNativeGuardsTest is Test {
         view
         returns (PubInputs.DepositIntent memory d)
     {
-        d.chainId = uint64(block.chainid);
+        d.chainId = block.chainid;
         d.publicAssetId = assetId;
         d.publicIn = 1;
         d.payer = payer;
         d.recipient = RECIPIENT;
-        d.outCm[0] = bytes32(uint256(0x1));
-        d.outCm[1] = bytes32(uint256(0x2));
+        d.outCm = bytes32(uint256(0x1));
     }
 
     // --- withdrawNative guards ---------------------------------------------
@@ -176,13 +183,82 @@ contract MASPNativeGuardsTest is Test {
         maspWithWeth.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
     }
 
+    // --- withdrawNative success path ---------------------------------------
+
+    /// Fund the pool with WETH so an unshield has backing, and accept any
+    /// proof. The guard tests above all revert before `_finalize`, so the
+    /// unwrap and native-send legs are only reached from here.
+    function _armWethWithdraw(uint256 wethAmount) internal {
+        vm.deal(address(this), wethAmount);
+        weth.deposit{ value: wethAmount }();
+        weth.transfer(address(maspWithWeth), wethAmount);
+        vm.mockCall(
+            address(maspWithWeth.VERIFIER()), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true)
+        );
+        vm.mockCall(
+            address(maspWithWeth.TREE_UPDATE_BATCH_VERIFIER()),
+            abi.encodeWithSelector(IVerifier.verifyProof.selector),
+            abi.encode(true)
+        );
+    }
+
+    function test_withdrawNative_unwrapsAndSendsNative() public {
+        uint64 publicOut = 7;
+        uint256 gross = uint256(publicOut) * SCALE;
+        uint256 fee = (gross * FEE_BPS) / 10_000;
+        uint256 net = gross - fee;
+        _armWethWithdraw(gross);
+
+        PubInputs.Transact memory pi = _validTransactPi(maspWithWeth, ASSET_WETH);
+        pi.publicOut = publicOut;
+        PubInputs.TreeUpdateBatch memory tpi = _validTpi(maspWithWeth, pi);
+
+        uint64 countBefore = maspWithWeth.committedCount();
+
+        vm.expectEmit(true, true, true, true, address(maspWithWeth));
+        emit MASP.AssetMoved(ASSET_WETH, IERC20(address(weth)), 0, gross);
+
+        vm.prank(RELAYER);
+        maspWithWeth.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+
+        // Recipient is paid in raw native, not WETH.
+        assertEq(RECIPIENT.balance, net, "recipient native");
+        assertEq(weth.balanceOf(RECIPIENT), 0, "recipient holds no WETH");
+        // The fee stays wrapped and is claimable via `sweep`.
+        assertEq(maspWithWeth.accruedFee(IERC20(address(weth))), fee, "accrued fee in WETH");
+        assertEq(weth.balanceOf(address(maspWithWeth)), fee, "pool retains only the fee");
+        assertEq(address(maspWithWeth).balance, 0, "pool holds no leftover native");
+        assertEq(maspWithWeth.committedCount(), countBefore + 3, "three leaves committed");
+        assertTrue(maspWithWeth.spent(pi.nullifier[0]), "nf0 spent");
+        assertTrue(maspWithWeth.spent(pi.nullifier[1]), "nf1 spent");
+    }
+
+    /// The unwrap leg pushes raw native to `pi.recipient`; a recipient that
+    /// rejects it must surface `NativeTransferFailed` rather than stranding
+    /// the funds.
+    function test_withdrawNative_recipientRejectsNative() public {
+        uint64 publicOut = 7;
+        uint256 gross = uint256(publicOut) * SCALE;
+        _armWethWithdraw(gross);
+
+        address rejector = address(new NativeRejector());
+        PubInputs.Transact memory pi = _validTransactPi(maspWithWeth, ASSET_WETH);
+        pi.publicOut = publicOut;
+        pi.recipient = rejector;
+        PubInputs.TreeUpdateBatch memory tpi = _validTpi(maspWithWeth, pi);
+
+        vm.prank(RELAYER);
+        vm.expectRevert(MASP.NativeTransferFailed.selector);
+        maspWithWeth.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+    }
+
     // --- submitIntentNative guards -----------------------------------------
 
     function test_submitIntentNative_WrappedNativeNotConfigured() public {
         PubInputs.DepositIntent memory d = _validIntent(maspNoWeth, ASSET_ERC20, PAYER);
         vm.prank(PAYER);
         vm.expectRevert(MASP.WrappedNativeNotConfigured.selector);
-        maspNoWeth.submitIntentNative{ value: 0 }(d, _validAux());
+        maspNoWeth.submitIntentNative{ value: 0 }(d, _validAux()[0]);
     }
 
     /// WETH configured but asset id points to plain ERC-20 → AssetNotWrappedNative.
@@ -190,7 +266,7 @@ contract MASPNativeGuardsTest is Test {
         PubInputs.DepositIntent memory d = _validIntent(maspWithWeth, ASSET_ERC20, PAYER);
         vm.prank(PAYER);
         vm.expectRevert(MASP.AssetNotWrappedNative.selector);
-        maspWithWeth.submitIntentNative{ value: 0 }(d, _validAux());
+        maspWithWeth.submitIntentNative{ value: 0 }(d, _validAux()[0]);
     }
 
     /// Caller != d.payer → PayerNotSender.
@@ -199,7 +275,7 @@ contract MASPNativeGuardsTest is Test {
         address notPayer = address(0xBAD);
         vm.prank(notPayer); // sender != d.payer
         vm.expectRevert(MASP.PayerNotSender.selector);
-        maspWithWeth.submitIntentNative{ value: 0 }(d, _validAux());
+        maspWithWeth.submitIntentNative{ value: 0 }(d, _validAux()[0]);
     }
 
     /// msg.value != inAmt + fee → MsgValueMismatch.
@@ -213,7 +289,7 @@ contract MASPNativeGuardsTest is Test {
         vm.deal(PAYER, wrong);
         vm.prank(PAYER);
         vm.expectRevert(MASP.MsgValueMismatch.selector);
-        maspWithWeth.submitIntentNative{ value: wrong }(d, _validAux());
+        maspWithWeth.submitIntentNative{ value: wrong }(d, _validAux()[0]);
     }
 
     /// Correct msg.value → no revert on native-specific guards (proceeds to
@@ -226,8 +302,16 @@ contract MASPNativeGuardsTest is Test {
 
         vm.deal(PAYER, correct);
         vm.prank(PAYER);
-        // MockWETH9 accepts any deposit value → should succeed to _finalizeIntent.
-        uint256 id = maspWithWeth.submitIntentNative{ value: correct }(d, _validAux());
+        // MockWETH9 accepts any deposit value, so the call reaches
+        // _finalizeIntent.
+        uint256 id = maspWithWeth.submitIntentNative{ value: correct }(d, _validAux()[0]);
         assertEq(id, 0);
+    }
+}
+
+/// Rejects raw native, forcing the `_sendNative` low-level call to fail.
+contract NativeRejector {
+    receive() external payable {
+        revert("no native");
     }
 }

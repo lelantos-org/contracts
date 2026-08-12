@@ -54,8 +54,10 @@ contract MASPSpendGuardsTest is Test {
         pi.relayer = RELAYER;
         pi.nullifier[0] = bytes32(uint256(1));
         pi.nullifier[1] = bytes32(uint256(2));
+        pi.nullifier[2] = bytes32(uint256(3));
         pi.outCm[0] = bytes32(uint256(3));
         pi.outCm[1] = bytes32(uint256(4));
+        pi.outCm[2] = bytes32(uint256(5));
         pi.merkleRoot = masp.currentRoot();
         // outCvDep: all zero → matches tpi.cvDeps default
     }
@@ -64,9 +66,10 @@ contract MASPSpendGuardsTest is Test {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
         tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 1;
+        tpi.actualCount = 3;
         tpi.cms[0] = pi.outCm[0];
         tpi.cms[1] = pi.outCm[1];
+        tpi.cms[2] = pi.outCm[2];
         // cvDeps: all zero → matches pi.outCvDep default
         // isDeposit[0] = 0 (spend)
     }
@@ -75,7 +78,7 @@ contract MASPSpendGuardsTest is Test {
         return MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
     }
 
-    function _validAux() internal pure returns (AuxValidation.Output[2] memory aux) {
+    function _validAux() internal pure returns (AuxValidation.Output[3] memory aux) {
         aux[0].clueRx = BabyJubJub.BASE8_X;
         aux[0].clueRy = BabyJubJub.BASE8_Y;
         aux[0].ephPubX = BabyJubJub.BASE8_X;
@@ -86,6 +89,11 @@ contract MASPSpendGuardsTest is Test {
         aux[1].ephPubX = BabyJubJub.BASE8_X;
         aux[1].ephPubY = BabyJubJub.BASE8_Y;
         aux[1].ciphertext = hex"0001";
+        aux[2].clueRx = BabyJubJub.BASE8_X;
+        aux[2].clueRy = BabyJubJub.BASE8_Y;
+        aux[2].ephPubX = BabyJubJub.BASE8_X;
+        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+        aux[2].ciphertext = hex"0001";
     }
 
     // --- withdraw entry-point checks (before _validateRequest) --------------
@@ -168,13 +176,30 @@ contract MASPSpendGuardsTest is Test {
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
     }
 
-    function test_BatchMisaligned_actualCountNot1() public {
+    /// `actualCount` counts leaves, so a 2-output spend must declare exactly
+    /// 2. Anything else — here a pair-era 1 — is misaligned.
+    function test_BatchMisaligned_actualCountNotOutLeaves() public {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        tpi.actualCount = 2; // must be 1 for spend path
+        tpi.actualCount = 1; // must be 2 (N_OUT) for the spend path
         vm.prank(RELAYER);
         vm.expectRevert(MASP.BatchMisaligned.selector);
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+    }
+
+    /// The batch circuit cannot distinguish a spend leaf from a deposit leaf, and
+    /// per-leaf deposit binding is satisfiable by any spend output that declares
+    /// its own (asset, value) — which would publish the note's opening. So the
+    /// spend path must pin `isDeposit` to 0 on-chain, for every output leaf.
+    function test_BadDepositMode_spendLeafMarkedDeposit() public {
+        for (uint256 k = 0; k < 2; k++) {
+            PubInputs.Transact memory pi = _pi();
+            PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+            tpi.isDeposit[k] = 1;
+            vm.prank(RELAYER);
+            vm.expectRevert(MASP.BadDepositMode.selector);
+            masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+        }
     }
 
     function test_CmMismatch_outCm0() public {

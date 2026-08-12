@@ -53,11 +53,11 @@ abstract contract AssetRegistry is Ownable {
         return _assets[id];
     }
 
-    /// Deposit-side gate. Reverts if asset is missing or disabled.
-    function _requireAssetActive(uint64 id) internal view {
-        AssetEntry storage a = _assets[id];
-        if (address(a.token) == address(0)) revert UnknownAsset(id);
-        if (a.disabled) revert AssetDisabled(id);
+    /// Existence check for paths that move no tokens. `token` and `disabled`
+    /// share slot 0, so this reads one slot where `_getAsset` reads two;
+    /// `scale` occupies slot 1 and costs a second cold SLOAD.
+    function _requireAssetKnown(uint64 id) internal view {
+        if (address(_assets[id].token) == address(0)) revert UnknownAsset(id);
     }
 
     /// Constructor-time bulk init. Same validation as `addAsset`.
