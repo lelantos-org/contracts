@@ -81,13 +81,13 @@ Per-function aggregates, with verification mocked (so excluding the 195 026 per 
 
 | Function | Min | Avg | Max |
 | --- | --- | --- | --- |
-| `deposit` | 27 610 | 108 451 | 160 523 |
-| `depositAuthorized` | 34 702 | 84 987 | 134 507 |
-| `flushBatch` | 30 656 | 128 425 | 178 269 |
+| `deposit` | 27 610 | 108 458 | 160 523 |
+| `depositAuthorized` | 34 172 | 88 599 | 133 984 |
+| `flushBatch` | 30 710 | 126 234 | 178 417 |
 | `cancelDeposit` | 25 354 | 39 714 | 66 155 |
-| `transfer` | 43 607 | 59 945 | 221 311 |
-| `withdraw` | 44 220 | 190 335 | 284 620 |
-| `sweep` | 24 226 | 27 958 | 56 898 |
+| `transfer` | 43 607 | 59 831 | 221 311 |
+| `withdraw` | 44 242 | 190 470 | 284 642 |
+| `sweep` | 24 226 | 29 097 | 56 898 |
 | `NativeAdapter.depositNative` | 25 622 | 162 581 | 232 430 |
 | `NativeAdapter.cancelNative` | 27 242 | 71 381 | 92 213 |
 | `NativeAdapter.withdrawNative` | 43 855 | 229 603 | 330 971 |

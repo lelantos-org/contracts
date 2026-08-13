@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.35;
 
 /// Pull-then-push swap adapter. The wrapper pre-transfers `amountIn` of
 /// `tokenIn`; the adapter swaps and pushes `actualOut` of `tokenOut` back to

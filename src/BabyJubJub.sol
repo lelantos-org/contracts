@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.35;
 
 /// Baby-Jubjub twisted Edwards curve over the BN254 scalar field:
 ///   a * x^2 + y^2 = 1 + d * x^2 * y^2

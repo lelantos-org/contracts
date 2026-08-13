@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.35;
 
 import { MASPTestBase } from "./utils/MASPTestBase.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";

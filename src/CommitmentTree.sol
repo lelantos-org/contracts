@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.35;
 
 /// Lazy-root commitment tree. Tracks a 64-deep ring buffer of recently known
 /// roots and `committedCount`, the number of leaves in the latest root.

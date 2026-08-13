@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.35;
 
 /// Permissive ERC-1271 wallet stub. Returns the magic value for any digest +
 /// signature pair, so Permit2's `permitWitnessTransferFrom` accepts any
