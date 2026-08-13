@@ -6,7 +6,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # EIP-170. See the [profile.deploy] comment in foundry.toml.
 
 DEPLOY_PROFILE := "deploy"
-SOLC_VERSION := "0.8.35"
+SOLC_VERSION := "0.8.30"
 MASP_SCRIPT := "script/Deploy.s.sol:Deploy"
 SWAP_SCRIPT := "script/DeploySwap.s.sol:DeploySwap"
 TEST_SCRIPT := "script/DeployTest.s.sol:DeployTest"

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.35;
+pragma solidity 0.8.30;
 
 /// Test stub for UniV3 QuoterV2. Two modes per `(tokenIn, tokenOut, fee)`:
 ///   1. legacy fixed (`set`)  — `amountOut` constant regardless of input.
