@@ -129,6 +129,10 @@ contract NativeAdapter is ReentrancyGuardTransient {
         // A non-wrapped-native asset id cannot reach here: the adapter holds no
         // other token and permits none, so the pull would revert.
         uint256 pulled = balanceBefore + msg.value - weth.balanceOf(address(this));
+        // Exact zero is a presence test on a measured delta — "the pool took
+        // nothing" — not arithmetic on an attacker-movable quantity. A partial
+        // pull is caught by the record and by the ceiling check below.
+        // slither-disable-next-line incorrect-equality
         if (pulled == 0) revert NothingEscrowed();
         // The Permit2 allowance to the pool is unbounded and covers this
         // contract's whole balance, so a caller who oversizes `d.publicIn` could
@@ -215,7 +219,9 @@ contract NativeAdapter is ReentrancyGuardTransient {
         net = weth.balanceOf(address(this)) - balanceBefore;
         // A zero delta means the spend was denominated in another asset, which
         // the pool has pushed here as a token this contract cannot return.
-        // Revert so the unshield never happens.
+        // Revert so the unshield never happens. Exact zero is a presence test
+        // on a measured delta: any nonzero value is coin this call unshielded.
+        // slither-disable-next-line incorrect-equality
         if (net == 0) revert NothingUnshielded();
 
         WRAPPED_NATIVE.withdraw(net);
