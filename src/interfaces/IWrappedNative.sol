@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// Minimal wrapped-native interface (WETH9 ABI). `deposit` wraps msg.value;
+/// Minimal wrapped-native interface (WETH9 ABI). `deposit` wraps `msg.value`;
 /// `withdraw` unwraps.
 interface IWrappedNative is IERC20 {
     function deposit() external payable;

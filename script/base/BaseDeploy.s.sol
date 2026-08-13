@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Script, console2 } from "forge-std/Script.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
 
+import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
+
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
+import { NativeAdapter } from "../../src/native/NativeAdapter.sol";
+import { IMASPNative } from "../../src/native/IMASPNative.sol";
 import { Groth16Verifier } from "../../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 
@@ -18,7 +22,8 @@ import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBa
 abstract contract BaseDeploy is Script {
     struct MaspParams {
         address permit2;
-        /// Wrapped native coin (WETH/WBNB/etc). Pass address(0) to disable native flows.
+        /// Wrapped native coin (WETH/WBNB/etc). Pass address(0) to skip the
+        /// `NativeAdapter` deploy; the pool itself is ERC-20 only either way.
         address wrappedNative;
         uint64[] ids;
         IERC20[] tokens;
@@ -34,7 +39,12 @@ abstract contract BaseDeploy is Script {
 
     function _deployMaspCore(MaspParams memory p)
         internal
-        returns (Groth16Verifier verifier, TreeUpdateBatchGroth16Verifier tubVerifier, MASP masp)
+        returns (
+            Groth16Verifier verifier,
+            TreeUpdateBatchGroth16Verifier tubVerifier,
+            MASP masp,
+            NativeAdapter nativeAdapter
+        )
     {
         verifier = new Groth16Verifier();
         tubVerifier = new TreeUpdateBatchGroth16Verifier();
@@ -42,7 +52,6 @@ abstract contract BaseDeploy is Script {
             IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
             ISignatureTransfer(p.permit2),
-            IWrappedNative(p.wrappedNative),
             p.ids,
             p.tokens,
             p.scales,
@@ -50,6 +59,14 @@ abstract contract BaseDeploy is Script {
             p.treasury,
             p.owner
         );
+        // Native coin never touches the pool: the adapter wraps on the way in
+        // and unwraps on the way out. Skipped when no wrapped-native token is
+        // configured for the chain.
+        if (p.wrappedNative != address(0)) {
+            nativeAdapter = new NativeAdapter(
+                IMASPNative(address(masp)), IWrappedNative(p.wrappedNative), IAllowanceTransfer(p.permit2)
+            );
+        }
     }
 
     /// KEY=value log block consumed by `e2e/deploy/extract-addresses.sh`.
@@ -59,6 +76,7 @@ abstract contract BaseDeploy is Script {
         address masp,
         address permit2,
         address wrappedNative,
+        address nativeAdapter,
         uint64[] memory ids,
         address[] memory tokenAddrs
     ) internal pure {
@@ -71,6 +89,7 @@ abstract contract BaseDeploy is Script {
         }
         if (wrappedNative != address(0)) {
             console2.log(string.concat("WRAPPED_NATIVE=", vm.toString(wrappedNative)));
+            console2.log(string.concat("NATIVE_ADAPTER=", vm.toString(nativeAdapter)));
         }
     }
 }

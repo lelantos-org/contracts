@@ -64,6 +64,8 @@ import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json"
 | `commitmentTreeAbi` | `src/CommitmentTree.sol:CommitmentTree` |
 | `feeConfigAbi` | `src/FeeConfig.sol:FeeConfig` |
 | `nullifierSetAbi` | `src/NullifierSet.sol:NullifierSet` |
+| `nativeAdapterAbi` | `src/native/NativeAdapter.sol:NativeAdapter` |
+| `imaspNativeAbi` | `src/native/IMASPNative.sol:IMASPNative` |
 | `swapWrapperAbi` | `src/swap/SwapWrapper.sol:SwapWrapper` |
 | `uniV3AdapterAbi` | `src/swap/UniV3Adapter.sol:UniV3Adapter` |
 | `imaspSwapAbi` | `src/swap/IMASPSwap.sol:IMASPSwap` |

@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
 
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 
 /// Test-only subclass that lets a test seed the commitment-tree state
 /// directly (root + committedCount) without going through the
-/// `submitIntent` + `flushBatch` chain. Used by `MASP.transferSnark.t.sol`
+/// `deposit` + `flushBatch` chain. Used by `MASP.transferSnark.t.sol`
 /// to verify the spend-side Groth16 pair against a pre-populated tree.
 contract MASPSpendHarness is MASP {
     constructor(
@@ -22,7 +21,7 @@ contract MASPSpendHarness is MASP {
         uint256[] memory scales,
         address treasury_,
         address owner_
-    ) MASP(v, tub, permit2_, IWrappedNative(address(0)), ids, tokens, scales, 0, treasury_, owner_) { }
+    ) MASP(v, tub, permit2_, ids, tokens, scales, 0, treasury_, owner_) { }
 
     /// Seed the tree to a known root + committedCount without proof.
     function seedRoot(bytes32 newRoot, uint64 inserted) external {

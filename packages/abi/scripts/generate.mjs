@@ -34,6 +34,8 @@ const CONTRACTS = [
     { source: "src/CommitmentTree.sol", contract: "CommitmentTree", export: "commitmentTreeAbi" },
     { source: "src/FeeConfig.sol", contract: "FeeConfig", export: "feeConfigAbi" },
     { source: "src/NullifierSet.sol", contract: "NullifierSet", export: "nullifierSetAbi" },
+    { source: "src/native/NativeAdapter.sol", contract: "NativeAdapter", export: "nativeAdapterAbi" },
+    { source: "src/native/IMASPNative.sol", contract: "IMASPNative", export: "imaspNativeAbi" },
     { source: "src/swap/SwapWrapper.sol", contract: "SwapWrapper", export: "swapWrapperAbi" },
     { source: "src/swap/UniV3Adapter.sol", contract: "UniV3Adapter", export: "uniV3AdapterAbi" },
     { source: "src/swap/IMASPSwap.sol", contract: "IMASPSwap", export: "imaspSwapAbi" },

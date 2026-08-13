@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +9,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 import { Groth16Verifier } from "../../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
@@ -23,7 +22,7 @@ import { MockERC1271 } from "../mocks/MockERC1271.sol";
 /// ([MASPPendingFee.invariant.t.sol](MASPPendingFee.invariant.t.sol),
 /// [MASPNullifier.invariant.t.sol](MASPNullifier.invariant.t.sol),
 /// [MASPAssets.invariant.t.sol](MASPAssets.invariant.t.sol)) each cover
-/// one surface. This file exercises submit / flushBatch / cancelIntent /
+/// one surface. This file exercises submit / flushBatch / cancelDeposit /
 /// sweep / advance jointly and asserts cross-handler bookkeeping —
 /// lifecycle exclusivity, conservation of `token.balanceOf(masp)`, root
 /// monotonicity, and cancel-delay timing.
@@ -75,7 +74,7 @@ contract MaspFlowHandler is Test {
     uint64 public ghostInserted;
     /// Number of `flushBatch` calls that landed (handler success counter).
     uint256 public flushCount;
-    /// Number of `cancelIntent` calls that landed.
+    /// Number of `cancelDeposit` calls that landed.
     uint256 public cancelCount;
 
     uint256 internal _nonce;
@@ -115,7 +114,7 @@ contract MaspFlowHandler is Test {
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        PubInputs.DepositIntent memory d;
+        PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
@@ -127,7 +126,7 @@ contract MaspFlowHandler is Test {
             nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
 
-        uint256 id = masp.submitIntent(d, sig, _aux()[0]);
+        uint256 id = masp.deposit(d, sig, _aux()[0]);
         allIds.push(id);
         status[id] = Status.Pending;
         principalAt[id] = inAmt;
@@ -160,9 +159,9 @@ contract MaspFlowHandler is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
 
-        MASP.IntentMeta[] memory meta = new MASP.IntentMeta[](1);
+        MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
         // forge-lint: disable-next-line(unsafe-typecast)
-        meta[0] = MASP.IntentMeta({ payer: payer, submittedAt: uint32(submitBlock[id]), fbps: FEE_BPS });
+        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: uint32(submitBlock[id]), fbps: FEE_BPS });
 
         MASP.Proof memory proof;
         masp.flushBatch(ids, meta, proof, tpi);
@@ -186,7 +185,7 @@ contract MaspFlowHandler is Test {
 
         uint256[2] memory zCv;
         // forge-lint: disable-next-line(unsafe-typecast)
-        masp.cancelIntent(
+        masp.cancelDeposit(
             id, preimagePublicIn[id], preimageCm0[id], zCv, ASSET_ID, FEE_BPS, payer, uint32(submitBlock[id])
         );
 
@@ -252,7 +251,6 @@ contract MaspFlowInvariantTest is Test {
             IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             ids,
             tokens,
             scales,
@@ -283,7 +281,7 @@ contract MaspFlowInvariantTest is Test {
 
     /// Conservation: pool balance equals the pending principal + pending
     /// fees still in escrow (never in `accruedFee` until flush) + the
-    /// shielded principal locked behind flushed intents + the on-chain
+    /// shielded principal locked behind flushed deposits + the on-chain
     /// `accruedFee`. Sweep moves fees out so accruedFee shrinks in
     /// lockstep with the balance.
     function invariant_balanceConservation() public view {

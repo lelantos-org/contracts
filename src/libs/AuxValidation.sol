@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { BabyJubJub } from "../BabyJubJub.sol";
 
-/// Validation + struct for per-output FMD payloads. `Output` is opaque
-/// beyond length bounds, clue-bits prefix, and Baby-Jubjub on-curve +
-/// prime-order checks on clue R and ephemeral E.
+/// Struct and validation for per-output FMD payloads. `Output` is opaque to the
+/// contract beyond its length bounds, its clue-bits prefix, and the Baby-Jubjub
+/// on-curve and prime-order checks on clue R and ephemeral E.
 library AuxValidation {
-    /// 2B clueBits prefix + ChaCha20Poly1305 body, ≤256B total.
+    /// 2-byte clueBits prefix plus ChaCha20-Poly1305 body, 256 bytes at most.
     uint256 internal constant MAX_CIPHERTEXT_LEN = 256;
     uint256 internal constant MIN_CIPHERTEXT_LEN = 2;
-    /// 14-bit FMD clue mask; upper 2 bits of prefix MUST be zero.
+    /// 14-bit FMD clue mask; the upper 2 bits of the prefix must be zero.
     uint16 internal constant CLUE_BITS_MASK = 0x3FFF;
 
-    /// Per-output FMD payload. Opaque to contract; wallet-computed.
+    /// Per-output FMD payload, computed by the wallet.
     ///   clueR* : Baby-Jubjub R = [r]·G
     ///   ephPub*: Baby-Jubjub E = [e]·G
-    ///   ciphertext: clueBits prefix (2B) || ChaCha20Poly1305 body.
+    ///   ciphertext: 2-byte clueBits prefix || ChaCha20-Poly1305 body.
     struct Output {
         uint256 clueRx;
         uint256 clueRy;
@@ -31,7 +31,7 @@ library AuxValidation {
     error OffCurvePoint();
     error LowOrderPoint();
 
-    /// Validate every aux blob: length bounds, clue-bits prefix, and that
+    /// Validate every aux payload: length bounds, clue-bits prefix, and that
     /// clue R and ephemeral E are on-curve and in the prime-order subgroup.
     function validate(Output[3] calldata aux) internal pure {
         for (uint256 j; j < 3;) {
@@ -42,9 +42,9 @@ library AuxValidation {
         }
     }
 
-    /// Single-blob form. A deposit occupies one leaf and so carries exactly
-    /// one aux payload; the `[3]` form above is the transact path's three
-    /// outputs run through the same checks.
+    /// Single-payload form. A deposit occupies one leaf and so carries exactly
+    /// one aux payload; the `[3]` form above runs the transact path's three
+    /// outputs through the same checks.
     function validate(Output calldata o) internal pure {
         bytes calldata ct = o.ciphertext;
         uint256 len = ct.length;

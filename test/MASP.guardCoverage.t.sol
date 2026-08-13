@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,7 +10,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { MASP } from "../src/MASP.sol";
 import { AssetRegistry } from "../src/AssetRegistry.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
@@ -69,7 +68,7 @@ contract MASPGuardCoverageTest is Test {
         IERC20[] memory tokens,
         uint256[] memory scales
     ) internal returns (MASP) {
-        return new MASP(v_, tub_, p2, IWrappedNative(address(0)), ids, tokens, scales, FEE_BPS, TREASURY, address(this));
+        return new MASP(v_, tub_, p2, ids, tokens, scales, FEE_BPS, TREASURY, address(this));
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
@@ -173,24 +172,13 @@ contract MASPGuardCoverageTest is Test {
         masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
     }
 
-    function test_revert_NotAWithdraw_nativeWithDeposit() public {
-        PubInputs.Transact memory pi = _pi();
-        pi.publicIn = 1;
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        vm.prank(RELAYER);
-        // `withdrawNative` screens `publicIn` before the wrapped-native
-        // configuration check, so this fires even with no wrapped native set.
-        vm.expectRevert(MASP.NotAWithdraw.selector);
-        masp.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _aux());
-    }
-
     /// `flushBatch` slots must be deposits; a spend-mode slot is rejected
     /// before any digest comparison.
     function test_revert_BadDepositMode() public {
         uint256[] memory ids = new uint256[](1);
         ids[0] = 0;
-        MASP.IntentMeta[] memory meta = new MASP.IntentMeta[](1);
-        meta[0] = MASP.IntentMeta({ payer: PAYER, submittedAt: uint32(block.number), fbps: FEE_BPS });
+        MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
+        meta[0] = MASP.DepositMeta({ payer: PAYER, submittedAt: uint32(block.number), fbps: FEE_BPS });
 
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
@@ -199,18 +187,18 @@ contract MASPGuardCoverageTest is Test {
         tpi.actualCount = 1;
         tpi.isDeposit[0] = 0; // spend mode
 
-        // Seed a pending intent so the slot passes the pending check first.
-        _seedIntent();
+        // Seed a pending deposit so the slot passes the pending check first.
+        _seedDeposit();
 
         vm.expectRevert(MASP.BadDepositMode.selector);
         masp.flushBatch(ids, meta, _emptyProof(), tpi);
     }
 
-    function _seedIntent() internal {
+    function _seedDeposit() internal {
         token.mint(address(this), 1_000 * SCALE);
         token.approve(address(permit2), type(uint256).max);
         ISignatureTransfer(permit2); // silence unused warning path
-        PubInputs.DepositIntent memory d;
+        PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = 1;
@@ -219,7 +207,7 @@ contract MASPGuardCoverageTest is Test {
         d.outCm = bytes32(uint256(0x1));
         // AllowanceTransfer path avoids needing a signature.
         _approvePermit2ToMasp();
-        masp.submitIntentAuthorized(d, _aux()[0]);
+        masp.depositAuthorized(d, _aux()[0]);
     }
 
     function _approvePermit2ToMasp() internal {

@@ -10,9 +10,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Foundry release is pinned so CI reproduces local bytecode exactly. The
+# compiler itself is pinned by the exact `pragma solidity 0.8.36` in
+# src/, test/ and script/ — foundry only has to fetch it.
 env:
   FOUNDRY_PROFILE: default
-  FOUNDRY_VERSION: stable
+  FOUNDRY_VERSION: v1.5.1
 
 jobs:
   test:

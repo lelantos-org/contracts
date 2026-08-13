@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -85,7 +85,7 @@ contract SwapWrapperTest is Test {
         pi.payer = address(this);
     }
 
-    function _intent(uint64 publicIn, address payer) internal view returns (PubInputs.DepositIntent memory d) {
+    function _request(uint64 publicIn, address payer) internal view returns (PubInputs.DepositRequest memory d) {
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_B;
         d.publicIn = publicIn;
@@ -98,7 +98,7 @@ contract SwapWrapperTest is Test {
         uint256 amountIn,
         uint256 minOut,
         uint64 piOut,
-        uint64 intentIn,
+        uint64 depositIn,
         address adapter_,
         address recipient,
         address payer
@@ -108,7 +108,7 @@ contract SwapWrapperTest is Test {
         a.pi_w = _piWithdraw(piOut, recipient);
         a.tpi_w = _emptyTpi();
         a.aux_w = _emptyAux();
-        a.intent_d = _intent(intentIn, payer);
+        a.deposit_d = _request(depositIn, payer);
         a.aux_d = _emptyAux()[0];
         a.adapter = adapter_;
         a.route = abi.encode(uint24(500), uint160(0));
@@ -144,15 +144,15 @@ contract SwapWrapperTest is Test {
             amountIn: netIn,
             minOut: minOut,
             piOut: uint64(grossIn / SCALE),
-            intentIn: minPublicIn,
+            depositIn: minPublicIn,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(wrapper)
         });
 
-        (uint256 ret, uint256 intentId) = wrapper.swap(a);
+        (uint256 ret, uint256 depositId) = wrapper.swap(a);
         assertEq(ret, actualOut, "actualOut mismatch");
-        assertEq(intentId, 0, "intent id");
+        assertEq(depositId, 0, "deposit id");
 
         assertEq(tokenB.balanceOf(TREASURY), expectedDust, "dust to treasury");
         assertEq(tokenB.balanceOf(address(wrapper)), 0, "wrapper holds no B");
@@ -185,7 +185,7 @@ contract SwapWrapperTest is Test {
             amountIn: floorIn,
             minOut: minOut,
             piOut: uint64(grossIn / SCALE),
-            intentIn: minPublicIn,
+            depositIn: minPublicIn,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(wrapper)
@@ -209,7 +209,7 @@ contract SwapWrapperTest is Test {
             amountIn: floorIn,
             minOut: 900 * SCALE,
             piOut: uint64(grossIn / SCALE),
-            intentIn: 900,
+            depositIn: 900,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(wrapper)
@@ -243,7 +243,7 @@ contract SwapWrapperTest is Test {
             amountIn: netIn,
             minOut: minOut,
             piOut: uint64(grossIn / SCALE),
-            intentIn: minPublicIn,
+            depositIn: minPublicIn,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(wrapper)
@@ -264,7 +264,7 @@ contract SwapWrapperTest is Test {
             amountIn: 1_000 * SCALE,
             minOut: 990 * SCALE,
             piOut: 1_000,
-            intentIn: 990,
+            depositIn: 990,
             adapter_: address(0xDEAD),
             recipient: address(wrapper),
             payer: address(wrapper)
@@ -278,7 +278,7 @@ contract SwapWrapperTest is Test {
             amountIn: 1_000 * SCALE,
             minOut: 990 * SCALE,
             piOut: 1_000,
-            intentIn: 990,
+            depositIn: 990,
             adapter_: address(adapter),
             recipient: address(0xBAD),
             payer: address(wrapper)
@@ -292,7 +292,7 @@ contract SwapWrapperTest is Test {
             amountIn: 1_000 * SCALE,
             minOut: 990 * SCALE,
             piOut: 1_000,
-            intentIn: 990,
+            depositIn: 990,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(0xBAD)
@@ -306,7 +306,7 @@ contract SwapWrapperTest is Test {
             amountIn: 0,
             minOut: 990 * SCALE,
             piOut: 0,
-            intentIn: 990,
+            depositIn: 990,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(wrapper)
@@ -333,7 +333,7 @@ contract SwapWrapperTest is Test {
             amountIn: netIn,
             minOut: minOut,
             piOut: uint64(grossIn / SCALE),
-            intentIn: 990,
+            depositIn: 990,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(wrapper)
@@ -368,7 +368,7 @@ contract SwapWrapperTest is Test {
             amountIn: netIn,
             minOut: minOut,
             piOut: uint64(grossIn / SCALE),
-            intentIn: minPublicIn,
+            depositIn: minPublicIn,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(wrapper)
@@ -399,7 +399,7 @@ contract SwapWrapperTest is Test {
             amountIn: 1_000 * SCALE,
             minOut: 990 * SCALE,
             piOut: 1_000,
-            intentIn: 990,
+            depositIn: 990,
             adapter_: address(adapter),
             recipient: address(wrapper),
             payer: address(wrapper)
@@ -442,5 +442,157 @@ contract SwapWrapperTest is Test {
         assertEq(tokenA.allowance(address(wrapper), address(permit2)), type(uint256).max);
         (uint160 cap,,) = permit2.allowance(address(wrapper), address(tokenA), address(pool));
         assertEq(cap, type(uint160).max, "permit2 to pool allowance");
+    }
+
+    function testSetTreasuryUpdatesDestination() public {
+        address newTreasury = address(0xDEAD5E7);
+        vm.expectEmit(true, true, true, true, address(wrapper));
+        emit SwapWrapper.TreasurySet(newTreasury);
+        vm.prank(OWNER);
+        wrapper.setTreasury(newTreasury);
+        assertEq(wrapper.treasury(), newTreasury, "treasury updated");
+    }
+
+    function testOnlyOwnerCanSetTreasury() public {
+        vm.expectRevert();
+        wrapper.setTreasury(address(0xDEAD5E7));
+    }
+
+    // -------- closing leftover invariant --------------------------------
+
+    /// Sets up the happy path, then lets the caller perturb the adapter. All
+    /// amounts mirror `testHappyPathForwardsDustToTreasury`.
+    function _armSwap() internal returns (SwapWrapper.SwapArgs memory a, uint256 actualOut) {
+        uint256 grossIn = 1_000 * SCALE;
+        uint256 netIn = grossIn - (grossIn * FEE_BPS) / 10_000;
+        uint64 minPublicIn = 990;
+        uint256 minOut = uint256(minPublicIn) * SCALE;
+        actualOut = minOut + (minOut * FEE_BPS) / 10_000 + 7 * SCALE;
+
+        _mintToPool(grossIn);
+        _fundAdapter(actualOut);
+        pool.setNextWithdrawAmount(grossIn);
+        adapter.setNextActualOut(actualOut);
+
+        a = _args({
+            amountIn: netIn,
+            minOut: minOut,
+            piOut: uint64(grossIn / SCALE),
+            depositIn: minPublicIn,
+            adapter_: address(adapter),
+            recipient: address(wrapper),
+            payer: address(wrapper)
+        });
+    }
+
+    /// A venue that hands back part of the input leaves `tokenIn` on the
+    /// wrapper. Nothing downstream notices — the closing invariant is the only
+    /// thing standing between that and a balance the next swap could spend.
+    function testRevertWhenAdapterReturnsInputToken() public {
+        (SwapWrapper.SwapArgs memory a,) = _armSwap();
+        uint256 stray = 5 * SCALE;
+        adapter.setRefundIn(stray);
+
+        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.LeftoverBalance.selector, address(tokenA), stray));
+        wrapper.swap(a);
+    }
+
+    /// Mirror case on the output side: a venue that delivers more `tokenOut`
+    /// than it reports. The surplus is outside both the MASP pull and the dust
+    /// forward, so it would sit on the wrapper unattributed.
+    function testRevertWhenAdapterOverDeliversOutputToken() public {
+        (SwapWrapper.SwapArgs memory a,) = _armSwap();
+        uint256 surplus = 3 * SCALE;
+        _fundAdapter(surplus); // cover the extra it will send
+        adapter.setExtraOut(surplus);
+
+        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.LeftoverBalance.selector, address(tokenB), surplus));
+        wrapper.swap(a);
+    }
+
+    /// The wrapper re-checks `minOut` itself rather than trusting the adapter
+    /// to revert. Adapters are owner-allowlisted but still external code.
+    function testRevertWhenAdapterUnderReportsBelowMinOut() public {
+        (SwapWrapper.SwapArgs memory a,) = _armSwap();
+        uint256 short_ = a.minOut - 1;
+        adapter.setIgnoreMinOut(true);
+        adapter.setNextActualOut(short_);
+
+        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.InsufficientOut.selector, short_, a.minOut));
+        wrapper.swap(a);
+    }
+
+    // -------- escrow recovery -------------------------------------------
+
+    /// Run the happy path and return the escrow it created.
+    function _swapAndEscrow() internal returns (uint256 depositId, uint256 pulled, address driver) {
+        (SwapWrapper.SwapArgs memory a,) = _armSwap();
+        driver = a.pi_w.payer;
+        (, depositId) = wrapper.swap(a);
+        (,, pulled) = wrapper.escrows(depositId);
+    }
+
+    /// An escrow that never gets flushed is refunded to the address that drove
+    /// the swap. Without this path the coin is unreachable: MASP pays the
+    /// digest-bound payer, which is the wrapper, and only the wrapper may
+    /// cancel its own deposit.
+    function testCancelEscrowRefundsSwapDriver() public {
+        (uint256 depositId, uint256 pulled, address driver) = _swapAndEscrow();
+        assertGt(pulled, 0, "escrow recorded");
+        uint256 driverBefore = tokenB.balanceOf(driver);
+
+        vm.expectEmit(true, true, true, true, address(wrapper));
+        emit SwapWrapper.EscrowRefunded(depositId, driver, address(tokenB), pulled);
+        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+
+        assertEq(tokenB.balanceOf(driver) - driverBefore, pulled, "driver refunded");
+        assertEq(tokenB.balanceOf(address(wrapper)), 0, "wrapper keeps nothing");
+        (address refundTo,,) = wrapper.escrows(depositId);
+        assertEq(refundTo, address(0), "record cleared");
+    }
+
+    /// Anyone may drive the cancel; the destination is the recorded driver.
+    function testCancelEscrowIsPermissionless() public {
+        (uint256 depositId, uint256 pulled, address driver) = _swapAndEscrow();
+        uint256 driverBefore = tokenB.balanceOf(driver);
+
+        vm.prank(address(0xDEAD));
+        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+
+        assertEq(tokenB.balanceOf(driver) - driverBefore, pulled, "refund follows the record, not the caller");
+        assertEq(tokenB.balanceOf(address(0xDEAD)), 0, "caller gets nothing");
+    }
+
+    function testRevertCancelEscrowWithoutRecord() public {
+        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.NoEscrowRecord.selector, uint256(42)));
+        wrapper.cancelEscrow(42, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+    }
+
+    function testRevertCancelEscrowReplay() public {
+        (uint256 depositId,,) = _swapAndEscrow();
+        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.NoEscrowRecord.selector, depositId));
+        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+    }
+
+    /// A flushed deposit leaves a stale record and returns nothing. Paying it
+    /// out would spend another escrow's coin, so it is rejected up front.
+    function testRevertCancelEscrowAfterFlush() public {
+        (uint256 depositId,,) = _swapAndEscrow();
+        pool.simulateFlush(depositId);
+
+        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.DepositAlreadySettled.selector, depositId));
+        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+    }
+
+    /// The refund is attributed by delta, so a pool that returns less than the
+    /// record must not settle it out of some other escrow's coin.
+    function testRevertCancelEscrowShortRefund() public {
+        (uint256 depositId,,) = _swapAndEscrow();
+        pool.setRefundShortfall(1);
+
+        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.RefundNotFunded.selector, depositId));
+        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
     }
 }

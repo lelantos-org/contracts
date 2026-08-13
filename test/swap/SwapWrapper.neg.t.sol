@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -74,7 +74,7 @@ contract SwapWrapperNegTest is Test {
         pi.payer = address(this);
     }
 
-    function _intent(uint64 publicIn, address payer) internal view returns (PubInputs.DepositIntent memory d) {
+    function _request(uint64 publicIn, address payer) internal view returns (PubInputs.DepositRequest memory d) {
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_B;
         d.publicIn = publicIn;
@@ -83,7 +83,7 @@ contract SwapWrapperNegTest is Test {
         d.outCm = bytes32(uint256(1));
     }
 
-    function _args(uint256 amountIn, uint256 minOut, uint64 piOut, uint64 intentIn, uint256 deadline)
+    function _args(uint256 amountIn, uint256 minOut, uint64 piOut, uint64 depositIn, uint256 deadline)
         internal
         view
         returns (SwapWrapper.SwapArgs memory a)
@@ -93,7 +93,7 @@ contract SwapWrapperNegTest is Test {
         a.pi_w = _piWithdraw(piOut, address(wrapper));
         a.tpi_w = _emptyTpi();
         a.aux_w = _emptyAux();
-        a.intent_d = _intent(intentIn, address(wrapper));
+        a.deposit_d = _request(depositIn, address(wrapper));
         a.aux_d = _emptyAux()[0];
         a.adapter = address(adapter);
         a.route = abi.encode(uint24(500), uint160(0));
@@ -109,7 +109,7 @@ contract SwapWrapperNegTest is Test {
     function test_revert_SwapExpired() public {
         uint256 expiredDeadline = block.timestamp - 1;
         SwapWrapper.SwapArgs memory a = _args({
-            amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, intentIn: 990, deadline: expiredDeadline
+            amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, depositIn: 990, deadline: expiredDeadline
         });
         vm.expectRevert(SwapWrapper.SwapExpired.selector);
         wrapper.swap(a);
@@ -119,7 +119,7 @@ contract SwapWrapperNegTest is Test {
         // deadline == block.timestamp is still valid (not expired).
         // deadline == block.timestamp - 1 is expired.
         SwapWrapper.SwapArgs memory a = _args({
-            amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, intentIn: 990, deadline: block.timestamp
+            amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, depositIn: 990, deadline: block.timestamp
         });
         // At exactly block.timestamp the deadline check must pass. The call
         // still fails later (no pool funds), but not with SwapExpired.
@@ -133,7 +133,7 @@ contract SwapWrapperNegTest is Test {
         elapsed = bound(elapsed, 1, block.timestamp);
         uint256 expiredDeadline = block.timestamp - elapsed;
         SwapWrapper.SwapArgs memory a = _args({
-            amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, intentIn: 990, deadline: expiredDeadline
+            amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, depositIn: 990, deadline: expiredDeadline
         });
         vm.expectRevert(SwapWrapper.SwapExpired.selector);
         wrapper.swap(a);
@@ -162,11 +162,11 @@ contract SwapWrapperNegTest is Test {
             amountIn: netIn,
             minOut: minOut,
             piOut: uint64(grossIn / SCALE),
-            intentIn: minPublicIn,
+            depositIn: minPublicIn,
             deadline: type(uint256).max
         });
         a.pi_w.recipient = address(wrapper);
-        a.intent_d.payer = address(wrapper);
+        a.deposit_d.payer = address(wrapper);
 
         wrapper.swap(a);
 

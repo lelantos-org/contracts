@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,7 +10,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
@@ -18,11 +17,11 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 
-/// `submitIntentAuthorized` — Permit2 AllowanceTransfer-based deposit.
+/// `depositAuthorized` — Permit2 AllowanceTransfer-based deposit.
 /// Tests use `IAllowanceTransfer.approve` from the payer to set up the
 /// allowance window directly (production uses a pre-signed PermitSingle,
 /// equivalent on-chain state).
-contract MASPSubmitIntentAuthorizedTest is Test {
+contract MASPDepositAuthorizedTest is Test {
     uint64 internal constant ASSET_ID = 1;
     uint256 internal constant SCALE = 1e10;
     uint16 internal constant FEE_BPS = 25;
@@ -55,7 +54,6 @@ contract MASPSubmitIntentAuthorizedTest is Test {
             IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             ids,
             tokens,
             scales,
@@ -69,10 +67,10 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         token.approve(address(permit2), type(uint256).max);
     }
 
-    function _intent(uint64 publicIn, address payerAddr, bytes32 salt)
+    function _request(uint64 publicIn, address payerAddr, bytes32 salt)
         internal
         view
-        returns (PubInputs.DepositIntent memory d)
+        returns (PubInputs.DepositRequest memory d)
     {
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
@@ -119,11 +117,11 @@ contract MASPSubmitIntentAuthorizedTest is Test {
 
         uint256 poolBefore = token.balanceOf(address(masp));
 
-        PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(uint256(1)));
+        PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
         AuxValidation.Output[3] memory aux = _aux();
 
         vm.prank(payer);
-        uint256 id = masp.submitIntentAuthorized(d, aux[0]);
+        uint256 id = masp.depositAuthorized(d, aux[0]);
 
         assertEq(id, 0);
         assertEq(token.balanceOf(address(masp)) - poolBefore, total, "MASP credited");
@@ -139,15 +137,15 @@ contract MASPSubmitIntentAuthorizedTest is Test {
 
         AuxValidation.Output[3] memory aux = _aux();
         for (uint256 i; i < 3; i++) {
-            PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(i + 1));
+            PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(i + 1));
             vm.prank(payer);
-            masp.submitIntentAuthorized(d, aux[0]);
+            masp.depositAuthorized(d, aux[0]);
         }
         // Fourth deposit must fail: allowance exhausted.
-        PubInputs.DepositIntent memory d4 = _intent(amt, payer, bytes32(uint256(4)));
+        PubInputs.DepositRequest memory d4 = _request(amt, payer, bytes32(uint256(4)));
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.InsufficientAllowance.selector, uint160(0)));
-        masp.submitIntentAuthorized(d4, aux[0]);
+        masp.depositAuthorized(d4, aux[0]);
     }
 
     function testRevertsOnExpiredAllowance() public {
@@ -159,12 +157,12 @@ contract MASPSubmitIntentAuthorizedTest is Test {
 
         vm.warp(uint256(exp) + 1);
 
-        PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(uint256(1)));
+        PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
         AuxValidation.Output[3] memory aux = _aux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(exp)));
-        masp.submitIntentAuthorized(d, aux[0]);
+        masp.depositAuthorized(d, aux[0]);
     }
 
     function testRevertsOnSenderNotPayer() public {
@@ -173,13 +171,13 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         token.mint(payer, total);
         _setupAllowance(uint160(total), uint48(block.timestamp + 1 days));
 
-        PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(uint256(1)));
+        PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
         AuxValidation.Output[3] memory aux = _aux();
 
         address other = address(0xdead);
         vm.prank(other);
         vm.expectRevert(MASP.PayerNotSender.selector);
-        masp.submitIntentAuthorized(d, aux[0]);
+        masp.depositAuthorized(d, aux[0]);
     }
 
     function testRevertsOnNoAllowance() public {
@@ -187,11 +185,11 @@ contract MASPSubmitIntentAuthorizedTest is Test {
         token.mint(payer, _total(amt));
         // No allowance set up.
 
-        PubInputs.DepositIntent memory d = _intent(amt, payer, bytes32(uint256(1)));
+        PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
         AuxValidation.Output[3] memory aux = _aux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(0)));
-        masp.submitIntentAuthorized(d, aux[0]);
+        masp.depositAuthorized(d, aux[0]);
     }
 }

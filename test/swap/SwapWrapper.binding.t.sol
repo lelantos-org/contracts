@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -16,10 +16,10 @@ import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockSwapAdapter } from "./mocks/MockSwapAdapter.sol";
 import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
 
-/// Binding between the leg-1 withdraw proof and the leg-2 deposit intent.
+/// Binding between the leg-1 withdraw proof and the leg-2 deposit.
 /// `swap` is permissionless, so `pi_w.payer` names the sole address permitted
 /// to drive the swap, and the measured MASP pull is bounded below by `minOut`
-/// so `intent_d` cannot name a different asset or a smaller amount.
+/// so `deposit_d` cannot name a different asset or a smaller amount.
 contract SwapWrapperBindingTest is Test {
     uint64 internal constant ASSET_A = 1;
     uint64 internal constant ASSET_B = 2;
@@ -67,7 +67,7 @@ contract SwapWrapperBindingTest is Test {
         return IMASPSwap.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
     }
 
-    function _baseArgs(uint256 grossIn, uint256 minOut, uint64 intentIn)
+    function _baseArgs(uint256 grossIn, uint256 minOut, uint64 depositIn)
         internal
         view
         returns (SwapWrapper.SwapArgs memory a)
@@ -82,12 +82,12 @@ contract SwapWrapperBindingTest is Test {
         a.pi_w.relayer = address(wrapper);
         a.pi_w.payer = SWAP_DRIVER;
 
-        a.intent_d.chainId = block.chainid;
-        a.intent_d.publicAssetId = ASSET_B;
-        a.intent_d.publicIn = intentIn;
-        a.intent_d.payer = address(wrapper);
-        a.intent_d.recipient = VICTIM_NOTE;
-        a.intent_d.outCm = bytes32(uint256(1));
+        a.deposit_d.chainId = block.chainid;
+        a.deposit_d.publicAssetId = ASSET_B;
+        a.deposit_d.publicIn = depositIn;
+        a.deposit_d.payer = address(wrapper);
+        a.deposit_d.recipient = VICTIM_NOTE;
+        a.deposit_d.outCm = bytes32(uint256(1));
 
         a.adapter = address(adapter);
         a.route = abi.encode(uint24(500), uint160(0));
@@ -98,7 +98,7 @@ contract SwapWrapperBindingTest is Test {
         a.minOut = minOut;
     }
 
-    /// Replaying the withdraw proof verbatim under a substituted `intent_d`
+    /// Replaying the withdraw proof verbatim under a substituted `deposit_d`
     /// must not redirect the output note.
     function test_revert_frontRunnerCannotRedirectOutputNote() public {
         uint256 grossIn = 1_000 * SCALE;
@@ -112,9 +112,9 @@ contract SwapWrapperBindingTest is Test {
         adapter.setNextActualOut(actualOut);
 
         SwapWrapper.SwapArgs memory a = _baseArgs(grossIn, minOut, minPublicIn);
-        // Identical proof and public inputs; only the deposit intent changes.
-        a.intent_d.recipient = ATTACKER_NOTE;
-        a.intent_d.outCm = bytes32(uint256(0xA77ACC));
+        // Identical proof and public inputs; only the deposit changes.
+        a.deposit_d.recipient = ATTACKER_NOTE;
+        a.deposit_d.outCm = bytes32(uint256(0xA77ACC));
 
         vm.prank(address(0xDEADBEEF)); // arbitrary caller, not the victim
         vm.expectRevert(
@@ -140,13 +140,13 @@ contract SwapWrapperBindingTest is Test {
         vm.prank(SWAP_DRIVER);
         wrapper.swap(a);
 
-        assertEq(pool.lastIntentRecipient(), VICTIM_NOTE, "output note recipient");
-        assertEq(pool.lastIntentAssetId(), ASSET_B, "escrowed asset");
+        assertEq(pool.lastDepositRecipient(), VICTIM_NOTE, "output note recipient");
+        assertEq(pool.lastDepositAssetId(), ASSET_B, "escrowed asset");
     }
 
-    /// `intent_d.publicAssetId` must denominate the pull in `tokenOut`. Any
+    /// `deposit_d.publicAssetId` must denominate the pull in `tokenOut`. Any
     /// other token held by the wrapper must not be escrowable.
-    function test_revert_intentAssetMustMatchTokenOut() public {
+    function test_revert_depositAssetMustMatchTokenOut() public {
         uint256 grossIn = 1_000 * SCALE;
         uint64 minPublicIn = 990;
         uint256 minOut = uint256(minPublicIn) * SCALE;
@@ -160,8 +160,8 @@ contract SwapWrapperBindingTest is Test {
         adapter.setNextActualOut(actualOut);
 
         SwapWrapper.SwapArgs memory a = _baseArgs(grossIn, minOut, minPublicIn);
-        a.intent_d.publicAssetId = ASSET_C; // not tokenOut
-        a.intent_d.recipient = ATTACKER_NOTE;
+        a.deposit_d.publicAssetId = ASSET_C; // not tokenOut
+        a.deposit_d.recipient = ATTACKER_NOTE;
 
         vm.prank(SWAP_DRIVER);
         vm.expectRevert(abi.encodeWithSelector(SwapWrapper.MaspPullBelowMinOut.selector, 0, minOut));
@@ -172,7 +172,7 @@ contract SwapWrapperBindingTest is Test {
 
     /// Escrowing less than the requested output, routing the remainder to the
     /// treasury as dust, must be rejected.
-    function test_revert_intentCannotUnderEscrowOutput() public {
+    function test_revert_depositCannotUnderEscrowOutput() public {
         uint256 grossIn = 1_000 * SCALE;
         uint64 minPublicIn = 990;
         uint256 minOut = uint256(minPublicIn) * SCALE;
@@ -184,7 +184,7 @@ contract SwapWrapperBindingTest is Test {
         adapter.setNextActualOut(actualOut);
 
         SwapWrapper.SwapArgs memory a = _baseArgs(grossIn, minOut, minPublicIn);
-        a.intent_d.publicIn = 1; // escrow a negligible amount, rest to treasury
+        a.deposit_d.publicIn = 1; // escrow a negligible amount, rest to treasury
 
         uint256 pulled = uint256(1) * SCALE;
         pulled += (pulled * FEE_BPS) / 10_000;

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { ISwapAdapter } from "./ISwapAdapter.sol";
 
-/// Minimal SwapRouter02 surface. Address per chain:
+/// Minimal SwapRouter02 surface. Addresses per chain:
 ///   Mainnet/Arbitrum: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45
 ///   Base:             0x2626664c2603336E57B271c5C0b26F421741e481
-/// SwapRouter02 omits `deadline`; enforced at the wrapper layer.
+/// SwapRouter02 takes no `deadline`; it is enforced at the wrapper layer.
 interface ISwapRouter02 {
     struct ExactInputSingleParams {
         address tokenIn;
@@ -32,22 +32,23 @@ interface ISwapRouter02 {
     function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
 }
 
-/// UniV3 single-hop and multi-hop adapter. The wrapper transfers `amountIn`
-/// of `tokenIn` here; this contract approves the router, executes, and
-/// resets the approval.
+/// Uniswap V3 single-hop and multi-hop adapter. The wrapper transfers
+/// `amountIn` of `tokenIn` here; this contract approves the router, executes the
+/// swap, and resets the approval.
 ///
-/// `swap` is restricted to the pinned `WRAPPER`. Without that restriction any
+/// `swap` is restricted to the pinned `WRAPPER`. Without that restriction, any
 /// caller could drain donated tokens by routing the output to themselves.
 contract UniV3Adapter is ISwapAdapter {
     using SafeERC20 for IERC20;
 
     /// Single-hop route: `abi.encode(uint24 fee, uint160 sqrtPriceLimitX96)`,
     /// 64 bytes. `sqrtPriceLimitX96 = 0` disables the pool slippage guard.
-    /// Multi-hop routes use the packed path layout (no per-pool sqrt limit).
+    /// Multi-hop routes use the packed path layout, which has no per-pool
+    /// square-root price limit.
     uint256 private constant SINGLE_HOP_ROUTE_LEN = 64;
 
     ISwapRouter02 public immutable ROUTER;
-    /// Allowed `swap` caller; others revert `UnauthorizedCaller`.
+    /// The only permitted `swap` caller; others revert `UnauthorizedCaller`.
     address public immutable WRAPPER;
 
     error RouterZero();
@@ -61,15 +62,15 @@ contract UniV3Adapter is ISwapAdapter {
         WRAPPER = wrapper;
     }
 
-    /// Approve, swap, reset. The trailing reset to 0 keeps tokens that reject
-    /// non-zero to non-zero approval changes, such as USDT, usable on the next
-    /// swap.
+    /// Approve, swap, then reset. The trailing reset to zero keeps tokens that
+    /// reject non-zero to non-zero approval changes, such as USDT, usable on the
+    /// next swap.
     function swap(
         address tokenIn,
         address tokenOut,
         uint256 amountIn,
         uint256 minOut,
-        uint256, /* deadline — enforced by caller wrapper */
+        uint256, /* deadline: enforced by the calling wrapper */
         bytes calldata route
     ) external returns (uint256 actualOut) {
         if (msg.sender != WRAPPER) revert UnauthorizedCaller();

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,7 +10,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { MASP } from "../src/MASP.sol";
 import { NullifierSet } from "../src/NullifierSet.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
@@ -35,7 +34,6 @@ contract MASPSpendGuardsTest is Test {
             v,
             tub,
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             new uint64[](0),
             new IERC20[](0),
             new uint256[](0),
@@ -202,31 +200,37 @@ contract MASPSpendGuardsTest is Test {
         }
     }
 
-    function test_CmMismatch_outCm0() public {
-        PubInputs.Transact memory pi = _pi();
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        tpi.cms[0] = bytes32(uint256(0xbad)); // tamper
-        vm.prank(RELAYER);
-        vm.expectRevert(MASP.CmMismatch.selector);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+    /// Both cross-binding arrays are indexed by output, so both are swept over
+    /// the whole shape rather than over a hardcoded prefix. Enumerating only
+    /// outputs 0 and 1 is what let the `cvDeps[2]` gap survive the 2x2 -> 3x3
+    /// migration: the tests agreed with the bug.
+    function test_CmMismatch_everyOutput() public {
+        for (uint256 k = 0; k < PubInputs.TRANSACT_OUT; ++k) {
+            PubInputs.Transact memory pi = _pi();
+            PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+            tpi.cms[k] = bytes32(uint256(0xbad)); // tamper exactly one output
+            vm.prank(RELAYER);
+            vm.expectRevert(MASP.CmMismatch.selector);
+            masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+        }
     }
 
-    function test_CmMismatch_outCm1() public {
-        PubInputs.Transact memory pi = _pi();
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        tpi.cms[1] = bytes32(uint256(0xbad)); // tamper
-        vm.prank(RELAYER);
-        vm.expectRevert(MASP.CmMismatch.selector);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
-    }
-
-    function test_CvDepMismatch() public {
-        PubInputs.Transact memory pi = _pi();
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        tpi.cvDeps[0][0] = 1; // pi.outCvDep[0][0] == 0 → mismatch
-        vm.prank(RELAYER);
-        vm.expectRevert(MASP.CvDepMismatch.selector);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+    /// `cv_dep` is inside the leaf preimage and `spent.circom` recomputes it
+    /// from the note's own (asset, value, rcv), so an unbound (output,
+    /// coordinate) pair lets a relayer consume the inputs while inserting a
+    /// leaf the recipient can never produce a Merkle path for. All
+    /// `TRANSACT_OUT * 2` coordinates must revert.
+    function test_CvDepMismatch_everyOutputAndCoordinate() public {
+        for (uint256 k = 0; k < PubInputs.TRANSACT_OUT; ++k) {
+            for (uint256 c = 0; c < 2; ++c) {
+                PubInputs.Transact memory pi = _pi();
+                PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+                tpi.cvDeps[k][c] = 1; // pi.outCvDep[k][c] == 0 -> mismatch
+                vm.prank(RELAYER);
+                vm.expectRevert(MASP.CvDepMismatch.selector);
+                masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+            }
+        }
     }
 
     function test_UnknownRoot() public {

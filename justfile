@@ -6,6 +6,7 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # EIP-170. See the [profile.deploy] comment in foundry.toml.
 
 DEPLOY_PROFILE := "deploy"
+SOLC_VERSION := "0.8.36"
 MASP_SCRIPT := "script/Deploy.s.sol:Deploy"
 SWAP_SCRIPT := "script/DeploySwap.s.sol:DeploySwap"
 TEST_SCRIPT := "script/DeployTest.s.sol:DeployTest"
@@ -50,10 +51,11 @@ clean:
 install:
     forge install
 
-[doc('Print the forge version')]
+[doc('Print the forge and pinned solc versions')]
 [group('build')]
 version:
     forge --version
+    @echo "solc pinned to: {{ SOLC_VERSION }} (exact pragma in src/, test/, script/)"
 
 # === abi package ===
 

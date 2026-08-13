@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
-/// Baby-Jubjub twisted Edwards curve over BN254 scalar field.
+/// Baby-Jubjub twisted Edwards curve over the BN254 scalar field:
 ///   a * x^2 + y^2 = 1 + d * x^2 * y^2
-/// p = BN254 scalar field order
-/// a = 168700
-/// d = 168696
-/// Curve has cofactor 8; the prime-order subgroup has order
+/// with p = the BN254 scalar field order, a = 168700, d = 168696.
+/// The curve has cofactor 8; the prime-order subgroup has order
 ///   L = 2736030358979909402780800718157159386076813972158567259200215660948447373041.
 library BabyJubJub {
     uint256 internal constant P = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -17,12 +15,13 @@ library BabyJubJub {
     uint256 internal constant BASE8_X = 5299619240641551281634865583518297030282874472190772894086521144482721001553;
     uint256 internal constant BASE8_Y = 16950150798460657717958625567821834550301663161624707787222815936182638968203;
 
-    /// Identity element on twisted Edwards = (0, 1). [k]·O = O for all k.
+    /// Identity element of the twisted Edwards form, (0, 1). `[k]·O = O` for
+    /// all k.
     function isIdentity(uint256 x, uint256 y) internal pure returns (bool) {
         return x == 0 && y == 1;
     }
 
-    /// True iff (x, y) on Baby-Jubjub. Excludes subgroup membership.
+    /// True iff (x, y) lies on Baby-Jubjub. Does not check subgroup membership.
     function isOnCurve(uint256 x, uint256 y) internal pure returns (bool) {
         if (x >= P || y >= P) return false;
         uint256 xx = mulmod(x, x, P);
@@ -32,10 +31,10 @@ library BabyJubJub {
         return lhs == rhs;
     }
 
-    /// True iff (x, y) has order dividing cofactor 8 (identity or a
-    /// small-subgroup point). Caller MUST have checked `isOnCurve` first.
-    /// Rejecting these blocks small-subgroup attacks on FMD clues.
-    /// Defense-in-depth backing the in-circuit constraint.
+    /// True iff (x, y) has order dividing the cofactor 8, i.e. the identity or a
+    /// small-subgroup point. The caller must have checked `isOnCurve` first.
+    /// Rejecting these points blocks small-subgroup attacks on FMD clues, and
+    /// backs the equivalent in-circuit constraint.
     function isLowOrder(uint256 x, uint256 y) internal pure returns (bool) {
         if (isIdentity(x, y)) return true;
         // Three projective doublings. The formula is complete on Baby-Jubjub
@@ -48,7 +47,7 @@ library BabyJubJub {
     }
 
     /// Projective twisted Edwards doubling (dbl-2008-bbjlp), 3M + 4S.
-    /// (X : Y : Z) represents affine (X/Z, Y/Z); Z != 0 required.
+    /// (X : Y : Z) represents affine (X/Z, Y/Z) and requires Z != 0.
     function _doubleProj(uint256 x, uint256 y, uint256 z) private pure returns (uint256 x3, uint256 y3, uint256 z3) {
         uint256 b = addmod(x, y, P);
         b = mulmod(b, b, P); // B = (X+Y)^2

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 
@@ -60,5 +60,20 @@ contract UniV3AdapterTest is Test {
     function testConstructorRejectsZeroRouter() public {
         vm.expectRevert(UniV3Adapter.RouterZero.selector);
         new UniV3Adapter(address(0), address(uint160(1)));
+    }
+
+    function testConstructorRejectsZeroWrapper() public {
+        vm.expectRevert(UniV3Adapter.WrapperZero.selector);
+        new UniV3Adapter(address(router), address(0));
+    }
+
+    /// `swap` is pinned to the wrapper. Without that, any caller could route
+    /// tokens donated to the adapter to themselves.
+    function testRevertsOnUnauthorizedCaller() public {
+        _fund(1_000e18, 990e18);
+        bytes memory route = abi.encode(uint24(500), uint160(0));
+        vm.prank(address(0xBAD));
+        vm.expectRevert(UniV3Adapter.UnauthorizedCaller.selector);
+        adapter.swap(address(tokenIn), address(tokenOut), 1_000e18, 990e18, type(uint256).max, route);
     }
 }

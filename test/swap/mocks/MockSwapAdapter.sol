@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -16,6 +16,16 @@ contract MockSwapAdapter is ISwapAdapter {
     /// If true, the next call returns without sending any `tokenOut`,
     /// simulating a faulty venue.
     bool public siphonMode;
+    /// `tokenIn` pushed back to the caller, modelling a venue that consumes
+    /// less than it was handed. The wrapper's closing leftover invariant is
+    /// what must catch it.
+    uint256 public refundIn;
+    /// `tokenOut` delivered on top of the reported `actualOut`, modelling a
+    /// venue whose return value understates what it sent.
+    uint256 public extraOut;
+    /// If true, skip the internal `minOut` check so the call returns a short
+    /// output instead of reverting — that hands the decision to the wrapper.
+    bool public ignoreMinOut;
 
     function setNextActualOut(uint256 v) external {
         nextActualOut = v;
@@ -25,17 +35,30 @@ contract MockSwapAdapter is ISwapAdapter {
         siphonMode = v;
     }
 
-    function swap(address, address tokenOut, uint256, uint256 minOut, uint256, bytes calldata)
+    function setRefundIn(uint256 v) external {
+        refundIn = v;
+    }
+
+    function setExtraOut(uint256 v) external {
+        extraOut = v;
+    }
+
+    function setIgnoreMinOut(bool v) external {
+        ignoreMinOut = v;
+    }
+
+    function swap(address tokenIn, address tokenOut, uint256, uint256 minOut, uint256, bytes calldata)
         external
         returns (uint256 actualOut)
     {
         actualOut = nextActualOut;
-        if (actualOut < minOut) {
+        if (actualOut < minOut && !ignoreMinOut) {
             // Mirror real adapter behaviour: revert when output insufficient.
             revert("MockSwapAdapter: insufficient out");
         }
         if (!siphonMode) {
-            IERC20(tokenOut).transfer(msg.sender, actualOut);
+            IERC20(tokenOut).transfer(msg.sender, actualOut + extraOut);
         }
+        if (refundIn != 0) IERC20(tokenIn).transfer(msg.sender, refundIn);
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -10,7 +10,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { MASP } from "../src/MASP.sol";
 import { AssetRegistry } from "../src/AssetRegistry.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
@@ -61,7 +60,6 @@ contract MASPFlushBatchTest is Test {
             IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             ids,
             tokens,
             scales,
@@ -95,10 +93,10 @@ contract MASPFlushBatchTest is Test {
         aux[2].ciphertext = hex"0001";
     }
 
-    function _intent(uint64 publicIn, uint64 assetId, bytes32 cm)
+    function _request(uint64 publicIn, uint64 assetId, bytes32 cm)
         internal
         view
-        returns (PubInputs.DepositIntent memory d)
+        returns (PubInputs.DepositRequest memory d)
     {
         d.chainId = block.chainid;
         d.publicAssetId = assetId;
@@ -117,20 +115,20 @@ contract MASPFlushBatchTest is Test {
     }
 
     function _submit(uint64 publicIn, uint64 assetId, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
-        PubInputs.DepositIntent memory d = _intent(publicIn, assetId, cm);
+        PubInputs.DepositRequest memory d = _request(publicIn, assetId, cm);
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
-        return masp.submitIntent(d, sig, _aux()[0]);
+        return masp.deposit(d, sig, _aux()[0]);
     }
 
-    /// Digest meta for intents submitted in the current block by `payer` at
+    /// Digest meta for deposits submitted in the current block by `payer` at
     /// the deploy-time fee — matches every `_submit` in this suite.
-    function _meta(uint256 n) internal view returns (MASP.IntentMeta[] memory m) {
-        m = new MASP.IntentMeta[](n);
+    function _meta(uint256 n) internal view returns (MASP.DepositMeta[] memory m) {
+        m = new MASP.DepositMeta[](n);
         for (uint256 i = 0; i < n; i++) {
             // forge-lint: disable-next-line(unsafe-typecast)
-            m[i] = MASP.IntentMeta({ payer: payer, submittedAt: uint32(block.number), fbps: FEE_BPS });
+            m[i] = MASP.DepositMeta({ payer: payer, submittedAt: uint32(block.number), fbps: FEE_BPS });
         }
     }
 
@@ -160,8 +158,8 @@ contract MASPFlushBatchTest is Test {
     }
 
     /// Fill the per-active-slot PIs that `flushBatch` cross-checks against
-    /// the escrow record. cvDep coords stay zero — `_intent` leaves
-    /// `DepositIntent.cvDep` zero so the escrow digest is over (0,0).
+    /// the escrow record. cvDep coords stay zero — `_request` leaves
+    /// `DepositRequest.cvDep` zero so the escrow digest is over (0,0).
     function _fillLeafPI(PubInputs.TreeUpdateBatch memory tpi, uint64[] memory assetIds, uint64[] memory publicIns)
         internal
         pure
@@ -216,7 +214,7 @@ contract MASPFlushBatchTest is Test {
         uint256 id1 = _submit(100, ASSET_ID, bytes32(uint256(3)), 1);
         uint256 id2 = _submit(100, ASSET_ID, bytes32(uint256(5)), 2);
 
-        // Three intents, three leaves — an odd batch, which the leaf-granular
+        // Three deposits, three leaves — an odd batch, which the leaf-granular
         // circuit and `_advanceRoot(.., n, ..)` now express directly.
         bytes32[] memory cms = new bytes32[](3);
         cms[0] = bytes32(uint256(1));
@@ -303,12 +301,12 @@ contract MASPFlushBatchTest is Test {
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
     }
 
-    function test_revert_IntentNotPending_unknownId() public {
+    function test_revert_DepositNotPending_unknownId() public {
         bytes32[] memory cms = new bytes32[](2);
         PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
         uint256[] memory ids = new uint256[](1);
         ids[0] = 999;
-        vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, 999));
+        vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, 999));
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
     }
 
@@ -348,7 +346,7 @@ contract MASPFlushBatchTest is Test {
         ids[0] = id;
 
         // Wrong fbps in meta.
-        MASP.IntentMeta[] memory m = _meta(1);
+        MASP.DepositMeta[] memory m = _meta(1);
         m[0].fbps = FEE_BPS + 1;
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
         masp.flushBatch(ids, m, _emptyProof(), tpi);
@@ -367,7 +365,7 @@ contract MASPFlushBatchTest is Test {
     }
 
     function test_happy_mixedAssetBatch() public {
-        // Two intents of different assets in the same flush. Per-token
+        // Two deposits of different assets in the same flush. Per-token
         // fees accrue independently in the tail loop.
         _fund(token, 100);
         _fund(tokenAlt, 100);
@@ -450,7 +448,7 @@ contract MASPFlushBatchTest is Test {
         // first.
         PubInputs.TreeUpdateBatch memory tpi2 = _tpi(1, cms);
         _fillLeafPI(tpi2, a, p);
-        vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id));
+        vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id));
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi2);
     }
 }

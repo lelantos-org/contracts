@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +9,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 import { Groth16Verifier } from "../../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
@@ -18,9 +17,9 @@ import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockERC1271 } from "../mocks/MockERC1271.sol";
 
-/// Handler exercises submitIntent / flushBatch / cancelIntent / sweep
+/// Handler exercises deposit / flushBatch / cancelDeposit / sweep
 /// randomly. Fees accrue only at flush; the handler shadows both the
-/// escrowed totals of still-pending intents and the expected `accruedFee`
+/// escrowed totals of still-pending deposits and the expected `accruedFee`
 /// so the invariants can assert solvency and accrual timing exactly.
 contract EscrowFeeHandler is Test {
     MASP public masp;
@@ -32,7 +31,7 @@ contract EscrowFeeHandler is Test {
     uint256 public constant SCALE = 1e10;
     uint16 public constant FEE_BPS = 25;
 
-    /// All intent ids ever submitted (pending OR cleared).
+    /// All deposit ids ever submitted (pending OR cleared).
     uint256[] public allIds;
     /// id → fee locked at submit (asset-units * scale).
     mapping(uint256 => uint256) public feeAt;
@@ -81,7 +80,7 @@ contract EscrowFeeHandler is Test {
         aux[2].ciphertext = hex"0001";
     }
 
-    /// Handler: submit a fresh intent.
+    /// Handler: submit a fresh deposit.
     function submit(uint64 publicIn) external {
         publicIn = uint64(bound(publicIn, 1, 1_000));
 
@@ -91,7 +90,7 @@ contract EscrowFeeHandler is Test {
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        PubInputs.DepositIntent memory d;
+        PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
@@ -103,7 +102,7 @@ contract EscrowFeeHandler is Test {
             nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
 
-        uint256 id = masp.submitIntent(d, sig, _aux()[0]);
+        uint256 id = masp.deposit(d, sig, _aux()[0]);
         allIds.push(id);
         feeAt[id] = fee;
         principalAt[id] = inAmt;
@@ -116,14 +115,14 @@ contract EscrowFeeHandler is Test {
         expectedPendingTotal += inAmt + fee;
     }
 
-    /// Handler: flush one pending intent (uses mocked SNARK verify).
+    /// Handler: flush one pending deposit (uses mocked SNARK verify).
     function flushOne(uint256 idxSeed) external {
         if (allIds.length == 0) return;
         uint256 id = _firstPendingFrom(idxSeed);
         if (!pending[id]) return; // none pending
 
         // Rebuild tpi from the off-chain preimage shadow; the digest check
-        // in `_drainIntent` enforces every field matches what was escrowed.
+        // in `_drainDeposit` enforces every field matches what was escrowed.
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(masp.committedCount()) + 1); // arbitrary; SNARK is mocked
@@ -137,8 +136,8 @@ contract EscrowFeeHandler is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
 
-        MASP.IntentMeta[] memory meta = new MASP.IntentMeta[](1);
-        meta[0] = MASP.IntentMeta({ payer: payer, submittedAt: preimageSubmittedAt[id], fbps: FEE_BPS });
+        MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
+        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: preimageSubmittedAt[id], fbps: FEE_BPS });
 
         MASP.Proof memory proof;
         masp.flushBatch(ids, meta, proof, tpi);
@@ -149,7 +148,7 @@ contract EscrowFeeHandler is Test {
         expectedAccrued += feeAt[id];
     }
 
-    /// Handler: cancel one pending intent (rolls past cancelDelay first).
+    /// Handler: cancel one pending deposit (rolls past cancelDelay first).
     function cancelOne(uint256 idxSeed) external {
         if (allIds.length == 0) return;
         uint256 id = _firstPendingFrom(idxSeed);
@@ -159,7 +158,7 @@ contract EscrowFeeHandler is Test {
         vm.roll(block.number + masp.cancelDelay());
 
         uint256[2] memory zCv;
-        masp.cancelIntent(
+        masp.cancelDeposit(
             id, preimagePublicIn[id], preimageCm0[id], zCv, ASSET_ID, FEE_BPS, payer, preimageSubmittedAt[id]
         );
         pending[id] = false;
@@ -219,7 +218,6 @@ contract MASPEscrowFeeInvariantTest is Test {
             IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             ids,
             tokens,
             scales,
@@ -259,7 +257,7 @@ contract MASPEscrowFeeInvariantTest is Test {
         assertEq(bal, owed, "pool balance covers escrow + shielded + claimable fee");
     }
 
-    /// Accrual timing: `accruedFee` moves ONLY at flush (up by the intent's
+    /// Accrual timing: `accruedFee` moves ONLY at flush (up by the deposit's
     /// submit-time fee) and at sweep (to zero). Submit and cancel never
     /// touch it.
     function invariant_accrualOnlyAtFlush() public view {

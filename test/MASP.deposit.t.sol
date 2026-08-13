@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -11,7 +11,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { MASP } from "../src/MASP.sol";
 import { AssetRegistry } from "../src/AssetRegistry.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
@@ -20,10 +19,10 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
 
-/// `submitIntent` happy path + revert coverage. Permit2 sig acceptance is
+/// `deposit` happy path + revert coverage. Permit2 sig acceptance is
 /// faked via an ERC-1271 stub at the payer address (any sig bytes valid),
 /// so tests can focus on contract-level invariants.
-contract MASPSubmitIntentTest is Test {
+contract MASPDepositTest is Test {
     uint64 internal constant ASSET_ID = 1;
     uint256 internal constant SCALE = 1e10;
     uint16 internal constant FEE_BPS = 25;
@@ -56,7 +55,6 @@ contract MASPSubmitIntentTest is Test {
             IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             ids,
             tokens,
             scales,
@@ -70,7 +68,7 @@ contract MASPSubmitIntentTest is Test {
         vm.etch(payer, address(stub).code);
     }
 
-    function _intent(uint64 publicIn) internal view returns (PubInputs.DepositIntent memory d) {
+    function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
@@ -118,19 +116,19 @@ contract MASPSubmitIntentTest is Test {
         (uint256 inAmt, uint256 fee) = _fund(publicIn);
         uint256 total = inAmt + fee;
 
-        PubInputs.DepositIntent memory d = _intent(publicIn);
+        PubInputs.DepositRequest memory d = _request(publicIn);
         AuxValidation.Output[3] memory aux = _aux();
 
         uint256 poolBefore = token.balanceOf(address(masp));
         uint256 payerBefore = token.balanceOf(payer);
 
-        uint256 id = masp.submitIntent(d, _sig(total), aux[0]);
+        uint256 id = masp.deposit(d, _sig(total), aux[0]);
 
         assertEq(id, 0, "first id");
         assertEq(token.balanceOf(address(masp)) - poolBefore, total, "pool gross");
         assertEq(payerBefore - token.balanceOf(payer), total, "payer debited");
         assertEq(masp.accruedFee(IERC20(address(token))), 0, "no accrual at submit; fee accrues at flush");
-        assertEq(masp.nextIntentId(), 1, "nextIntentId bumped");
+        assertEq(masp.nextDepositId(), 1, "nextDepositId bumped");
 
         // Spot-check escrow slot: a single digest binds the full preimage,
         // payer and submit block included.
@@ -155,15 +153,15 @@ contract MASPSubmitIntentTest is Test {
         uint64 publicIn = 50;
         _fund(publicIn);
         _fund(publicIn); // second deposit's funds
-        PubInputs.DepositIntent memory d = _intent(publicIn);
+        PubInputs.DepositRequest memory d = _request(publicIn);
         AuxValidation.Output[3] memory aux = _aux();
         MASP.Permit2Sig memory s1 =
             MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
         MASP.Permit2Sig memory s2 =
             MASP.Permit2Sig({ nonce: 1, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
 
-        uint256 a = masp.submitIntent(d, s1, aux[0]);
-        uint256 b = masp.submitIntent(d, s2, aux[0]);
+        uint256 a = masp.deposit(d, s1, aux[0]);
+        uint256 b = masp.deposit(d, s2, aux[0]);
         assertEq(a, 0);
         assertEq(b, 1);
     }
@@ -171,7 +169,7 @@ contract MASPSubmitIntentTest is Test {
     function test_happy_sweep_nothingAccruedAtSubmit() public {
         uint64 publicIn = 100;
         _fund(publicIn);
-        masp.submitIntent(_intent(publicIn), _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(_request(publicIn), _sig(type(uint256).max), _aux()[0]);
 
         // Fees accrue only at flush, so a bare submit leaves nothing to sweep
         // — escrowed principal + fee stay out of `accruedFee` entirely.
@@ -184,53 +182,53 @@ contract MASPSubmitIntentTest is Test {
 
     function test_revert_BadChainId() public {
         _fund(100);
-        PubInputs.DepositIntent memory d = _intent(100);
+        PubInputs.DepositRequest memory d = _request(100);
         d.chainId = block.chainid + 1;
         vm.expectRevert(MASP.BadChainId.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_MustHaveDeposit() public {
-        PubInputs.DepositIntent memory d = _intent(0);
+        PubInputs.DepositRequest memory d = _request(0);
         vm.expectRevert(MASP.MustHaveDeposit.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_PublicInTooLarge() public {
         // 2^48 exceeds uint48 max
-        PubInputs.DepositIntent memory d = _intent(0);
+        PubInputs.DepositRequest memory d = _request(0);
         d.publicIn = uint64(uint256(type(uint48).max) + 1);
         vm.expectRevert(MASP.PublicInTooLarge.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_ZeroPayer() public {
-        PubInputs.DepositIntent memory d = _intent(100);
+        PubInputs.DepositRequest memory d = _request(100);
         d.payer = address(0);
         vm.expectRevert(MASP.ZeroPayer.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_ZeroRecipient() public {
-        PubInputs.DepositIntent memory d = _intent(100);
+        PubInputs.DepositRequest memory d = _request(100);
         d.recipient = address(0);
         vm.expectRevert(MASP.ZeroRecipient.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_ZeroCm() public {
-        PubInputs.DepositIntent memory d = _intent(100);
+        PubInputs.DepositRequest memory d = _request(100);
         // A deposit has exactly one leaf, so a zero cm is the whole check.
         d.outCm = bytes32(0);
         vm.expectRevert(MASP.ZeroCm.selector);
-        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     function test_revert_UnknownAsset() public {
-        PubInputs.DepositIntent memory d = _intent(100);
+        PubInputs.DepositRequest memory d = _request(100);
         d.publicAssetId = 999;
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, 999));
-        masp.submitIntent(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
     }
 
     // --- admin / cancelDelay -----------------------------------------------

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -19,7 +19,7 @@ import { MASPSpendHarness } from "./utils/MASPSpendHarness.sol";
 
 /// Spend-path chainId enforcement regression test.
 ///
-/// Deposit-path BadChainId is already covered in MASP.submitIntent.t.sol.
+/// Deposit-path BadChainId is already covered in MASP.deposit.t.sol.
 /// The spend path (`transfer`) routes through `_validateRequest` at
 /// MASP.sol:646 which asserts `pi.chainId == block.chainid` BEFORE proof
 /// verification. PolyEval slot 17 binds `chainId` into z, so any mismatch

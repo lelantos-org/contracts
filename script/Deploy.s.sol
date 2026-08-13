@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -7,12 +7,15 @@ import { MASP } from "../src/MASP.sol";
 import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 
+import { NativeAdapter } from "../src/native/NativeAdapter.sol";
+
 import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 
 /// Mainnet (or any non-ephemeral chain) deploy. Deploys only the contracts
 /// owned by this repo: `Groth16Verifier`, `TreeUpdateBatchGroth16Verifier`,
-/// and `MASP`. All external dependencies — Permit2, the chain's wrapped
-/// native coin (WETH/WBNB/etc.), and the registered ERC20 tokens — are
+/// `MASP`, and — when `wrappedNative` is configured — `NativeAdapter`.
+/// All external dependencies — Permit2, the chain's wrapped native coin
+/// (WETH/WBNB/etc.), and the registered ERC20 tokens — are
 /// passed in via a JSON config (`MAINNET_CONFIG`, default
 /// `script/config/mainnet.json`). Refuses to run if any required address
 /// has no code at deploy time.
@@ -20,7 +23,7 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 /// Config schema:
 ///   {
 ///     "permit2":        "0x...",   required, must have code
-///     "wrappedNative":  "0x...",   optional, address(0) disables withdrawNative
+///     "wrappedNative":  "0x...",   optional, address(0) skips the NativeAdapter deploy
 ///     "feeBps":   25,
 ///     "treasury": "0x...",
 ///     "owner":    "0x...",
@@ -43,6 +46,7 @@ contract Deploy is BaseDeploy {
             address treeUpdateBatchVerifierAddr,
             address maspAddr,
             address permit2Addr,
+            address nativeAdapterAddr,
             address[] memory tokenAddrs
         )
     {
@@ -78,14 +82,25 @@ contract Deploy is BaseDeploy {
         }
 
         vm.startBroadcast();
-        (Groth16Verifier v, TreeUpdateBatchGroth16Verifier tub, MASP masp) = _deployMaspCore(p);
+        (Groth16Verifier v, TreeUpdateBatchGroth16Verifier tub, MASP masp, NativeAdapter na) = _deployMaspCore(p);
         vm.stopBroadcast();
 
         verifierAddr = address(v);
         treeUpdateBatchVerifierAddr = address(tub);
         maspAddr = address(masp);
         permit2Addr = p.permit2;
+        // address(0) when the chain has no wrapped-native token configured.
+        nativeAdapterAddr = address(na);
 
-        _logCoreKv(verifierAddr, treeUpdateBatchVerifierAddr, maspAddr, permit2Addr, p.wrappedNative, p.ids, tokenAddrs);
+        _logCoreKv(
+            verifierAddr,
+            treeUpdateBatchVerifierAddr,
+            maspAddr,
+            permit2Addr,
+            p.wrappedNative,
+            nativeAdapterAddr,
+            p.ids,
+            tokenAddrs
+        );
     }
 }

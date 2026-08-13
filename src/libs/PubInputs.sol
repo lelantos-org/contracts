@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { SnarkCompression } from "../SnarkCompression.sol";
 import { AuxValidation } from "./AuxValidation.sol";
 
-/// SNARK PI structs + Fiat-Shamir compression. Layouts MUST match the
-/// circuit-side PolyEval coefficient orders byte-for-byte.
+/// Public-input structs and Fiat-Shamir compression. Layouts must match the
+/// circuit-side PolyEval coefficient orders word-for-word.
 library PubInputs {
     /// Shielded inputs and outputs of `transact_3x3.circom`. Changing either
     /// requires a new circuit, a new ceremony, and a new verifier.
     uint256 internal constant TRANSACT_IN = 3;
     uint256 internal constant TRANSACT_OUT = 3;
 
-    /// `3x3.circom` public signals: 32 struct words, then `3 * TRANSACT_OUT`
-    /// clue coefficients and the aux digest, all derived in `compress`.
-    /// `outCvDep` is the per-output Pedersen value commitment anchoring
-    /// (asset, value) into the leaf; forwarded into tree_update_batch.
+    /// `transact_3x3.circom` public signals: 32 struct words, then
+    /// `3 * TRANSACT_OUT` clue coefficients and the aux digest, all derived in
+    /// `compress`. `outCvDep` is the per-output Pedersen value commitment
+    /// anchoring (asset, value) into the leaf; it is forwarded into
+    /// `tree_update_batch`.
     struct Transact {
         bytes32 merkleRoot;
         bytes32[TRANSACT_IN] nullifier;
@@ -32,17 +33,18 @@ library PubInputs {
         uint256[2][TRANSACT_OUT] outCvDep;
     }
 
-    /// MAX_L of `tree_update_batch.circom`. Coefficient vector is
-    /// `4 + 6*MAX_L_BATCH = 52`. Drift breaks circuit ↔ contract binding.
+    /// MAX_L of `tree_update_batch.circom`. The coefficient vector is
+    /// `4 + 6*MAX_L_BATCH = 52`; drift breaks the circuit-to-contract binding.
     uint256 internal constant MAX_L_BATCH = 8;
 
-    /// tree_update_batch.circom PIs. Layout:
+    /// `tree_update_batch.circom` public inputs. Layout:
     ///   oldRoot, newRoot, startIndex, actualCount,
     ///   cms[0..MAX_L-1], cvDeps[0..MAX_L-1],
     ///   leafAsset[0..MAX_L-1], leafPublicIn[0..MAX_L-1], isDeposit[0..MAX_L-1].
-    /// Every array is indexed by leaf, not by pair: `actualCount` is a LEAF
+    /// Every array is indexed by leaf, not by pair: `actualCount` is a leaf
     /// count in `[1, MAX_L_BATCH]`, so a batch may commit an odd number of
-    /// leaves. Slots beyond `actualCount` MUST be zero (in-circuit + on-chain).
+    /// leaves. Slots beyond `actualCount` must be zero, both in-circuit and
+    /// on-chain.
     struct TreeUpdateBatch {
         bytes32 oldRoot;
         bytes32 newRoot;
@@ -55,15 +57,14 @@ library PubInputs {
         uint8[MAX_L_BATCH] isDeposit;
     }
 
-    /// Depositor-signed payload (bound via Permit2 witness). A deposit occupies
-    /// exactly one leaf, whose Pedersen commitment `cvDep` the batch circuit
-    /// pins directly to `publicIn` units of `publicAssetId` under blinder
-    /// `rcv` — no pad leaf, and no aggregate whose split would be free.
-    struct DepositIntent {
-        /// Full-width, matching `Transact.chainId`. Both encode to a single
-        /// ABI word, so the Permit2 witness preimage is identical either way.
-        /// The wider type also causes dirty high bits to fail the
-        /// `!= block.chainid` gate rather than being masked before it.
+    /// Depositor-signed payload, bound via the Permit2 witness. A deposit
+    /// occupies exactly one leaf, whose Pedersen commitment `cvDep` the batch
+    /// circuit pins to `publicIn` units of `publicAssetId` under blinder `rcv`.
+    struct DepositRequest {
+        /// Full-width, matching `Transact.chainId`. Both encode to a single ABI
+        /// word, so the Permit2 witness preimage is identical either way. The
+        /// wider type also makes dirty high bits fail the `!= block.chainid`
+        /// gate rather than being masked before it.
         uint256 chainId;
         uint64 publicAssetId;
         uint64 publicIn;
@@ -75,9 +76,9 @@ library PubInputs {
     }
 
     /// Coefficient-vector lengths. Both structs are fully static, so their ABI
-    /// calldata block is word-for-word identical to the coefficient vector,
-    /// which the calldata `compress` overloads rely on. `PubInputs.t.sol` pins
-    /// that equivalence against the `memory` reference paths.
+    /// calldata block is word-for-word identical to the coefficient vector, on
+    /// which the calldata `compress` overloads rely. `PubInputs.t.sol` pins that
+    /// equivalence against the `memory` reference paths.
     /// `1 + TRANSACT_IN + TRANSACT_OUT + 3 + 2*TRANSACT_IN + 2*TRANSACT_OUT
     /// + 4 + 2*TRANSACT_OUT = 32` at the 3x3 shape.
     uint256 private constant TRANSACT_CALLDATA_WORDS = 32;
@@ -93,10 +94,10 @@ library PubInputs {
     uint256 private constant MASK_U64 = 0xffffffffffffffff;
     uint256 private constant MASK_U160 = 0x00ffffffffffffffffffffffffffffffffffffffff;
 
-    // ================= calldata fast paths (hot) =============================
+    // ================= calldata fast paths ===================================
 
-    /// `compress(Transact)` read directly from calldata. Words [0..23] are
-    /// copied verbatim; [24..29] are derived from `aux`. Avoids the
+    /// `compress(Transact)` read directly from calldata. Words [0..31] are
+    /// copied verbatim; [32..41] are derived from `aux`. Avoids the
     /// calldata-to-memory ABI decode of the struct and the `abi.encode` copy
     /// performed by `_finalize`.
     function compress(Transact calldata pi, AuxValidation.Output[TRANSACT_OUT] calldata aux)
@@ -119,10 +120,10 @@ library PubInputs {
         }
         uint256 d = head + 0x40;
 
-        // Re-clean sub-word members: raw calldata may carry dirty high bits
-        // that a typed member read would have masked off.
-        // Word indices below are the 3x3 layout: [7..9] are the three uint64
-        // publics, [22] recipient, [24] payer, [25] relayer.
+        // Re-clean sub-word members: raw calldata may carry dirty high bits that
+        // a typed member read would have masked off. Word indices follow the
+        // 3x3 layout: [7..9] the three uint64 publics, [22] recipient,
+        // [24] payer, [25] relayer.
         assembly ("memory-safe") {
             let p := add(d, 0xe0) // [7] publicAssetId, [8] publicIn, [9] publicOut
             mstore(p, and(mload(p), MASK_U64))
@@ -155,9 +156,9 @@ library PubInputs {
         }
 
         // Final slot binds the whole encrypted-note payload. The clue fields
-        // above are per-output but leave `ephPub` and `ciphertext` free, so
-        // without this a relayer could keep the clue intact — proof still
-        // verifies, the recipient's FMD scan still flags the note — while
+        // above are per-output but leave `ephPub` and `ciphertext` unbound, so
+        // without this a relayer could keep the clue intact — the proof still
+        // verifies and the recipient's FMD scan still flags the note — while
         // corrupting the payload beyond recovery. Recomputed here rather than
         // read from calldata, so it cannot be forged.
         uint256 digest = auxDigest(aux);
@@ -169,7 +170,7 @@ library PubInputs {
     }
 
     /// `keccak256(abi.encode(aux)) mod R` over the aux array encoded as a
-    /// DYNAMIC `tuple[]`, so the length joins the preimage and arrays of
+    /// dynamic `tuple[]`, so the length joins the preimage and arrays of
     /// different arity cannot collide. Mirrors the off-chain `auxDigest`.
     function auxDigest(AuxValidation.Output[TRANSACT_OUT] calldata aux) internal pure returns (uint256) {
         AuxValidation.Output[] memory dyn = new AuxValidation.Output[](TRANSACT_OUT);
@@ -197,8 +198,8 @@ library PubInputs {
         uint256 d = head + 0x40;
 
         // Re-clean sub-word members (see the Transact path).
-        // [4 + 3*MAX_L .. 4 + 5*MAX_L) = leafAsset ++ leafPublicIn (uint64),
-        // then [4 + 5*MAX_L .. n) = isDeposit (uint8).
+        // [4 + 3*MAX_L .. 4 + 5*MAX_L) is leafAsset ++ leafPublicIn (uint64);
+        // [4 + 5*MAX_L .. n) is isDeposit (uint8).
         uint256 u64Start = d + (4 + 3 * MAX_L_BATCH) * 0x20;
         uint256 u64End = d + (4 + 5 * MAX_L_BATCH) * 0x20;
         uint256 u8End = d + n * 0x20;
@@ -215,7 +216,7 @@ library PubInputs {
     }
 
     /// `head` points at an in-memory `abi.encode(uint256[] memory)` image:
-    /// `0x20 || n || coefficients`. Hash it for `z`, Horner-eval for `y`.
+    /// `0x20 || n || coefficients`. Hashed for `z`, Horner-evaluated for `y`.
     function _finalizeRaw(uint256 head, uint256 n) private pure returns (uint256[2] memory out) {
         bytes32 h;
         assembly ("memory-safe") {
@@ -232,9 +233,10 @@ library PubInputs {
     // independently of the calldata fast paths above. Not used on-chain;
     // `PubInputs.t.sol` fuzzes `compressRef == compress` to detect drift.
 
-    /// Pack `Transact` into 42 coeffs and derive `(y, z)`. Written as a
-    /// cursor walk rather than fixed indices so the layout, not an offset
-    /// table, is what is being asserted. Order matches `3x3.circom` PolyEval.
+    /// Pack `Transact` into `TRANSACT_COEFFS = 42` coefficients and derive
+    /// `(y, z)`. Written as a cursor walk rather than fixed indices, so the
+    /// layout is what the reference asserts. Order matches the
+    /// `transact_3x3.circom` PolyEval.
     function compressRef(Transact memory pi, AuxValidation.Output[TRANSACT_OUT] calldata aux)
         internal
         pure
@@ -277,11 +279,11 @@ library PubInputs {
         return _finalize(s);
     }
 
-    /// Pack `TreeUpdateBatch` into `4 + 6*MAX_L_BATCH = 52` coeffs and
+    /// Pack `TreeUpdateBatch` into `4 + 6*MAX_L_BATCH = 52` coefficients and
     /// derive `(y, z)`. Order matches `tree_update_batch.circom`.
     function compressRef(TreeUpdateBatch memory tpi) internal pure returns (uint256[2] memory) {
         uint256 n = 4 + 6 * MAX_L_BATCH;
-        // Allocate uninitialized — every slot [0..n-1] is written below.
+        // Allocated uninitialized; every slot [0..n-1] is written below.
         uint256[] memory s;
         assembly ("memory-safe") {
             s := mload(0x40)

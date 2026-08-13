@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test, Vm } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +9,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
@@ -62,7 +61,6 @@ contract MASPSpendEventsTest is Test {
             verifier,
             tubVerifier,
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             ids,
             tokens,
             scales,
@@ -237,7 +235,7 @@ contract MASPSpendEventsTest is Test {
         assertEq(noteCount, PubInputs.TRANSACT_OUT, "one NotePayload per output leaf");
         assertEq(rootCount, 1, "exactly one RootAdvanced");
         // On the spend path the root advance precedes the note payloads. The
-        // flush path emits IntentFlushed BEFORE its RootAdvanced, so an indexer
+        // flush path emits DepositFlushed BEFORE its RootAdvanced, so an indexer
         // cannot assume a single global ordering across the two paths.
         assertLt(rootAt, firstNoteAt, "spend path: RootAdvanced precedes NotePayload");
 

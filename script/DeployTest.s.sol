@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -9,12 +9,14 @@ import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatch
 import { MockERC20 } from "../test/mocks/MockERC20.sol";
 import { MockWETH9 } from "../test/mocks/MockWETH9.sol";
 
+import { NativeAdapter } from "../src/native/NativeAdapter.sol";
+
 import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 
 /// Test/anvil deploy: spins up the local MASP stack — Groth16Verifier,
 /// TreeUpdateBatchGroth16Verifier, Permit2 (canonical or freshly deployed),
-/// MockWETH9, MockERC20s, and MASP. For mainnet (or any chain where the
-/// dependencies already exist) use `Deploy.s.sol` instead.
+/// MockWETH9, MockERC20s, MASP, and NativeAdapter. For mainnet (or any chain
+/// where the dependencies already exist) use `Deploy.s.sol` instead.
 ///
 /// Swap stack (UniV3Adapter + SwapWrapper + mock router/quoter) is deployed
 /// separately by `DeployTestSwap.s.sol` — run it after this script.
@@ -24,9 +26,9 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 /// by `circuits/just gen-asset-registry`). Any registry slot whose `symbols`
 /// entry matches the chain's wrapped-native symbol (env `WRAPPED_NATIVE_SYMBOL`,
 /// default `WETH`) is deployed as `MockWETH9` (so the token has the real
-/// `deposit() payable` / `withdraw(uint256)` ABI) and is also wired into
-/// MASP's `WRAPPED_NATIVE` immutable so `withdrawNative` is enabled. All other slots are
-/// plain `MockERC20`. Chain-agnostic — invoke with any `--rpc-url` (see
+/// `deposit() payable` / `withdraw(uint256)` ABI) and is also handed to the
+/// `NativeAdapter`, which is what bridges native coin in and out of the
+/// ERC-20-only pool. All other slots are plain `MockERC20`. Chain-agnostic — invoke with any `--rpc-url` (see
 /// justfile `deploy-anvil`).
 contract DeployTest is BaseDeploy {
     string constant REGISTRY_FIXTURE = "test/fixtures/asset_registry.json";
@@ -38,6 +40,7 @@ contract DeployTest is BaseDeploy {
             address treeUpdateBatchVerifierAddr,
             address maspAddr,
             address permit2Addr,
+            address nativeAdapterAddr,
             address[] memory tokenAddrs
         )
     {
@@ -106,15 +109,26 @@ contract DeployTest is BaseDeploy {
         p.treasury = vm.envOr("MASP_TREASURY", 0x000000000000000000000000000000000000dEaD);
         p.owner = vm.envOr("MASP_OWNER", tx.origin);
 
-        (Groth16Verifier v, TreeUpdateBatchGroth16Verifier tub, MASP masp) = _deployMaspCore(p);
+        (Groth16Verifier v, TreeUpdateBatchGroth16Verifier tub, MASP masp, NativeAdapter na) = _deployMaspCore(p);
 
         vm.stopBroadcast();
 
         verifierAddr = address(v);
         treeUpdateBatchVerifierAddr = address(tub);
         maspAddr = address(masp);
+        // address(0) when the fixture registry names no wrapped-native symbol.
+        nativeAdapterAddr = address(na);
 
-        _logCoreKv(verifierAddr, treeUpdateBatchVerifierAddr, maspAddr, permit2Addr, p.wrappedNative, p.ids, tokenAddrs);
+        _logCoreKv(
+            verifierAddr,
+            treeUpdateBatchVerifierAddr,
+            maspAddr,
+            permit2Addr,
+            p.wrappedNative,
+            nativeAdapterAddr,
+            p.ids,
+            tokenAddrs
+        );
     }
 
     /// Strict equality on registry-supplied symbol — contract pairs the

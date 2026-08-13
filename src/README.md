@@ -20,10 +20,11 @@ For build instructions, gas figures, and deployed sizes, see the [repository REA
   - [PubInputs](#pubinputs)
   - [AuxValidation and BabyJubJub](#auxvalidation-and-babyjubjub)
 - [Flows](#flows)
-  - [Shield: intent escrow and batch flush](#shield-intent-escrow-and-batch-flush)
+  - [Shield: deposit escrow and batch flush](#shield-deposit-escrow-and-batch-flush)
   - [Spend: transfer and withdraw](#spend-transfer-and-withdraw)
   - [Fee accounting](#fee-accounting)
 - [Shielded Swap](#shielded-swap)
+- [Native coin](#native-coin)
 - [Constants](#constants)
 
 ---
@@ -51,7 +52,7 @@ flowchart LR
     V1["Groth16Verifier<br/>transact 3x3"]
     V2["TreeUpdateBatch<br/>Groth16Verifier"]
     P2["Permit2"]
-    T["ERC-20 / Wrapped native"]
+    T["ERC-20"]
   end
 
   W -->|"proof + public inputs"| R
@@ -60,7 +61,7 @@ flowchart LR
   M --> V2
   M --> P2
   M --> T
-  M -.->|"events: IntentEscrowed,<br/>NotePayload, RootAdvanced"| W
+  M -.->|"events: DepositEscrowed,<br/>NotePayload, RootAdvanced"| W
 ```
 
 ---
@@ -75,14 +76,12 @@ classDiagram
     +mapping escrowed
     +IVerifier VERIFIER
     +IVerifier TREE_UPDATE_BATCH_VERIFIER
-    +submitIntent()
-    +submitIntentAuthorized()
-    +submitIntentNative()
+    +deposit()
+    +depositAuthorized()
     +flushBatch()
-    +cancelIntent()
+    +cancelDeposit()
     +transfer()
     +withdraw()
-    +withdrawNative()
   }
   class CommitmentTree {
     <<abstract>>
@@ -155,6 +154,7 @@ classDiagram
 | [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `transact_3x3` (`Groth16Verifier`). |
 | [verifiers/TreeUpdateBatchVerifier.sol](verifiers/TreeUpdateBatchVerifier.sol) | snarkJS codegen for `tree_update_batch` (`TreeUpdateBatchGroth16Verifier`). |
 | [interfaces/](interfaces/) | `IVerifier`, `IWrappedNative`. |
+| [native/](native/) | `NativeAdapter`: wraps native coin into the deposit path and unwraps it out of the withdraw path. The pool itself is ERC-20 only. |
 | [swap/](swap/) | Atomic unshield → swap → re-shield wrapper and Uniswap v3 adapter. |
 
 The two files under `verifiers/` are generated output and carry `SPDX-License-Identifier: GPL-3.0` with their own upstream terms; everything else is MIT.
@@ -209,7 +209,7 @@ The pairwise loop is required rather than a single adjacent comparison: at `N_IN
 
 ### AssetRegistry
 
-Maps a circuit-visible `uint64 publicAssetId` to an ERC-20 address and a `scale` factor converting circuit units to token base units. The registry is **add-only**: `addAsset` reverts on a duplicate id, and there is no removal path. An asset may be *disabled*, which blocks new deposits (`_validateIntent`) while leaving existing notes and escrows spendable so funds can always exit.
+Maps a circuit-visible `uint64 publicAssetId` to an ERC-20 address and a `scale` factor converting circuit units to token base units. The registry is **add-only**: `addAsset` reverts on a duplicate id, and there is no removal path. An asset may be *disabled*, which blocks new deposits (`_validateDeposit`) while leaving existing notes and escrows spendable so funds can always exit.
 
 `scale` is bounded to `1e18` and must be nonzero. The hot path uses two lookups deliberately: `_getAsset` reads both slots, while `_requireAssetKnown` — used by `transfer`, which moves no tokens — touches only slot 0 and skips the cold `SLOAD` for `scale`.
 
@@ -219,7 +219,7 @@ Owner sets `feeBps` (capped at `MAX_FEE_BPS = 2000`, i.e. 20%) and `treasury`. F
 
 `FeeConfig` also supplies the `ReentrancyGuardTransient` base used by every state-mutating entry point.
 
-The critical invariant: **escrowed principal is never counted as accrued fee.** A deposit locks `inAmt + fee` in the pool without touching `accruedFee`; the fee is accrued only when `flushBatch` commits the leaf; `cancelIntent` refunds principal and fee together. A sweep can therefore never drain a depositor's refundable balance.
+The critical invariant: **escrowed principal is never counted as accrued fee.** A deposit locks `inAmt + fee` in the pool without touching `accruedFee`; the fee is accrued only when `flushBatch` commits the leaf; `cancelDeposit` refunds principal and fee together. A sweep can therefore never drain a depositor's refundable balance.
 
 ---
 
@@ -239,7 +239,7 @@ Defines the three public-input structs and the compression that turns each into 
 | --- | --- | --- |
 | `Transact` | `transact_3x3` | 42 = 32 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest |
 | `TreeUpdateBatch` | `tree_update_batch` | 52 = `4 + 6 × MAX_L_BATCH` |
-| `DepositIntent` | — (Permit2 witness only) | n/a |
+| `DepositRequest` | — (Permit2 witness only) | n/a |
 
 ```mermaid
 flowchart TD
@@ -279,15 +279,15 @@ Each output note carries an FMD (fuzzy message detection) payload: a clue point 
 
 ## Flows
 
-### Shield: intent escrow and batch flush
+### Shield: deposit escrow and batch flush
 
-Depositing is split in two. Funds are escrowed with **no SNARK at submit time**, and a relayer later inserts up to eight escrowed intents into the tree under a single tree-update proof.
+Depositing is split in two. Funds are escrowed with **no SNARK at submit time**, and a relayer later inserts up to eight escrowed deposits into the tree under a single tree-update proof.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Pending: submitIntent variants
+  [*] --> Pending: deposit variants
   Pending --> Committed: flushBatch, digest matches, proof verifies
-  Pending --> Refunded: cancelIntent, after cancelDelay
+  Pending --> Refunded: cancelDeposit, after cancelDelay
   Committed --> [*]: leaf in tree, fee accrued
   Refunded --> [*]: inAmt plus fee returned to payer
 
@@ -299,17 +299,18 @@ stateDiagram-v2
   end note
 ```
 
-Three submit variants differ only in how funds arrive:
+Two submit variants differ only in how funds arrive:
 
 | Entry point | Funding mechanism | Authorization |
 | --- | --- | --- |
-| `submitIntent` | Permit2 `permitWitnessTransferFrom` | Per-tx signature; witness binds `keccak256(abi.encode(d, aux))` |
-| `submitIntentAuthorized` | Permit2 `AllowanceTransfer.transferFrom` | Pre-signed `PermitSingle`; requires `msg.sender == d.payer` |
-| `submitIntentNative` | `msg.value`, wrapped via `IWrappedNative.deposit` | Funds arrive with the call; requires `msg.sender == d.payer` |
+| `deposit` | Permit2 `permitWitnessTransferFrom` | Per-tx signature; witness binds `keccak256(abi.encode(d, aux))` |
+| `depositAuthorized` | Permit2 `AllowanceTransfer.transferFrom` | Pre-signed `PermitSingle`; requires `msg.sender == d.payer` |
 
-For `submitIntent`, the signed `maxTotal` caps `inAmt + fee`, bounding any fee increase between signing and execution.
+Native-coin deposits go through [`NativeAdapter.depositNative`](native/NativeAdapter.sol), which wraps `msg.value` and then drives `depositAuthorized` as its own payer — see [Native coin](#native-coin).
 
-The escrow ledger stores only a `bytes32` digest per id. The full preimage lives in the `IntentEscrowed` event; flush and cancel resupply it as calldata, and a single keccak equality binds every submit-time field — asset, amount, commitment, fee rate, payer, and block. A nonzero digest is the presence sentinel, and `delete` on drain is what rejects a repeated id within one batch.
+For `deposit`, the signed `maxTotal` caps `inAmt + fee`, bounding any fee increase between signing and execution.
+
+The escrow ledger stores only a `bytes32` digest per id. The full preimage lives in the `DepositEscrowed` event; flush and cancel resupply it as calldata, and a single keccak equality binds every submit-time field — asset, amount, commitment, fee rate, payer, and block. A nonzero digest is the presence sentinel, and `delete` on drain is what rejects a repeated id within one batch.
 
 ```mermaid
 sequenceDiagram
@@ -320,19 +321,19 @@ sequenceDiagram
   participant Rl as Relayer
   participant TV as TreeUpdateBatchVerifier
 
-  U->>M: submitIntent(d, sig, aux)
-  M->>M: _validateIntent (chainId, amount bounds,<br/>asset enabled, aux curve checks)
+  U->>M: deposit(d, sig, aux)
+  M->>M: _validateDeposit (chainId, amount bounds,<br/>asset enabled, aux curve checks)
   M->>P2: permitWitnessTransferFrom(inAmt + fee)
   P2-->>M: tokens
   M->>M: escrowed[id] = digest
-  M-->>Rl: emit IntentEscrowed(id, ..., cvDep, rcv, aux)
+  M-->>Rl: emit DepositEscrowed(id, ..., cvDep, rcv, aux)
 
-  Note over Rl: collect up to MAX_L_BATCH intents,<br/>build tree witness, prove tree_update_batch
+  Note over Rl: collect up to MAX_L_BATCH deposits,<br/>build tree witness, prove tree_update_batch
 
   Rl->>M: flushBatch(ids, meta, tp, tpi)
   M->>M: header checks: n in [1,8], actualCount == n,<br/>oldRoot == currentRoot, startIndex == committedCount
   loop each slot i
-    M->>M: _drainIntent: digest match, isDeposit[i] == 1,<br/>accumulate fee per token, delete escrowed[id]
+    M->>M: _drainDeposit: digest match, isDeposit[i] == 1,<br/>accumulate fee per token, delete escrowed[id]
   end
   M->>M: _accrueFee once per unique token
   M->>TV: verifyProof(tp, compress(tpi))
@@ -342,17 +343,20 @@ sequenceDiagram
 
 Each deposit occupies exactly one leaf, so slot `i` is leaf `i` and a batch advances the tree by exactly `n` leaves — odd `n` included. The per-leaf Pedersen commitment `cvDep` pins `(asset, value)` directly, so there is no padding leaf whose split would be free.
 
-`cancelIntent` is permissionless but pays only the digest-bound `payer`, and only after `cancelDelay` blocks (default 7200, owner-tunable within `[3600, 50400]`). Because `submittedAt` is part of the digest, the delay check runs on a value the caller cannot forge. The escrow slot is cleared before the transfer (checks-effects-interactions).
+`cancelDeposit` pays only the digest-bound `payer`, and only after `cancelDelay` blocks (default 7200, owner-tunable within `[3600, 50400]`). Because `submittedAt` is part of the digest, the delay check runs on a value the caller cannot forge. The escrow slot is cleared before the transfer (checks-effects-interactions).
+
+Who may call depends on the payer. An **EOA payer** can be cancelled by anyone: `deposit` is Permit2-signature based, so the payer may be an address that never sends a transaction and depends on a relayer to cancel for it. A **contract payer** may only cancel its own deposit (`payer.code.length != 0 && msg.sender != payer` reverts `PayerNotSender`). A contract can always transact for itself, and it is the party that must observe the refund, since the coin returns to it rather than to whoever funded it — settled by a third party, an adapter's refund lands with nothing on-chain left to distinguish it from a flushed deposit, stranding the funder's claim. Note an EIP-7702 delegated EOA carries code and is classified as a contract payer.
 
 ### Spend: transfer and withdraw
 
-All three spend entry points share the same skeleton and differ only in their public-leg constraints and settlement:
+Both spend entry points share the same skeleton and differ only in their public-leg constraints and settlement:
 
 | Entry point | `publicIn` | `publicOut` | Settlement |
 | --- | --- | --- | --- |
 | `transfer` | must be 0 | must be 0 | none — registry existence check only |
 | `withdraw` | must be 0 | must be nonzero | `safeTransfer(recipient, outAmt - fee)` |
-| `withdrawNative` | must be 0 | must be nonzero | unwrap, then raw native call; asset must be the wrapped-native token |
+
+Unshielding to native coin is a `withdraw` whose `recipient` is the [`NativeAdapter`](native/NativeAdapter.sol) — see [Native coin](#native-coin).
 
 ```mermaid
 sequenceDiagram
@@ -394,13 +398,13 @@ Token movement binds to `payer` and `recipient`, both public inputs, rather than
 ```mermaid
 flowchart TD
   subgraph SHIELD["Shield leg"]
-    S1["submitIntent*<br/>pull inAmt + fee"] --> S2["escrowed[id] = digest<br/>(no accrual)"]
+    S1["deposit*<br/>pull inAmt + fee"] --> S2["escrowed[id] = digest<br/>(no accrual)"]
     S2 --> S3{"outcome"}
     S3 -->|flushBatch| S4["_accrueFee(token, fee)<br/>once per unique token"]
-    S3 -->|cancelIntent| S5["refund inAmt + fee<br/>to payer"]
+    S3 -->|cancelDeposit| S5["refund inAmt + fee<br/>to payer"]
   end
   subgraph UNSHIELD["Unshield leg"]
-    W1["withdraw / withdrawNative<br/>outAmt = publicOut * scale"] --> W2["fee = outAmt * feeBps / 10000"]
+    W1["withdraw<br/>outAmt = publicOut * scale"] --> W2["fee = outAmt * feeBps / 10000"]
     W2 --> W3["_accrueFee(token, fee)"]
     W2 --> W4["send outAmt - fee<br/>to recipient"]
   end
@@ -409,7 +413,7 @@ flowchart TD
   A -->|"sweep(token), permissionless"| TR["treasury"]
 ```
 
-Deposit fees use the `feeBps` snapshot taken at submit time and carried in the digest; withdraw fees use the live `feeBps`. `flushBatch` accumulates fees into a fixed `MAX_L_BATCH`-wide array keyed by token address and writes one `SSTORE` per *unique* token, rather than one per intent.
+Deposit fees use the `feeBps` snapshot taken at submit time and carried in the digest; withdraw fees use the live `feeBps`. `flushBatch` accumulates fees into a fixed `MAX_L_BATCH`-wide array keyed by token address and writes one `SSTORE` per *unique* token, rather than one per deposit.
 
 ---
 
@@ -428,7 +432,7 @@ sequenceDiagram
   participant TR as Treasury
 
   U->>SW: swap(SwapArgs)
-  SW->>SW: _validate: adapter allowlisted, deadline,<br/>pi_w.recipient == wrapper,<br/>pi_w.relayer == wrapper,<br/>intent_d.payer == wrapper,<br/>msg.sender == pi_w.payer
+  SW->>SW: _validate: adapter allowlisted, deadline,<br/>pi_w.recipient == wrapper,<br/>pi_w.relayer == wrapper,<br/>deposit_d.payer == wrapper,<br/>msg.sender == pi_w.payer
   SW->>SW: snapshot balances of tokenIn / tokenOut
   SW->>M: withdraw(p_w, pi_w, tp_w, tpi_w, aux_w)
   M-->>SW: tokenIn (net of MASP fee)
@@ -437,24 +441,46 @@ sequenceDiagram
   AD->>RT: exactInputSingle / exactInput
   RT-->>SW: actualOut of tokenOut
   SW->>SW: revert if actualOut below minOut
-  SW->>M: submitIntentAuthorized(intent_d, aux_d)
-  M-->>SW: intentId (pulled via Permit2)
+  SW->>M: depositAuthorized(deposit_d, aux_d)
+  M-->>SW: depositId (pulled via Permit2)
   SW->>SW: check minOut, pulled, actualOut ordering
   SW->>TR: transfer dust = actualOut - pulled
   SW->>SW: leftover invariant: both balances<br/>back to snapshot
-  SW-->>U: (actualOut, intentId)
+  SW-->>U: (actualOut, depositId)
 ```
 
 Every amount is measured as a **balance delta across an external call**, because neither the MASP withdraw fee nor the size of its escrow pull is visible to the wrapper. Four properties make that measurement safe:
 
 1. `nonReentrant` on both the wrapper and the MASP entry points.
 2. The adapter is owner-allowlisted, so the callee is not attacker-chosen.
-3. `minOut ≤ pulled ≤ actualOut` constrains `intent_d` to be denominated in `tokenOut` — any other asset yields a zero delta — and to carry at least the requested output rather than routing it to the treasury as dust.
+3. `minOut ≤ pulled ≤ actualOut` constrains `deposit_d` to be denominated in `tokenOut` — any other asset yields a zero delta — and to carry at least the requested output rather than routing it to the treasury as dust.
 4. A closing leftover invariant reverts on any net drift in either token, measured against the pre-swap snapshot rather than against zero, so unrelated donations do not brick the swap.
 
-The `msg.sender == pi_w.payer` check is what stops a mempool replay: `swap` is permissionless and `intent_d` — which names the output note's commitment and recipient — is unauthenticated calldata. `payer` is a public input of the withdraw proof carrying no other constraint on the spend path, so it serves as the name of the address permitted to drive the swap.
+The `msg.sender == pi_w.payer` check is what stops a mempool replay: `swap` is permissionless and `deposit_d` — which names the output note's commitment and recipient — is unauthenticated calldata. `payer` is a public input of the withdraw proof carrying no other constraint on the spend path, so it serves as the name of the address permitted to drive the swap.
+
+An escrow the wrapper creates is owned by the wrapper: MASP refunds the digest-bound payer, and a contract payer may only cancel its own deposit. `swap` therefore records `escrows[depositId] = (refundTo, token, amount)` with `refundTo = pi_w.payer`, the address authorized to drive that swap, and `cancelEscrow` is what recovers a leg that never gets flushed. Anyone may call it, the destination is the recorded driver rather than the caller, and the refund is attributed by balance delta across the pool call — sound because the wrapper is necessarily the one making it. An already-settled deposit was flushed and is rejected with `DepositAlreadySettled` rather than paid out of another escrow's coin.
 
 `UniV3Adapter` is a thin pull-then-push adapter: the wrapper pre-transfers `amountIn`, the adapter approves the router, swaps, resets the approval to zero (keeping tokens such as USDT, which reject non-zero-to-non-zero approval changes, usable on the next call), and returns the output to `msg.sender`. A 64-byte `route` is decoded as `(uint24 fee, uint160 sqrtPriceLimitX96)` and routed single-hop; any other length is treated as a packed multi-hop path. `swap` is restricted to the pinned `WRAPPER`, without which any caller could drain donated tokens by routing output to themselves.
+
+---
+
+## Native coin
+
+`MASP` is ERC-20 only: it has no `receive`, no wrapped-native immutable, and no native branch in any entry point. `NativeAdapter` is the sole bridge, wrapping on the way in and unwrapping on the way out. It is ownerless and permissionless — all authority comes from the SNARK public inputs or from the adapter's own escrow bookkeeping.
+
+| Entry point | Wraps around | Native leg |
+| --- | --- | --- |
+| `depositNative` | `depositAuthorized` (adapter is `d.payer`) | wrap `msg.value`, return the surplus over the pool's pull |
+| `cancelNative` | `cancelDeposit` (adapter is the digest-bound `payer`) | unwrap the refund, forward it to the recorded funder |
+| `withdrawNative` | `withdraw` (adapter is `pi.recipient` and `pi.relayer`) | unwrap the proceeds, forward them to `pi.payer` |
+
+Amounts are measured as **balance deltas across the pool call**, never recomputed: neither the deposit fee nor the withdraw fee is visible to the adapter, and mirroring MASP's fee math would drift the moment `feeBps` changed between quote and execution. On the deposit leg that also means callers may overshoot `msg.value` rather than reproduce the fee formula — the surplus is unwrapped and returned in the same transaction.
+
+Because the pool refunds the digest-bound `payer` — the adapter — a canceled escrow needs an on-adapter record of who funded it: `escrows[id]` holds `(refundTo, amount)`.
+
+Attribution rests on the pool's contract-payer rule. Since only the adapter can cancel an adapter-owned deposit, every refund arrives during a `cancelNative` call, and the wrapped-balance delta across that call must equal the recorded amount. `escrowed[id] == 0` therefore means one thing — the deposit was flushed — and `cancelNative` rejects it with `DepositAlreadySettled` rather than guessing. There is no shared pot, so a record left behind by a flushed deposit is inert and cannot hold up anyone else's refund.
+
+On the spend side the destination is `pi.payer`, a public input of the withdraw proof that carries no other constraint. Binding the native recipient to the proof rather than to a calldata argument keeps `withdrawNative` permissionless for relayers while leaving no field a front-runner could repoint. A zero wrapped-balance delta reverts the whole spend, so an unshield of some other asset can never strand an ERC-20 on the adapter.
 
 ---
 

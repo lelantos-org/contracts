@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { MASPTestBase } from "./utils/MASPTestBase.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 
-/// Regression for the Permit2 witness binding shape used by `submitIntent`.
+/// Regression for the Permit2 witness binding shape used by `deposit`.
 ///
 /// Catches silent drift between:
 ///   * the on-chain typehash (`DEPOSIT_WITNESS_TYPEHASH`),
@@ -15,7 +15,7 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 ///     wallets sign over.
 ///
 /// Any of those getting out of sync silently breaks signature scoping (a
-/// leaked Permit2 sig could be re-targeted at a different intent payload).
+/// leaked Permit2 sig could be re-targeted at a different deposit payload).
 contract MASPPermit2WitnessTest is MASPTestBase {
     /// The Permit2 sub-type-string format requires the witness type appended
     /// immediately before `TokenPermissions(...)` so Permit2's domain hash
@@ -54,14 +54,14 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     }
 
     /// Golden-hash regression: pins the `keccak256(abi.encode(d, aux))`
-    /// derivation against a fixed `(DepositIntent, aux)` fixture. If the
-    /// `DepositIntent` struct layout or the `AuxValidation.Output` shape
+    /// derivation against a fixed `(DepositRequest, aux)` fixture. If the
+    /// `DepositRequest` struct layout or the `AuxValidation.Output` shape
     /// changes, the digest drifts and this test fails.
     ///
     /// Update the constant only when the wallet signature shape intentionally
     /// changes; coordinate with off-chain signers + circuits.
     function test_piHash_isStableForFixedFixture() public pure {
-        PubInputs.DepositIntent memory d = _fixtureIntent();
+        PubInputs.DepositRequest memory d = _fixtureDeposit();
         AuxValidation.Output memory aux = _fixtureAux();
 
         bytes32 piHash = keccak256(abi.encode(d, aux));
@@ -71,7 +71,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         assertEq(piHash, keccak256(abi.encode(d, aux)), "piHash deterministic");
     }
 
-    function _fixtureIntent() private pure returns (PubInputs.DepositIntent memory d) {
+    function _fixtureDeposit() private pure returns (PubInputs.DepositRequest memory d) {
         d.chainId = 31337;
         d.publicAssetId = 1;
         d.publicIn = 100;

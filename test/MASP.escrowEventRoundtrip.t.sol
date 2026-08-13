@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test, Vm } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +9,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
@@ -20,7 +19,7 @@ import { MockERC1271 } from "./mocks/MockERC1271.sol";
 
 /// `escrowed[id]` stores only a digest, so flush and cancel require the caller
 /// to resupply the full preimage. The documented source for that preimage is
-/// the intent's `IntentEscrowed` event plus its block number.
+/// the deposit's `DepositEscrowed` event plus its block number.
 ///
 /// Every other escrow test builds the preimage from Solidity values it already
 /// holds, which would keep passing even if the event dropped or reordered a
@@ -40,7 +39,7 @@ contract MASPEscrowEventRoundtripTest is Test {
     address internal payer = address(0xface);
     address internal recipient = address(0xb0b);
 
-    /// Static head fields of `IntentEscrowed`, recovered from the log.
+    /// Static head fields of `DepositEscrowed`, recovered from the log.
     struct Decoded {
         uint256 id;
         address payer;
@@ -67,7 +66,6 @@ contract MASPEscrowEventRoundtripTest is Test {
             IVerifier(address(new Groth16Verifier())),
             IVerifier(address(new TreeUpdateBatchGroth16Verifier())),
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             ids,
             tokens,
             scales,
@@ -90,12 +88,12 @@ contract MASPEscrowEventRoundtripTest is Test {
         aux.ciphertext = hex"0001";
     }
 
-    /// Submit an intent and recover the cancel preimage purely from the log.
+    /// Submit a deposit and recover the cancel preimage purely from the log.
     function _submitAndDecode(uint64 publicIn, uint256 nonce) internal returns (Decoded memory dec) {
         uint256 inAmt = uint256(publicIn) * SCALE;
         token.mint(payer, inAmt + (inAmt * masp.feeBps()) / 10_000);
 
-        PubInputs.DepositIntent memory d;
+        PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
@@ -110,11 +108,11 @@ contract MASPEscrowEventRoundtripTest is Test {
         });
 
         vm.recordLogs();
-        masp.submitIntent(d, sig, _aux());
+        masp.deposit(d, sig, _aux());
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         bytes32 sigHash = keccak256(
-            "IntentEscrowed(uint256,address,address,uint64,uint64,uint16,bytes32,uint256,uint256,uint256,uint256,uint256,uint256,uint256,bytes)"
+            "DepositEscrowed(uint256,address,address,uint64,uint64,uint16,bytes32,uint256,uint256,uint256,uint256,uint256,uint256,uint256,bytes)"
         );
         bool found;
         for (uint256 i = 0; i < logs.length; i++) {
@@ -132,14 +130,14 @@ contract MASPEscrowEventRoundtripTest is Test {
             dec.cm = cm;
             dec.cvDep = [cvx, cvy];
         }
-        assertTrue(found, "IntentEscrowed not emitted");
+        assertTrue(found, "DepositEscrowed not emitted");
         // The remaining preimage field is the emitting block.
         dec.submittedAt = uint32(block.number);
     }
 
     /// A canceller holding only the log and its block number can produce a
     /// preimage that satisfies `escrowed[id]`.
-    function test_cancelIntent_reconstructedFromEventOnly() public {
+    function test_cancelDeposit_reconstructedFromEventOnly() public {
         uint64 publicIn = 100;
         Decoded memory dec = _submitAndDecode(publicIn, 0);
 
@@ -155,9 +153,12 @@ contract MASPEscrowEventRoundtripTest is Test {
         vm.roll(block.number + masp.cancelDelay());
         uint256 before = token.balanceOf(payer);
 
-        // Called by an unrelated address using only log-derived values.
-        vm.prank(address(0xdead));
-        masp.cancelIntent(
+        // Driven purely from log-derived values. The fixture payer is an
+        // etched ERC-1271 stub, so MASP treats it as a contract payer and only
+        // it may cancel; the unrelated-caller case is covered for EOA payers in
+        // MASP.cancelDeposit.t.sol.
+        vm.prank(payer);
+        masp.cancelDeposit(
             dec.id,
             uint48(dec.publicIn),
             dec.cm,
@@ -173,13 +174,13 @@ contract MASPEscrowEventRoundtripTest is Test {
     }
 
     /// `feeBpsAtSubmit` is bound into the digest, so an owner fee change while
-    /// an intent is pending must not alter what the escrow refunds.
-    function test_cancelIntent_usesSubmitTimeFeeAfterFeeRaise() public {
+    /// a deposit is pending must not alter what the escrow refunds.
+    function test_cancelDeposit_usesSubmitTimeFeeAfterFeeRaise() public {
         uint64 publicIn = 100;
         Decoded memory dec = _submitAndDecode(publicIn, 0);
         assertEq(dec.feeBpsAtSubmit, FEE_BPS, "captured submit-time fee");
 
-        // Owner raises the fee to the ceiling while the intent is pending.
+        // Owner raises the fee to the ceiling while the deposit is pending.
         // Read the bound first: an inline call would consume the prank.
         uint16 maxFee = masp.MAX_FEE_BPS();
         vm.prank(OWNER);
@@ -192,8 +193,8 @@ contract MASPEscrowEventRoundtripTest is Test {
         vm.roll(block.number + masp.cancelDelay());
         uint256 before = token.balanceOf(payer);
 
-        vm.prank(address(0xdead));
-        masp.cancelIntent(
+        vm.prank(payer); // contract payer (ERC-1271 stub) drives its own cancel
+        masp.cancelDeposit(
             dec.id,
             uint48(dec.publicIn),
             dec.cm,
@@ -209,7 +210,7 @@ contract MASPEscrowEventRoundtripTest is Test {
 
     /// Supplying the current fee instead of the digest-bound submit-time fee
     /// must be rejected rather than silently refunding a different amount.
-    function test_revert_cancelIntent_currentFeeInsteadOfSubmitTimeFee() public {
+    function test_revert_cancelDeposit_currentFeeInsteadOfSubmitTimeFee() public {
         Decoded memory dec = _submitAndDecode(100, 0);
 
         uint16 maxFee = masp.MAX_FEE_BPS();
@@ -218,7 +219,7 @@ contract MASPEscrowEventRoundtripTest is Test {
 
         vm.roll(block.number + masp.cancelDelay());
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, dec.id));
-        masp.cancelIntent(
+        masp.cancelDeposit(
             dec.id, uint48(dec.publicIn), dec.cm, dec.cvDep, dec.publicAssetId, maxFee, dec.payer, dec.submittedAt
         );
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +9,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
@@ -17,8 +16,8 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
 
 /// `flushBatch` edge cases not covered by `MASP.flushBatch.t.sol`:
-///   - duplicate intent id in the same `ids` array
-///   - `cancelIntent` called after the intent was already flushed
+///   - duplicate deposit id in the same `ids` array
+///   - `cancelDeposit` called after the deposit was already flushed
 contract MASPFlushBatchDuplicateTest is Test {
     uint64 internal constant ASSET_ID = 1;
     uint256 internal constant SCALE = 1e10;
@@ -49,16 +48,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         scales[0] = SCALE;
 
         masp = new MASP(
-            verifier,
-            tubVerifier,
-            ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
-            ids,
-            tokens,
-            scales,
-            FEE_BPS,
-            TREASURY,
-            OWNER
+            verifier, tubVerifier, ISignatureTransfer(address(permit2)), ids, tokens, scales, FEE_BPS, TREASURY, OWNER
         );
 
         MockERC1271 stub = new MockERC1271();
@@ -92,11 +82,11 @@ contract MASPFlushBatchDuplicateTest is Test {
     }
 
     /// Digest meta matching `_submit` (same payer, same block, deploy fee).
-    function _meta(uint256 n) internal view returns (MASP.IntentMeta[] memory m) {
-        m = new MASP.IntentMeta[](n);
+    function _meta(uint256 n) internal view returns (MASP.DepositMeta[] memory m) {
+        m = new MASP.DepositMeta[](n);
         for (uint256 i = 0; i < n; i++) {
             // forge-lint: disable-next-line(unsafe-typecast)
-            m[i] = MASP.IntentMeta({ payer: payer, submittedAt: uint32(block.number), fbps: FEE_BPS });
+            m[i] = MASP.DepositMeta({ payer: payer, submittedAt: uint32(block.number), fbps: FEE_BPS });
         }
     }
 
@@ -117,7 +107,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        PubInputs.DepositIntent memory d;
+        PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = publicIn;
@@ -128,17 +118,17 @@ contract MASPFlushBatchDuplicateTest is Test {
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
-        id = masp.submitIntent(d, sig, _aux()[0]);
+        id = masp.deposit(d, sig, _aux()[0]);
         _pre[id] = _Pre({ publicIn: uint48(publicIn), cm: cm, cvDep: d.cvDep });
     }
 
-    function _buildTpi(uint256[] memory intentIds) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
+    function _buildTpi(uint256[] memory depositIds) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xfeedbeef));
         tpi.startIndex = masp.committedCount();
-        tpi.actualCount = uint64(intentIds.length);
-        for (uint256 i = 0; i < intentIds.length; i++) {
-            _Pre memory p = _pre[intentIds[i]];
+        tpi.actualCount = uint64(depositIds.length);
+        for (uint256 i = 0; i < depositIds.length; i++) {
+            _Pre memory p = _pre[depositIds[i]];
             tpi.cms[i] = p.cm;
             tpi.cvDeps[i] = p.cvDep;
             tpi.leafAsset[i] = ASSET_ID;
@@ -150,7 +140,7 @@ contract MASPFlushBatchDuplicateTest is Test {
     // --- tests: duplicate id in batch -------------------------------------
 
     /// `ids = [0, 0]`: after draining slot 0 on the first iteration,
-    /// `escrowed[0] == bytes32(0)` → IntentNotPending(0) on second.
+    /// `escrowed[0] == bytes32(0)` → DepositNotPending(0) on second.
     function test_revert_duplicateIdInBatch() public {
         uint256 id = _submit(100, bytes32(uint256(0x111)));
         assertEq(id, 0);
@@ -177,7 +167,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         ids[0] = 0;
         ids[1] = 0; // duplicate
 
-        vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, uint256(0)));
+        vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, uint256(0)));
         masp.flushBatch(ids, _meta(2), _emptyProof(), tpi);
     }
 
@@ -191,15 +181,15 @@ contract MASPFlushBatchDuplicateTest is Test {
         PubInputs.TreeUpdateBatch memory tpi = _buildTpi(ids);
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
 
-        // Intent slot deleted by flush; cancel must see IntentNotPending.
+        // Escrow slot deleted by flush; cancel must see DepositNotPending.
         vm.roll(block.number + masp.cancelDelay());
         _Pre memory p = _pre[id];
         uint256[2] memory zCv;
-        vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id));
-        masp.cancelIntent(id, p.publicIn, p.cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
+        vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id));
+        masp.cancelDeposit(id, p.publicIn, p.cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
     }
 
-    function test_revert_cancelAfterFlush_multipleIntents() public {
+    function test_revert_cancelAfterFlush_multipleDeposits() public {
         uint256 id0 = _submit(50, bytes32(uint256(0x111)));
         uint256 id1 = _submit(50, bytes32(uint256(0x333)));
 
@@ -213,10 +203,10 @@ contract MASPFlushBatchDuplicateTest is Test {
 
         // Both must revert.
         uint256[2] memory zCv;
-        vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id0));
-        masp.cancelIntent(id0, _pre[id0].publicIn, _pre[id0].cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
+        vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id0));
+        masp.cancelDeposit(id0, _pre[id0].publicIn, _pre[id0].cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(MASP.IntentNotPending.selector, id1));
-        masp.cancelIntent(id1, _pre[id1].publicIn, _pre[id1].cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
+        vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id1));
+        masp.cancelDeposit(id1, _pre[id1].publicIn, _pre[id1].cm, zCv, ASSET_ID, FEE_BPS, payer, 0);
     }
 }

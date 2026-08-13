@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 /// Polynomial evaluation for SNARK public-input compression. Folds N Groth16
-/// PIs into 2 (`z`, `y = p(z)`). Soundness by Schwartz-Zippel: with `z` drawn
-/// (Fiat-Shamir) after the prover commits, cheating succeeds with prob
-/// ≤ `deg(p) / R`.
+/// public inputs into two, `z` and `y = p(z)`. Soundness follows from
+/// Schwartz-Zippel: with `z` drawn by Fiat-Shamir after the prover commits,
+/// cheating succeeds with probability at most `deg(p) / R`.
 library SnarkCompression {
     /// BN254 scalar field order (matches `Groth16Verifier.r`).
     uint256 internal constant R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
-    /// Coefficient `>= R`.
+    /// A coefficient is `>= R`.
     error CoefficientOutOfField();
 
-    /// Horner eval of `coefficients` at `z` mod R. Ascending order.
+    /// Horner evaluation of `coefficients` at `z` mod R, ascending order.
     function evaluatePolyAt(uint256[] memory coefficients, uint256 z) internal pure returns (uint256) {
         uint256 dataPtr;
         assembly ("memory-safe") {
@@ -21,21 +21,21 @@ library SnarkCompression {
         return evaluatePolyAtRaw(dataPtr, coefficients.length, z);
     }
 
-    /// Horner eval over `length` words of ascending-order coefficients laid
-    /// out contiguously from `dataPtr`. Semantics match `evaluatePolyAt`
+    /// Horner evaluation over `length` words of ascending-order coefficients
+    /// laid out contiguously from `dataPtr`. Semantics match `evaluatePolyAt`
     /// without the per-element bounds check; the caller owns the region.
-    /// Reverts `CoefficientOutOfField` if any word is >= R.
+    /// Reverts `CoefficientOutOfField` if any word is `>= R`.
     function evaluatePolyAtRaw(uint256 dataPtr, uint256 length, uint256 z) internal pure returns (uint256 y) {
-        // Loop control dominates: MULMOD and ADDMOD are 8 gas each, so the
+        // Loop control dominates, since MULMOD and ADDMOD are 8 gas each, so the
         // body is unrolled by two and the field check reverts in place rather
-        // than setting a flag for a post-loop branch. Both on-chain
-        // coefficient vectors (30 and 76) are even.
+        // than setting a flag for a post-loop branch. Both on-chain coefficient
+        // vectors (42 and 52) are even.
         uint256 errSel = uint256(uint32(CoefficientOutOfField.selector)) << 224;
         assembly ("memory-safe") {
             let r := R
             let p := add(dataPtr, shl(5, length))
-            // Odd length: fold the top coefficient alone so the remaining span
-            // is a whole number of pairs.
+            // Odd length: fold the top coefficient on its own so the remaining
+            // span is a whole number of pairs.
             if and(length, 1) {
                 p := sub(p, 0x20)
                 let c := mload(p)

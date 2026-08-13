@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -9,7 +9,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
@@ -56,7 +55,6 @@ contract MASPFlushBatchSnarkTest is Test {
             IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
             ISignatureTransfer(address(permit2)),
-            IWrappedNative(address(0)),
             ids,
             tokens,
             scales,
@@ -124,7 +122,7 @@ contract MASPFlushBatchSnarkTest is Test {
     function test_realSnark_n1_flushBatchSucceeds() public {
         // Fixture is stale w.r.t. the C-1 deposit-binding PIs (pair_asset,
         // pair_public_in, cv_dep). It was built with zero-value zero-blinder
-        // notes (pair_public_in=0), but `submitIntent` rejects publicIn==0,
+        // notes (pair_public_in=0), but `deposit` rejects publicIn==0,
         // so the on-chain escrow record cannot match the SNARK's PIs. Rebuild
         // via `script/fixtures/gen_proof_deposit_batch.ts` with real Pedersen
         // value commitments (publicIn > 0, pair_asset = ASSET_ID) before

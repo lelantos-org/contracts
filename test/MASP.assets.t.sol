@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -96,7 +96,7 @@ contract MASPAssetsTest is MASPTestBase {
         vm.prank(OWNER);
         masp.setAssetDisabled(ASSET_ID, true);
 
-        PubInputs.DepositIntent memory d;
+        PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = 100;
@@ -109,11 +109,11 @@ contract MASPAssetsTest is MASPTestBase {
             MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
 
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.AssetDisabled.selector, ASSET_ID));
-        masp.submitIntent(d, sig, aux[0]);
+        masp.deposit(d, sig, aux[0]);
     }
 
     function testUnknownAssetSubmitReverts() public {
-        PubInputs.DepositIntent memory d;
+        PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = 99;
         d.publicIn = 100;
@@ -125,6 +125,6 @@ contract MASPAssetsTest is MASPTestBase {
         MASP.Permit2Sig memory sig =
             MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(99)));
-        masp.submitIntent(d, sig, aux[0]);
+        masp.deposit(d, sig, aux[0]);
     }
 }
