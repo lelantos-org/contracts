@@ -46,6 +46,56 @@ compare the contract to reference code written alongside it.
 Refresh by re-copying from `../../circuits/vectors/transact-3x3.json` and
 re-checking the manifest SHA-256.
 
+### `tree_update_batch_vector.json`
+
+The `tree-update-batch-8` witness vector published by the circuits package,
+copied verbatim. SHA-256 `8f976f589ce6c17a61c8cabf3aafc85b8ef31d717304e003e087
+6c6b4dd32275`, matching the `vectors/index.json` manifest entry for
+`@lelantos-org/circuits@0.8.0`.
+
+Read by [PubInputs.vectorTub.t.sol](../PubInputs.vectorTub.t.sol), the batch
+counterpart to the 3x3 layout test: it drives `PubInputs.TreeUpdateBatch` from
+the circuit's own witness and pins all 52 coefficient slots against the
+`(y, z)` the compiled circuit produced. Unlike the transact vector there is no
+substituted slot — the batch circuit takes every coefficient as a public input,
+so the published `(y, z)` is asserted directly.
+
+Also read by
+[TreeUpdateBatchVerifier.vector.t.sol](../TreeUpdateBatchVerifier.vector.t.sol)
+to rebuild the struct behind each proof.
+
+Refresh by re-copying from `../../circuits/vectors/tree-update-batch-8.json`
+and re-checking the manifest SHA-256.
+
+### `tree_update_batch_proof.json`
+
+Three real Groth16 proofs, one per vector above, against the deployed
+[TreeUpdateBatchVerifier.sol](../../src/verifiers/TreeUpdateBatchVerifier.sol).
+Read by
+[TreeUpdateBatchVerifier.vector.t.sol](../TreeUpdateBatchVerifier.vector.t.sol),
+which checks acceptance, the `(y, z)` public-signal order, cross-vector replay,
+a tampered batch header, and out-of-field signals — and feeds the verifier the
+output of `PubInputs.compress` rather than the fixture's signals, closing the
+compress-to-verify path.
+
+G2 coordinates are stored in the `(x1, x0), (y1, y0)` order the pairing
+precompile expects, taken from `snarkjs zkey export soliditycalldata` rather
+than from `proof.json`, which stores them the other way round.
+
+Regenerate with
+[gen_tree_update_batch_proof.sh](../../script/fixtures/gen_tree_update_batch_proof.sh):
+
+```sh
+CIRCUITS=../circuits script/fixtures/gen_tree_update_batch_proof.sh
+```
+
+Needs a local circuits checkout with a built `build/` — the published tarball's
+`files` list ships only the 2x2 and 3x3 artifacts, so `tree_update_batch_final.
+zkey` and `tree_update_batch.wasm` have to come from a local `just build`. The
+script asserts each proof's public signals against the vector's own `(y, z)`
+before writing. Groth16 proving is randomized, so a refresh produces different
+— equally valid — proof triples over identical public signals.
+
 ## Removed proof fixtures
 
 `proof_transfer.json` and `proof_deposit_batch_n1.json` were deleted. Both were
@@ -59,9 +109,10 @@ The tests remain in place, skipped, with the reason recorded at the skip site:
 - `MASP.chainId.t.sol :: test_revert_BadChainId_spend`
 - `MASP.flushBatchSnark.t.sol :: test_realSnark_n1_flushBatchSucceeds`
 
-Consequence: **no test currently verifies a real Groth16 proof end-to-end.**
-Layout correctness is covered by `PubInputs.vector3x3.t.sol`; proof acceptance
-is not.
+Consequence: **the transact path has no real-proof coverage.** Its layout is
+pinned by `PubInputs.vector3x3.t.sol`; proof acceptance is not. The batch path
+is covered — see `tree_update_batch_proof.json` above — but nothing there
+exercises `MASP` itself, only the verifier and `PubInputs.compress`.
 
 Regenerating needs `script/fixtures/gen_proof_transfer.ts` extended to three
 inputs and three outputs, and 3x3 prover artifacts — the published circuits

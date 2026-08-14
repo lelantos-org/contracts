@@ -1,0 +1,86 @@
+{
+  "schema": "lelantos.contracts.proof-fixture/1",
+  "source": {
+    "vector": "tree-update-batch-8.json",
+    "generator": "tree_update_batch",
+    "template": "TreeUpdateBatch(10, 8)",
+    "layoutDigest": "0x25918d3250dcbe961be9a3958a3e0db9f8a7771992eddc26bbbd1e6a60f7a2df"
+  },
+  "proofs": [
+    {
+      "name": "single-deposit-empty-tree",
+      "a": [
+        "0x14d3c5170d53cb45de772e5d5984d1fc299a69edb46c4894a324707fd05e6b8f",
+        "0x1c00f96896c09cb8dd012a57964ec6e845a92350fc17eae612d86722c3a2241e"
+      ],
+      "b": [
+        [
+          "0x04ec6487c002f4a9c794c890f46594ede385b39f1557b412a70438dc3401954b",
+          "0x0087a75ab83e984484e5d39e289f6355f4815f8860f543fc3e0a7ce6d8f7aef6"
+        ],
+        [
+          "0x25411d2cc0f20e2c02d0ea19480c470c64375f9fc8c876712b73e840dcbd87c9",
+          "0x16e88f64e0a93484f845702fd0979a2f5be65b8160f4f031c237082a0ba6e663"
+        ]
+      ],
+      "c": [
+        "0x0cdd4128a66c9d46c0f178e7574773cb4ac950827b184584eb3c151b927098df",
+        "0x280a0661850bf775dc2a6b38027597518a550cc5e8e1b5b2da9f38dfa28e988d"
+      ],
+      "pubSignals": [
+        "0x1ff127908c99214424ef906be80f3c717ad610447c3b0e53202f356e2902d337",
+        "0x262d150156bb2ab7bf890c3712db3be5cc334999fa6f54f20dbf3b9800c1cfc6"
+      ]
+    },
+    {
+      "name": "odd-three-leaf-batch",
+      "a": [
+        "0x18d17def66dbe887e7f7bac6191c309a3ac7daecf030fc2930145dff1d42813a",
+        "0x2017909d30981d1862d2988aa868151fdd809aee540921b12990c21a9fda67bf"
+      ],
+      "b": [
+        [
+          "0x157de4c6dbdad1ecea87f5507f279c714f62706ab9bef07ecea379813febad63",
+          "0x1a2cfbfb1614bdb948079471a958a534fc3b58afdb517b7c36fc97d32273cf3e"
+        ],
+        [
+          "0x0ae21c5d98ff8913e9293e60f67cb2e0689ea3f6982e0034c966404b8ae17bbe",
+          "0x135de521cc37de9c4868840e524019aea9e7ee24536662d0dbc16f7dec6f4b98"
+        ]
+      ],
+      "c": [
+        "0x0a7e723c6819a7846b6b3087268e890e581b454d53e8a7c577e454e67349ab6b",
+        "0x2e6094b9755f75cf5ec8123c709bf317644bb4833aba9ac0c9bce7203b991267"
+      ],
+      "pubSignals": [
+        "0x1b2f5c960e5cc641955fd8c563821dac803fa53f629079be44ffaff5050b56d9",
+        "0x275655a85c24ce5eeaf150dc50712698b1c54480f27bbfe6a278cc178178e8d6"
+      ]
+    },
+    {
+      "name": "mixed-batch-nonzero-start",
+      "a": [
+        "0x22e23e9f47acd99206896786279258d21665906d00c0ba89cd04df12cf01a89c",
+        "0x2092a5db855c29d665379da0cba9df377ee927b3f028bc1fbbec3efad2b2145a"
+      ],
+      "b": [
+        [
+          "0x199393c89a37aa7f041c48f10cb067615034771bed6cd954ff2efdc6841de125",
+          "0x13458d447c326cfc44f1de7c810b7eb3d6cd7adcd6011c035177f579d841d795"
+        ],
+        [
+          "0x1f0ec81b1d5bcd87d0fbb51cfb4a86aa4fdd4e0df9c3a284054df51c15f81521",
+          "0x2573313ee5bbd69ac3be969fed5eda6bd371c9d4c7b4769ce6e60522d0444826"
+        ]
+      ],
+      "c": [
+        "0x252479e932bd85f433a87ff2613696618bed7285ecf44fab3ec78c01dfc62c50",
+        "0x1c1fa835e6e691a00faf44470b70fc858fdff6d54f3d55adfa7351f67d5764f7"
+      ],
+      "pubSignals": [
+        "0x22dbbb2e494b635e0876e2e73ed2b6f57e19c9c02b0299b6110ba9a9f81ad514",
+        "0x0bcbe5241ea19fae2be65658a9555c3e01b772335753de8af48dac912f15d0dd"
+      ]
+    }
+  ]
+}
