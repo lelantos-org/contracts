@@ -26,9 +26,14 @@ abstract contract BaseSwapDeploy is Script {
     {
         address predictedWrapper = vm.computeCreateAddress(tx.origin, vm.getNonce(tx.origin) + 1);
         adapter = new UniV3Adapter(router, predictedWrapper);
-        wrapper = new SwapWrapper(IMASPSwap(masp), IAllowanceTransfer(permit2), owner, treasury);
+        // Constructed under the broadcaster so the `onlyOwner` adapter wiring
+        // below succeeds when the deployer is not the configured owner, then
+        // handed over in the same broadcast. `Ownable` is single-step, so the
+        // owner needs no acceptance tx (and no gas) to take custody.
+        wrapper = new SwapWrapper(IMASPSwap(masp), IAllowanceTransfer(permit2), tx.origin, treasury);
         require(address(wrapper) == predictedWrapper, "wrapper address drift");
         wrapper.setAdapterAllowed(address(adapter), true);
+        if (owner != tx.origin) wrapper.transferOwnership(owner);
     }
 
     function _prepareTokens(SwapWrapper wrapper, address[] memory tokens) internal {
