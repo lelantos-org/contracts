@@ -663,8 +663,12 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     /// The return value is ignored: this establishes the interface, not the
     /// verdict on the probe instance.
     function _probeSpendVerifier(IBatchVerifier bv) private view {
+        // Zero-valued probe arguments; memory is already zeroed.
+        // slither-disable-next-line uninitialized-local
         uint256[2] memory g1;
+        // slither-disable-next-line uninitialized-local
         uint256[2][2] memory g2;
+        // slither-disable-next-line unused-return
         try bv.verifyBatch(g1, g2, g1, g1, g1, g2, g1, g1) returns (bool) { }
         catch {
             revert BadSpendVerifier();
