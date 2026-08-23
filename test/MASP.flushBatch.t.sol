@@ -10,13 +10,14 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { MASP } from "../src/MASP.sol";
 import { AssetRegistry } from "../src/AssetRegistry.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
+import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
+import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 
 /// `flushBatch` contract-level coverage. SNARK verification is mocked via
 /// `vm.mockCall`, isolating the storage/event/sentinel logic from circuit-side
@@ -28,9 +29,8 @@ contract MASPFlushBatchTest is Test {
     uint16 internal constant FEE_BPS = 25;
     address internal constant TREASURY = address(0xfee);
     address internal constant OWNER = address(0x0117e7);
-
-    Groth16Verifier verifier;
     TreeUpdateBatchGroth16Verifier tubVerifier;
+    BatchedGroth16Verifier batchVerifier;
     address permit2;
     MockERC20 token;
     MockERC20 tokenAlt;
@@ -40,8 +40,8 @@ contract MASPFlushBatchTest is Test {
     address recipient = address(0xb0b);
 
     function setUp() public {
-        verifier = new Groth16Verifier();
         tubVerifier = new TreeUpdateBatchGroth16Verifier();
+        batchVerifier = new BatchedGroth16Verifier();
         permit2 = new DeployPermit2().deployPermit2();
         token = new MockERC20("M", "M", 18);
         tokenAlt = new MockERC20("A", "A", 18);
@@ -57,8 +57,8 @@ contract MASPFlushBatchTest is Test {
         scales[1] = SCALE;
 
         masp = new MASP(
-            IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
+            IBatchVerifier(address(batchVerifier)),
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,

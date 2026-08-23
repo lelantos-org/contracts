@@ -9,18 +9,13 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { NativeAdapter } from "../src/native/NativeAdapter.sol";
-import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
-import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { BaseDeploy } from "../script/base/BaseDeploy.s.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockWETH9 } from "./mocks/MockWETH9.sol";
 
 /// Exposes the shared deploy helper both deploy scripts route through.
 contract BaseDeployHarness is BaseDeploy {
-    function deployCore(MaspParams memory p)
-        external
-        returns (Groth16Verifier v, TreeUpdateBatchGroth16Verifier tub, MASP masp, NativeAdapter na)
-    {
+    function deployCore(MaspParams memory p) external returns (MaspCore memory) {
         return _deployMaspCore(p);
     }
 }
@@ -60,23 +55,33 @@ contract DeployBaseTest is Test {
         p.owner = address(this);
     }
 
-    function test_deploysAdapterWiredToPoolAndWrappedNative() public {
-        (,, MASP masp, NativeAdapter na) = harness.deployCore(_params(address(weth)));
+    /// The two verifier slots have distinct types, so a swapped constructor
+    /// call does not compile. This pins the case the compiler cannot catch: a
+    /// slot wired to the wrong instance of the right type.
+    function test_verifierSlotsAreWiredToTheRightContracts() public {
+        BaseDeploy.MaspCore memory core = harness.deployCore(_params(address(weth)));
 
-        assertTrue(address(na) != address(0), "adapter deployed");
-        assertEq(address(na.POOL()), address(masp), "adapter points at the pool");
-        assertEq(address(na.WRAPPED_NATIVE()), address(weth), "adapter points at the wrapped native");
-        assertEq(address(na.PERMIT2()), permit2, "adapter points at permit2");
+        assertEq(address(core.masp.TREE_UPDATE_BATCH_VERIFIER()), address(core.tubVerifier), "tree-update slot");
+        assertEq(address(core.masp.SPEND_VERIFIER()), address(core.spendVerifier), "batch slot");
+    }
+
+    function test_deploysAdapterWiredToPoolAndWrappedNative() public {
+        BaseDeploy.MaspCore memory core = harness.deployCore(_params(address(weth)));
+
+        assertTrue(address(core.nativeAdapter) != address(0), "adapter deployed");
+        assertEq(address(core.nativeAdapter.POOL()), address(core.masp), "adapter points at the pool");
+        assertEq(address(core.nativeAdapter.WRAPPED_NATIVE()), address(weth), "adapter points at the wrapped native");
+        assertEq(address(core.nativeAdapter.PERMIT2()), permit2, "adapter points at permit2");
     }
 
     /// The constructor arms ERC20 → Permit2 → MASP, so the first
     /// `depositNative` needs no bootstrap transaction.
     function test_deployedAdapterIsArmed() public {
-        (,, MASP masp, NativeAdapter na) = harness.deployCore(_params(address(weth)));
+        BaseDeploy.MaspCore memory core = harness.deployCore(_params(address(weth)));
 
-        assertEq(weth.allowance(address(na), permit2), type(uint256).max, "erc20 allowance to permit2");
+        assertEq(weth.allowance(address(core.nativeAdapter), permit2), type(uint256).max, "erc20 allowance to permit2");
         (uint160 amount, uint48 expiration,) =
-            IAllowanceTransfer(permit2).allowance(address(na), address(weth), address(masp));
+            IAllowanceTransfer(permit2).allowance(address(core.nativeAdapter), address(weth), address(core.masp));
         assertEq(amount, type(uint160).max, "permit2 allowance to the pool");
         assertEq(expiration, type(uint48).max, "allowance never expires");
     }
@@ -84,17 +89,17 @@ contract DeployBaseTest is Test {
     /// Chains with no wrapped-native token skip the adapter; the pool itself
     /// is unaffected either way.
     function test_skipsAdapterWhenNoWrappedNative() public {
-        (,, MASP masp, NativeAdapter na) = harness.deployCore(_params(address(0)));
+        BaseDeploy.MaspCore memory core = harness.deployCore(_params(address(0)));
 
-        assertEq(address(na), address(0), "no adapter deployed");
-        assertEq(address(masp.asset(ASSET_WETH).token), address(weth), "registry still written");
+        assertEq(address(core.nativeAdapter), address(0), "no adapter deployed");
+        assertEq(address(core.masp.asset(ASSET_WETH).token), address(weth), "registry still written");
     }
 
     /// The pool never holds native coin, whether or not an adapter exists.
     function test_deployedPoolRejectsNative() public {
-        (,, MASP masp,) = harness.deployCore(_params(address(weth)));
+        BaseDeploy.MaspCore memory core = harness.deployCore(_params(address(weth)));
         vm.deal(address(this), 1 ether);
-        (bool ok,) = address(masp).call{ value: 1 }("");
+        (bool ok,) = address(core.masp).call{ value: 1 }("");
         assertFalse(ok, "pool must not accept native");
     }
 }

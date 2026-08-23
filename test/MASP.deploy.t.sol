@@ -10,9 +10,10 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { MASP } from "../src/MASP.sol";
 import { AssetRegistry } from "../src/AssetRegistry.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
+import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
+import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 
 contract MASPDeployTest is Test {
     string constant REGISTRY_FIXTURE = "test/fixtures/asset_registry.json";
@@ -27,9 +28,8 @@ contract MASPDeployTest is Test {
 
         uint256 n = rawIds.length;
         assertGt(n, 0, "fixture empty");
-
-        Groth16Verifier verifier = new Groth16Verifier();
         TreeUpdateBatchGroth16Verifier tubVerifier = new TreeUpdateBatchGroth16Verifier();
+        BatchedGroth16Verifier batchVerifier = new BatchedGroth16Verifier();
         address permit2 = new DeployPermit2().deployPermit2();
 
         uint64[] memory ids = new uint64[](n);
@@ -48,8 +48,8 @@ contract MASPDeployTest is Test {
         }
 
         MASP masp = new MASP(
-            IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
+            IBatchVerifier(address(batchVerifier)),
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,

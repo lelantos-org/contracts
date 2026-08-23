@@ -15,6 +15,7 @@ import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MASPSpendHarness } from "./utils/MASPSpendHarness.sol";
 import { CommitmentTree } from "../src/CommitmentTree.sol";
+import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 
 /// Root ring-buffer eviction: a spend using a root that has been evicted from
 /// the 64-slot ring buffer must revert with `UnknownRoot`.
@@ -33,6 +34,7 @@ contract MASPStaleRootTest is Test {
     function setUp() public {
         verifier = IVerifier(address(new MockERC20("v", "v", 18)));
         IVerifier tubVerifier = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        MockBatchVerifier batchVerifier = new MockBatchVerifier();
         address permit2 = new DeployPermit2().deployPermit2();
 
         uint64[] memory ids = new uint64[](0);
@@ -40,8 +42,8 @@ contract MASPStaleRootTest is Test {
         uint256[] memory scales = new uint256[](0);
 
         masp = new MASPSpendHarness(
-            verifier,
             tubVerifier,
+            batchVerifier,
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,

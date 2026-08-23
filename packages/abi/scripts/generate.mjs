@@ -41,12 +41,18 @@ const CONTRACTS = [
     { source: "src/swap/IMASPSwap.sol", contract: "IMASPSwap", export: "imaspSwapAbi" },
     { source: "src/swap/ISwapAdapter.sol", contract: "ISwapAdapter", export: "swapAdapterAbi" },
     { source: "src/interfaces/IVerifier.sol", contract: "IVerifier", export: "verifierInterfaceAbi" },
+    { source: "src/interfaces/IBatchVerifier.sol", contract: "IBatchVerifier", export: "batchVerifierInterfaceAbi" },
     { source: "src/interfaces/IWrappedNative.sol", contract: "IWrappedNative", export: "wrappedNativeAbi" },
     { source: "src/verifiers/Verifier.sol", contract: "Groth16Verifier", export: "groth16VerifierAbi" },
     {
         source: "src/verifiers/TreeUpdateBatchVerifier.sol",
         contract: "TreeUpdateBatchGroth16Verifier",
         export: "treeUpdateBatchVerifierAbi",
+    },
+    {
+        source: "src/verifiers/BatchedGroth16Verifier.sol",
+        contract: "BatchedGroth16Verifier",
+        export: "batchedGroth16VerifierAbi",
     },
 ];
 

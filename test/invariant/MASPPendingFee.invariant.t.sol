@@ -9,13 +9,14 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
-import { Groth16Verifier } from "../../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockERC1271 } from "../mocks/MockERC1271.sol";
+import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
+import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 
 /// Handler exercises deposit / flushBatch / cancelDeposit / sweep
 /// randomly. Fees accrue only at flush; the handler shadows both the
@@ -192,8 +193,8 @@ contract EscrowFeeHandler is Test {
 }
 
 contract MASPEscrowFeeInvariantTest is Test {
-    Groth16Verifier verifier;
     TreeUpdateBatchGroth16Verifier tubVerifier;
+    BatchedGroth16Verifier batchVerifier;
     address permit2;
     MockERC20 token;
     MASP masp;
@@ -202,8 +203,8 @@ contract MASPEscrowFeeInvariantTest is Test {
     address payer = address(0xface);
 
     function setUp() public {
-        verifier = new Groth16Verifier();
         tubVerifier = new TreeUpdateBatchGroth16Verifier();
+        batchVerifier = new BatchedGroth16Verifier();
         permit2 = new DeployPermit2().deployPermit2();
         token = new MockERC20("M", "M", 18);
 
@@ -215,8 +216,8 @@ contract MASPEscrowFeeInvariantTest is Test {
         scales[0] = 1e10;
 
         masp = new MASP(
-            IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
+            IBatchVerifier(address(batchVerifier)),
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,

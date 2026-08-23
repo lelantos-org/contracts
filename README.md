@@ -7,19 +7,16 @@ Solidity implementation of a Multi-Asset Shielded Pool (MASP): private, pooled t
 - [Protocol design](#protocol-design)
 - [Architecture](#architecture)
 - [Contracts](#contracts)
-- [Getting started](#getting-started)
-- [Testing and analysis](#testing-and-analysis)
-- [Deployment](#deployment)
-- [ABI package](#abi-package)
 - [Gas and contract size](#gas-and-contract-size)
-- [Compiler pinning](#compiler-pinning)
 - [License](#license)
 
 ## Protocol design
 
 Notes are commitments in a quaternary Merkle tree. Deposits are escrowed on submission and inserted into the tree in batches under a single tree-update proof. Spends consume notes by nullifier and produce new commitments, verified against a recent known root. Leaf insertion is proven rather than computed on-chain, keeping per-transaction cost flat in tree depth.
 
-Every spend verifies two Groth16 proofs: a transaction proof (`transact_2x2`) and a tree-update proof that advances the Merkle root. Public inputs are compressed to a single pair `(y, z)` by Fiat-Shamir before pairing, so verification cost is independent of the logical public-input count.
+Every spend carries two Groth16 proofs: a transaction proof (`transact_3x3`) and a tree-update proof that advances the Merkle root. Public inputs are compressed to a single pair `(y, z)` by Fiat-Shamir before pairing, so verification cost is independent of the logical public-input count.
+
+The two proofs are checked together in one BN254 pairing call. Both circuits come from the same trusted setup and so share `alpha`, `beta` and `gamma`, which lets the residuals fold into six pairing terms instead of two independent four-term checks. `flushBatch` carries only a tree-update proof and uses the single-proof verifier directly.
 
 ## Architecture
 
@@ -36,7 +33,8 @@ flowchart TB
   NA -->|"depositAuthorized<br/>cancelDeposit / withdraw"| M
   SW -->|"withdraw<br/>depositAuthorized"| M
   U -->|"deposit / transfer<br/>withdraw / flushBatch"| M
-  M --> V["Groth16 verifiers"]
+  M --> V["BatchedGroth16Verifier<br/>spend proof pair"]
+  M --> V2["TreeUpdateBatchGroth16Verifier<br/>flush"]
   M --> P2["Permit2"]
   M --> T["ERC-20 tokens"]
 ```
@@ -65,49 +63,59 @@ No peripheral holds a privileged position. None is registered with the pool, non
 | `swap/SwapWrapper.sol` | Peripheral: atomic unshield to swap to re-shield across a MASP pair, plus escrow recovery. |
 | `swap/UniV3Adapter.sol` | Uniswap SwapRouter02 adapter for `SwapWrapper`. |
 | `swap/IMASPSwap.sol` | Pool surface `SwapWrapper` calls. |
+| `verifiers/BatchedGroth16Verifier.sol` | Checks a spend's `(transact_3x3, tree_update_batch)` proof pair in one pairing call. |
+| `verifiers/TreeUpdateBatchVerifier.sol` | snarkJS codegen for `tree_update_batch`. Used by `flushBatch`. |
+| `verifiers/Verifier.sol` | snarkJS codegen for `transact_3x3`. Not deployed; provenance for the `VK1_*` constants and the differential-test oracle. |
+| `verifiers/VerifyingKeys.sol` | The thirty verifying-key constants and the `BATCH_DOMAIN` transcript separator. |
+| `interfaces/` | `IVerifier`, `IBatchVerifier`, `IWrappedNative`. |
 
 ## Gas and contract size
 
-Each Groth16 verifier costs 195 026 gas per `verifyProof` call, independent of the logical public-input count. End to end for a shielded transfer:
+Proof verification dominates a spend. A single codegen `verifyProof` costs 195 026 gas on its accepting path, independent of the logical public-input count. Checking a spend's two proofs together costs less than checking them separately, measured by `BatchedGroth16VerifierTest::test_batchedIsCheaperThanTwoSingleVerifications`:
 
-| Component | Gas |
+| Spend proof check | Gas |
 | --- | --- |
-| `MASP.transfer` total | 524 457 |
-| ├ transaction proof | 195 026 |
-| ├ tree-update proof | 195 026 |
-| └ contract logic, storage, events | 139 405 |
+| One `verifyBatch` over both proofs | 309 541 |
+| Two separate `verifyProof` calls | 403 202 |
+| Saving per spend | 93 661 |
 
-Per-function aggregates, with verification mocked (so excluding the 195 026 per proof above). `Min` is typically an early-revert guard path and `Max` the fullest success path:
+Six pairing terms replace two sets of four, against three extra `ECMUL`s and one keccak over the 672-byte transcript. Both rows are measured through an external call, so each is a few thousand gas above the isolated pairing cost; the difference between them is what a spend saves.
+
+Per-function aggregates from `forge test --gas-report`, with verification mocked (so excluding the figures above). `Min` is typically an early-revert guard path and `Max` the fullest success path:
 
 | Function | Min | Avg | Max |
 | --- | --- | --- | --- |
-| `deposit` | 27 610 | 108 475 | 160 523 |
-| `depositAuthorized` | 34 172 | 88 599 | 133 984 |
-| `flushBatch` | 30 710 | 125 867 | 178 417 |
-| `cancelDeposit` | 25 354 | 39 714 | 66 155 |
-| `transfer` | 43 607 | 59 976 | 221 311 |
-| `withdraw` | 44 242 | 190 446 | 284 642 |
-| `sweep` | 24 226 | 29 097 | 56 898 |
-| `NativeAdapter.depositNative` | 25 622 | 162 581 | 232 430 |
-| `NativeAdapter.cancelNative` | 27 242 | 71 381 | 92 213 |
-| `NativeAdapter.withdrawNative` | 43 855 | 229 603 | 330 971 |
-| `SwapWrapper.swap` | 43 128 | 63 895 | 446 430 |
-| `SwapWrapper.cancelEscrow` | 29 355 | 64 932 | 91 367 |
+| `deposit` | 27 588 | 108 473 | 160 501 |
+| `depositAuthorized` | 34 150 | 88 577 | 133 962 |
+| `flushBatch` | 28 056 | 120 358 | 172 675 |
+| `cancelDeposit` | 25 310 | 39 670 | 66 111 |
+| `transfer` | 40 586 | 56 983 | 214 575 |
+| `withdraw` | 40 708 | 183 235 | 277 385 |
+| `sweep` | 24 226 | 29 075 | 56 898 |
+| `NativeAdapter.depositNative` | 25 622 | 162 568 | 232 408 |
+| `NativeAdapter.cancelNative` | 27 220 | 71 354 | 92 143 |
+| `NativeAdapter.withdrawNative` | 40 873 | 222 400 | 321 657 |
+| `SwapWrapper.swap` | 40 144 | 60 760 | 441 201 |
+| `SwapWrapper.cancelEscrow` | 29 333 | 64 937 | 91 385 |
 
 The three `NativeAdapter` rows include the MASP call they wrap (escrow pull, refund, or unshield) plus the wrap/unwrap legs.
 
-`flushBatch` amortizes one tree-update proof and the root advance across up to `MAX_N_BATCH` deposits, with fees accrued once per unique token in the batch.
+A shielded transfer therefore costs roughly 524 000 gas end to end: the `transfer` maximum above plus one batched pair check.
+
+`flushBatch` amortizes one tree-update proof and the root advance across up to `PubInputs.MAX_L_BATCH` (4) deposits, with fees accrued once per unique token in the batch.
 
 Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 
 | Contract | Runtime (B) | Margin (B) |
 | --- | --- | --- |
-| `MASP` | 18 892 | 5 684 |
-| `NativeAdapter` | 6 770 | 17 806 |
-| `SwapWrapper` | 8 466 | 16 110 |
+| `MASP` | 16 889 | 7 687 |
+| `SwapWrapper` | 8 465 | 16 111 |
+| `NativeAdapter` | 6 813 | 17 763 |
+| `BatchedGroth16Verifier` | 2 229 | 22 347 |
 | `UniV3Adapter` | 2 073 | 22 503 |
-| `Groth16Verifier` | 1 463 | 23 113 |
 | `TreeUpdateBatchGroth16Verifier` | 1 463 | 23 113 |
+
+`Groth16Verifier` (1 463 B) is not deployed by the scripts; the batched verifier checks spend proofs.
 
 ## License
 

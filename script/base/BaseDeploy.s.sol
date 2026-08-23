@@ -15,6 +15,8 @@ import { NativeAdapter } from "../../src/native/NativeAdapter.sol";
 import { IMASPNative } from "../../src/native/IMASPNative.sol";
 import { Groth16Verifier } from "../../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
+import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
+import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 
 /// Shared MASP-core deploy + KEY=value logging for `Deploy.s.sol` and
 /// `DeployTest.s.sol`. Abstract `Script` (not library) — helpers call
@@ -33,24 +35,27 @@ abstract contract BaseDeploy is Script {
         address owner;
     }
 
+    /// The contracts one core deploy produces. A struct rather than a return
+    /// tuple: every member is a plain address at the log boundary, where a
+    /// positional list would be mis-orderable without a compiler error.
+    struct MaspCore {
+        TreeUpdateBatchGroth16Verifier tubVerifier;
+        BatchedGroth16Verifier spendVerifier;
+        MASP masp;
+        /// address(0) when the chain configures no wrapped-native token.
+        NativeAdapter nativeAdapter;
+    }
+
     function _requireCode(address a, string memory label) internal view {
         require(a.code.length != 0, label);
     }
 
-    function _deployMaspCore(MaspParams memory p)
-        internal
-        returns (
-            Groth16Verifier verifier,
-            TreeUpdateBatchGroth16Verifier tubVerifier,
-            MASP masp,
-            NativeAdapter nativeAdapter
-        )
-    {
-        verifier = new Groth16Verifier();
-        tubVerifier = new TreeUpdateBatchGroth16Verifier();
-        masp = new MASP(
-            IVerifier(address(verifier)),
-            IVerifier(address(tubVerifier)),
+    function _deployMaspCore(MaspParams memory p) internal returns (MaspCore memory core) {
+        core.tubVerifier = new TreeUpdateBatchGroth16Verifier();
+        core.spendVerifier = new BatchedGroth16Verifier();
+        core.masp = new MASP(
+            IVerifier(address(core.tubVerifier)),
+            IBatchVerifier(address(core.spendVerifier)),
             ISignatureTransfer(p.permit2),
             p.ids,
             p.tokens,
@@ -63,33 +68,25 @@ abstract contract BaseDeploy is Script {
         // and unwraps on the way out. Skipped when no wrapped-native token is
         // configured for the chain.
         if (p.wrappedNative != address(0)) {
-            nativeAdapter = new NativeAdapter(
-                IMASPNative(address(masp)), IWrappedNative(p.wrappedNative), IAllowanceTransfer(p.permit2)
+            core.nativeAdapter = new NativeAdapter(
+                IMASPNative(address(core.masp)), IWrappedNative(p.wrappedNative), IAllowanceTransfer(p.permit2)
             );
         }
     }
 
-    /// KEY=value log block consumed by `e2e/deploy/extract-addresses.sh`.
-    function _logCoreKv(
-        address verifier,
-        address tubVerifier,
-        address masp,
-        address permit2,
-        address wrappedNative,
-        address nativeAdapter,
-        uint64[] memory ids,
-        address[] memory tokenAddrs
-    ) internal pure {
-        console2.log(string.concat("VERIFIER=", vm.toString(verifier)));
-        console2.log(string.concat("TREE_UPDATE_BATCH_VERIFIER=", vm.toString(tubVerifier)));
-        console2.log(string.concat("MASP=", vm.toString(masp)));
-        console2.log(string.concat("PERMIT2=", vm.toString(permit2)));
-        for (uint256 i; i < ids.length; ++i) {
-            console2.log(string.concat("TOKEN_", vm.toString(uint256(ids[i])), "=", vm.toString(tokenAddrs[i])));
+    /// KEY=value log block scraped by `e2e/src/stack.ts` and
+    /// `backend/stack/scripts/deploy-contracts.sh`.
+    function _logCoreKv(MaspCore memory core, MaspParams memory p, address[] memory tokenAddrs) internal pure {
+        console2.log(string.concat("TREE_UPDATE_BATCH_VERIFIER=", vm.toString(address(core.tubVerifier))));
+        console2.log(string.concat("SPEND_VERIFIER=", vm.toString(address(core.spendVerifier))));
+        console2.log(string.concat("MASP=", vm.toString(address(core.masp))));
+        console2.log(string.concat("PERMIT2=", vm.toString(p.permit2)));
+        for (uint256 i; i < p.ids.length; ++i) {
+            console2.log(string.concat("TOKEN_", vm.toString(uint256(p.ids[i])), "=", vm.toString(tokenAddrs[i])));
         }
-        if (wrappedNative != address(0)) {
-            console2.log(string.concat("WRAPPED_NATIVE=", vm.toString(wrappedNative)));
-            console2.log(string.concat("NATIVE_ADAPTER=", vm.toString(nativeAdapter)));
+        if (p.wrappedNative != address(0)) {
+            console2.log(string.concat("WRAPPED_NATIVE=", vm.toString(p.wrappedNative)));
+            console2.log(string.concat("NATIVE_ADAPTER=", vm.toString(address(core.nativeAdapter))));
         }
     }
 }

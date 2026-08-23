@@ -9,13 +9,14 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
-import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 
 import { MASPSpendHarness } from "./utils/MASPSpendHarness.sol";
+import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
+import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 
 /// End-to-end transfer test with REAL Groth16 proofs. Bootstraps the tree
 /// to a known state via `MASPSpendHarness.seedRoot`, then invokes
@@ -23,16 +24,15 @@ import { MASPSpendHarness } from "./utils/MASPSpendHarness.sol";
 /// tree_update_batch N=1 proofs).
 contract MASPTransferSnarkTest is Test {
     string internal constant FIXTURE = "test/fixtures/proof_transfer.json";
-
-    Groth16Verifier verifier;
     TreeUpdateBatchGroth16Verifier tubVerifier;
+    BatchedGroth16Verifier batchVerifier;
     address permit2;
     MockERC20 token;
     MASPSpendHarness masp;
 
     function setUp() public {
-        verifier = new Groth16Verifier();
         tubVerifier = new TreeUpdateBatchGroth16Verifier();
+        batchVerifier = new BatchedGroth16Verifier();
         permit2 = new DeployPermit2().deployPermit2();
         token = new MockERC20("M", "M", 18);
 
@@ -44,8 +44,8 @@ contract MASPTransferSnarkTest is Test {
         scales[0] = 1e10;
 
         masp = new MASPSpendHarness(
-            IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
+            IBatchVerifier(address(batchVerifier)),
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,
@@ -76,11 +76,16 @@ contract MASPTransferSnarkTest is Test {
         // `flatten` (sdk/src/circuit/compression.ts) is hard-coded to the
         // 2x2 shape with literal [0]/[1] indices and no shape parameter, and
         // `script/fixtures/gen_proof_transfer.ts` re-exports it. The 3x3
-        // prover artifacts DO exist (circuits build/3x3_final.zkey,
-        // build/3x3.wasm), so this unblocks as soon as the SDK gains the
-        // shape. Layout coverage meanwhile lives in
+        // prover artifacts are published by the release (`3x3_final.zkey`,
+        // `3x3.wasm`). The blocker is a MASP-level witness: the circuit takes
+        // `out_aux_digest` as an input while `PubInputs.compress` recomputes
+        // it from aux calldata, so the aux payload, the tree roots and the
+        // cross-bound cms/cvDeps must all be fixed before proving.
+        //
+        // Verifier-level coverage: `test/fixtures/transact_3x3_proof.json`,
+        // exercised by `BatchedGroth16Verifier.t.sol`. Layout coverage:
         // `PubInputs.vector3x3.t.sol`, which pins all 42 slots against the
-        // circuit's own published witness vector.
+        // circuit's published witness vector.
         vm.skip(true);
 
         string memory j = vm.readFile(FIXTURE);

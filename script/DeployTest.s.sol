@@ -36,8 +36,8 @@ contract DeployTest is BaseDeploy {
     function run()
         external
         returns (
-            address verifierAddr,
             address treeUpdateBatchVerifierAddr,
+            address spendVerifierAddr,
             address maspAddr,
             address permit2Addr,
             address nativeAdapterAddr,
@@ -109,26 +109,18 @@ contract DeployTest is BaseDeploy {
         p.treasury = vm.envOr("MASP_TREASURY", 0x000000000000000000000000000000000000dEaD);
         p.owner = vm.envOr("MASP_OWNER", tx.origin);
 
-        (Groth16Verifier v, TreeUpdateBatchGroth16Verifier tub, MASP masp, NativeAdapter na) = _deployMaspCore(p);
+        MaspCore memory core = _deployMaspCore(p);
 
         vm.stopBroadcast();
 
-        verifierAddr = address(v);
-        treeUpdateBatchVerifierAddr = address(tub);
-        maspAddr = address(masp);
-        // address(0) when the fixture registry names no wrapped-native symbol.
-        nativeAdapterAddr = address(na);
+        treeUpdateBatchVerifierAddr = address(core.tubVerifier);
+        spendVerifierAddr = address(core.spendVerifier);
+        maspAddr = address(core.masp);
+        permit2Addr = p.permit2;
+        // address(0) when the chain has no wrapped-native token configured.
+        nativeAdapterAddr = address(core.nativeAdapter);
 
-        _logCoreKv(
-            verifierAddr,
-            treeUpdateBatchVerifierAddr,
-            maspAddr,
-            permit2Addr,
-            p.wrappedNative,
-            nativeAdapterAddr,
-            p.ids,
-            tokenAddrs
-        );
+        _logCoreKv(core, p, tokenAddrs);
     }
 
     /// Strict equality on registry-supplied symbol — contract pairs the

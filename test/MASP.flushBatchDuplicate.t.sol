@@ -14,6 +14,7 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
+import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 
 /// `flushBatch` edge cases not covered by `MASP.flushBatch.t.sol`:
 ///   - duplicate deposit id in the same `ids` array
@@ -27,6 +28,7 @@ contract MASPFlushBatchDuplicateTest is Test {
 
     IVerifier verifier;
     IVerifier tubVerifier;
+    MockBatchVerifier batchVerifier;
     address permit2;
     MockERC20 token;
     MASP masp;
@@ -38,6 +40,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         token = new MockERC20("M", "M", 18);
         verifier = IVerifier(address(new MockERC20("v", "v", 18)));
         tubVerifier = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        batchVerifier = new MockBatchVerifier();
         permit2 = new DeployPermit2().deployPermit2();
 
         uint64[] memory ids = new uint64[](1);
@@ -48,7 +51,15 @@ contract MASPFlushBatchDuplicateTest is Test {
         scales[0] = SCALE;
 
         masp = new MASP(
-            verifier, tubVerifier, ISignatureTransfer(address(permit2)), ids, tokens, scales, FEE_BPS, TREASURY, OWNER
+            tubVerifier,
+            batchVerifier,
+            ISignatureTransfer(address(permit2)),
+            ids,
+            tokens,
+            scales,
+            FEE_BPS,
+            TREASURY,
+            OWNER
         );
 
         MockERC1271 stub = new MockERC1271();

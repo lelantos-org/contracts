@@ -14,6 +14,7 @@ import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
+import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 
 /// Cross-transaction double-spend regression.
 ///
@@ -33,6 +34,7 @@ contract MASPDoubleSpendTest is Test {
     MockERC20 token;
     IVerifier verifier;
     IVerifier tubVerifier;
+    MockBatchVerifier batchVerifier;
     MASP masp;
 
     function setUp() public {
@@ -41,6 +43,7 @@ contract MASPDoubleSpendTest is Test {
         // Fake verifier contracts (have code; verifyProof mocked below).
         verifier = IVerifier(address(new MockERC20("v", "v", 18)));
         tubVerifier = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        batchVerifier = new MockBatchVerifier();
 
         address permit2 = new DeployPermit2().deployPermit2();
 
@@ -52,8 +55,8 @@ contract MASPDoubleSpendTest is Test {
         scales[0] = SCALE;
 
         masp = new MASP(
-            verifier,
             tubVerifier,
+            batchVerifier,
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,
@@ -67,7 +70,9 @@ contract MASPDoubleSpendTest is Test {
         token.mint(address(masp), 100 * SCALE);
 
         // Force both verifiers to accept any proof.
-        vm.mockCall(address(verifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        // The spend path verifies both proofs in one batched call, so this is
+        // the only mock that matters for it.
+        batchVerifier.setResult(true);
         vm.mockCall(address(tubVerifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
     }
 

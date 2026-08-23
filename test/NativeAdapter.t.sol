@@ -18,6 +18,7 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockWETH9 } from "./mocks/MockWETH9.sol";
+import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 
 /// `NativeAdapter` end-to-end: wrap-on-deposit, unwrap-on-withdraw, and the
 /// refund path for adapter-owned escrows. MASP itself is ERC-20 only, so every
@@ -37,6 +38,7 @@ contract NativeAdapterTest is Test {
     MockERC20 token;
     MockWETH9 weth;
     MASP masp;
+    MockBatchVerifier bv;
     NativeAdapter adapter;
     address permit2;
 
@@ -47,6 +49,7 @@ contract NativeAdapterTest is Test {
 
         IVerifier v = IVerifier(address(new MockERC20("v", "v", 18)));
         IVerifier tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        bv = new MockBatchVerifier();
 
         uint64[] memory ids = new uint64[](2);
         IERC20[] memory tokens = new IERC20[](2);
@@ -59,7 +62,7 @@ contract NativeAdapterTest is Test {
         scales[1] = SCALE;
 
         masp = new MASP(
-            v, tub, ISignatureTransfer(permit2), ids, tokens, scales, FEE_BPS, address(0xfee), address(this)
+            tub, bv, ISignatureTransfer(permit2), ids, tokens, scales, FEE_BPS, address(0xfee), address(this)
         );
         adapter =
             new NativeAdapter(IMASPNative(address(masp)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
@@ -68,7 +71,9 @@ contract NativeAdapterTest is Test {
     // --- helpers -----------------------------------------------------------
 
     function _mockVerifiers() internal {
-        vm.mockCall(address(masp.VERIFIER()), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        // Spends route through `SPEND_VERIFIER`; the tree-update mock serves
+        // `flushBatch`.
+        bv.setResult(true);
         vm.mockCall(
             address(masp.TREE_UPDATE_BATCH_VERIFIER()),
             abi.encodeWithSelector(IVerifier.verifyProof.selector),

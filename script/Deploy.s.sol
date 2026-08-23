@@ -42,8 +42,8 @@ contract Deploy is BaseDeploy {
     function run()
         external
         returns (
-            address verifierAddr,
             address treeUpdateBatchVerifierAddr,
+            address spendVerifierAddr,
             address maspAddr,
             address permit2Addr,
             address nativeAdapterAddr,
@@ -82,25 +82,16 @@ contract Deploy is BaseDeploy {
         }
 
         vm.startBroadcast();
-        (Groth16Verifier v, TreeUpdateBatchGroth16Verifier tub, MASP masp, NativeAdapter na) = _deployMaspCore(p);
+        MaspCore memory core = _deployMaspCore(p);
         vm.stopBroadcast();
 
-        verifierAddr = address(v);
-        treeUpdateBatchVerifierAddr = address(tub);
-        maspAddr = address(masp);
+        treeUpdateBatchVerifierAddr = address(core.tubVerifier);
+        spendVerifierAddr = address(core.spendVerifier);
+        maspAddr = address(core.masp);
         permit2Addr = p.permit2;
         // address(0) when the chain has no wrapped-native token configured.
-        nativeAdapterAddr = address(na);
+        nativeAdapterAddr = address(core.nativeAdapter);
 
-        _logCoreKv(
-            verifierAddr,
-            treeUpdateBatchVerifierAddr,
-            maspAddr,
-            permit2Addr,
-            p.wrappedNative,
-            nativeAdapterAddr,
-            p.ids,
-            tokenAddrs
-        );
+        _logCoreKv(core, p, tokenAddrs);
     }
 }

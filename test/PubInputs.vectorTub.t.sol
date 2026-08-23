@@ -19,17 +19,17 @@ contract VectorTubHarness {
     }
 }
 
-/// Pins `compress(TreeUpdateBatch)` against the `tree-update-batch-8` vector
+/// Pins `compress(TreeUpdateBatch)` against the `tree-update-batch-4` vector
 /// published by the circuits package (version 0.8.0).
 ///
 /// `PubInputs.t.sol` fuzzes `compress == compressRef`, but both are written in
-/// this repo: a misreading of the circuit's 52-slot order would be reproduced
+/// this repo: a misreading of the circuit's 28-slot order would be reproduced
 /// identically on both sides and pass. This drives the struct from the
 /// circuit's own witness and compares against the `(y, z)` the compiled circuit
 /// produced, so the layout is anchored outside the repo.
 ///
 /// Unlike the 3x3 vector there is no substituted slot — the batch circuit takes
-/// every coefficient as a public input, so all 52 come from the vector verbatim
+/// every coefficient as a public input, so all 28 come from the vector verbatim
 /// and the published `(y, z)` can be asserted directly.
 contract PubInputsVectorTubTest is Test {
     string internal constant VECTOR = "test/fixtures/tree_update_batch_vector.json";
@@ -56,7 +56,7 @@ contract PubInputsVectorTubTest is Test {
     /// hand-edited copy: every assertion below is only as good as its
     /// provenance.
     function test_vectorMetadataMatchesDeployedShape() public view {
-        assertEq(vm.parseJsonString(json, ".circuit.template"), "TreeUpdateBatch(10, 8)", "template");
+        assertEq(vm.parseJsonString(json, ".circuit.template"), "TreeUpdateBatch(10, 4)", "template");
         assertEq(_u(".circuit.coeffCount"), COEFFS, "coeff count");
         assertEq(_u(".circuit.shape.maxL"), PubInputs.MAX_L_BATCH, "maxL");
     }

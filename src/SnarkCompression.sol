@@ -29,7 +29,7 @@ library SnarkCompression {
         // Loop control dominates, since MULMOD and ADDMOD are 8 gas each, so the
         // body is unrolled by two and the field check reverts in place rather
         // than setting a flag for a post-loop branch. Both on-chain coefficient
-        // vectors (42 and 52) are even.
+        // vectors (42 and 28) are even.
         uint256 errSel = uint256(uint32(CoefficientOutOfField.selector)) << 224;
         assembly ("memory-safe") {
             let r := R

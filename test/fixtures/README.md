@@ -48,14 +48,14 @@ re-checking the manifest SHA-256.
 
 ### `tree_update_batch_vector.json`
 
-The `tree-update-batch-8` witness vector published by the circuits package,
-copied verbatim. SHA-256 `8f976f589ce6c17a61c8cabf3aafc85b8ef31d717304e003e087
-6c6b4dd32275`, matching the `vectors/index.json` manifest entry for
-`@lelantos-org/circuits@0.8.0`.
+The `tree-update-batch-4` witness vector published by the circuits package,
+copied verbatim. SHA-256 `97c441353d720893f6d02d5bdbfe299103bae4a69230bd1baa85
+4091416b79e0`, matching the `vectors/index.json` manifest entry for
+`@lelantos-org/circuits@0.9.2`.
 
 Read by [PubInputs.vectorTub.t.sol](../PubInputs.vectorTub.t.sol), the batch
 counterpart to the 3x3 layout test: it drives `PubInputs.TreeUpdateBatch` from
-the circuit's own witness and pins all 52 coefficient slots against the
+the circuit's own witness and pins all 28 coefficient slots against the
 `(y, z)` the compiled circuit produced. Unlike the transact vector there is no
 substituted slot — the batch circuit takes every coefficient as a public input,
 so the published `(y, z)` is asserted directly.
@@ -64,7 +64,7 @@ Also read by
 [TreeUpdateBatchVerifier.vector.t.sol](../TreeUpdateBatchVerifier.vector.t.sol)
 to rebuild the struct behind each proof.
 
-Refresh by re-copying from `../../circuits/vectors/tree-update-batch-8.json`
+Refresh by re-copying from `../../circuits/vectors/tree-update-batch-4.json`
 and re-checking the manifest SHA-256.
 
 ### `tree_update_batch_proof.json`
@@ -82,39 +82,70 @@ G2 coordinates are stored in the `(x1, x0), (y1, y0)` order the pairing
 precompile expects, taken from `snarkjs zkey export soliditycalldata` rather
 than from `proof.json`, which stores them the other way round.
 
-Regenerate with
-[gen_tree_update_batch_proof.sh](../../script/fixtures/gen_tree_update_batch_proof.sh):
+Regenerate with `script/fixtures/gen_proof_fixture.sh tree_update_batch` — see
+**Generating proof fixtures** below.
 
-```sh
-CIRCUITS=../circuits script/fixtures/gen_tree_update_batch_proof.sh
+### `transact_3x3_proof.json`
+
+Three real Groth16 proofs, one per vector in `transact_3x3_vector.json`, against
+[Verifier.sol](../../src/verifiers/Verifier.sol). Read by
+[BatchedGroth16Verifier.t.sol](../BatchedGroth16Verifier.t.sol), which pairs each
+of them with each tree-update proof and asserts the batched verifier agrees with
+the two codegen verifiers.
+
+Regenerate with `script/fixtures/gen_proof_fixture.sh transact_3x3`.
+
+### `verification_key_3x3.json`, `verification_key_tree_update_batch.json`
+
+The two published verification keys, copied verbatim from the v0.9.2 release
+(SHA-256 `289d91c7…8de7fe` and `06f77fec…872ff3`). Read by
+[VerifyingKeys.t.sol](../VerifyingKeys.t.sol), which pins every constant in
+`src/verifiers/VerifyingKeys.sol` against them. The codegen verifiers' own
+constants are contract-scoped and non-public, so Solidity cannot compare against
+those directly — this JSON is the only readable form.
+
+## Generating proof fixtures
+
+`script/fixtures/gen_proof_fixture.sh {tree_update_batch|transact_3x3}` proves
+every vector in the corresponding witness file and writes the calldata triples.
+
+**Artifacts must come from the GitHub release, never from a local
+`circuits/build/`.**
+
+1. `just setup-*` contributes with `openssl rand -hex 32`, so a local ceremony
+   produces a different `delta` than the release. Proofs made against a local
+   zkey cannot satisfy the vendored verifiers under `src/verifiers/`, which are
+   copied from the release.
+2. A local `build/` may be partially rebuilt: a current r1cs/wasm beside a zkey
+   from an earlier ceremony.
+
+The script asserts the release verification key against the vendored Solidity
+verifier before proving anything, so a mismatched artifact set fails there
+rather than as an unexplained rejection in a test.
+
+```
+gh release download v0.9.2 --repo lelantos-org/circuits -D /tmp/rel092 \
+  -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
+RELEASE=/tmp/rel092 CIRCUITS=../circuits \
+  script/fixtures/gen_proof_fixture.sh transact_3x3
 ```
 
-Needs a local circuits checkout with a built `build/` — the published tarball's
-`files` list ships only the 2x2 and 3x3 artifacts, so `tree_update_batch_final.
-zkey` and `tree_update_batch.wasm` have to come from a local `just build`. The
-script asserts each proof's public signals against the vector's own `(y, z)`
-before writing. Groth16 proving is randomized, so a refresh produces different
-— equally valid — proof triples over identical public signals.
+Groth16 proving is randomized, so a refresh produces different — equally valid —
+proof triples over identical public signals.
 
-## Removed proof fixtures
+## Remaining coverage gap
 
-`proof_transfer.json` and `proof_deposit_batch_n1.json` were deleted. Both were
-2x2-shaped artifacts that the 3x3 pool cannot satisfy, and both were already
-inert — every test reading them was skipped.
-
-The tests remain in place, skipped, with the reason recorded at the skip site:
+The transact path has real-proof coverage at the **verifier** level
+(`transact_3x3_proof.json`, above) but not at the **MASP** level. Four tests are
+still skipped for want of a MASP-level witness:
 
 - `MASP.transferSnark.t.sol :: test_transferRealSnark_succeeds`
 - `MASP.chainId.t.sol :: test_revert_CrossChainReplay`
 - `MASP.chainId.t.sol :: test_revert_BadChainId_spend`
 - `MASP.flushBatchSnark.t.sol :: test_realSnark_n1_flushBatchSucceeds`
 
-Consequence: **the transact path has no real-proof coverage.** Its layout is
-pinned by `PubInputs.vector3x3.t.sol`; proof acceptance is not. The batch path
-is covered — see `tree_update_batch_proof.json` above — but nothing there
-exercises `MASP` itself, only the verifier and `PubInputs.compress`.
-
-Regenerating needs `script/fixtures/gen_proof_transfer.ts` extended to three
-inputs and three outputs, and 3x3 prover artifacts — the published circuits
-tarball ships only 2x2, so point at a local `../circuits/build` which has
-`3x3_final.zkey` and `3x3.wasm`.
+The prover artifacts are published by the release (`3x3_final.zkey`,
+`3x3.wasm`). The blocker is that the circuit takes `out_aux_digest` as an
+*input* while `PubInputs.compress` recomputes it from aux calldata, so the aux
+payload, the tree roots and the cross-bound `cms`/`cvDeps` must all be chosen
+before proving. Spend tests therefore use `vm.mockCall`.

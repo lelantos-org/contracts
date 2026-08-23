@@ -201,7 +201,7 @@ contract PubInputsTest is Test {
     }
 
     function test_compressTreeUpdateBatch_paddingSlotAffectsHash() public view {
-        // Two batches identical except cms[2*MAX_L_BATCH - 1] (padding slot).
+        // Two batches identical except cms[MAX_L_BATCH - 1] (padding slot).
         // Compress MUST reflect ALL coefficients including padding so the
         // SNARK can constrain padding == 0.
         PubInputs.TreeUpdateBatch memory a = _sampleBatch(1);
@@ -246,9 +246,10 @@ contract PubInputsTest is Test {
         tpi.newRoot = bytes32(uint256(0xb0b));
         tpi.startIndex = 7;
         tpi.actualCount = ac;
-        for (uint64 i = 0; i < 2 * ac; i++) {
+        // `actualCount` counts leaves, not pairs, so one slot per unit.
+        for (uint64 i = 0; i < ac; i++) {
             tpi.cms[i] = bytes32(uint256(0xc1 + i));
         }
-        // Remaining cms[i] for i >= 2*ac stay zero.
+        // Remaining cms[i] for i >= ac stay zero.
     }
 }

@@ -10,7 +10,6 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { MASP } from "../../src/MASP.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
-import { Groth16Verifier } from "../../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
@@ -19,6 +18,8 @@ import { MockWETH9 } from "../mocks/MockWETH9.sol";
 import { MockERC1271 } from "../mocks/MockERC1271.sol";
 
 import { FixtureLoader } from "./FixtureLoader.sol";
+import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
+import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 
 /// Shared deployment + setup harness for MASP unit tests. Wires up real
 /// Groth16 verifiers, a real Uniswap Permit2, and a `MockERC20` registered
@@ -39,9 +40,8 @@ contract MASPTestBase is Test {
     uint16 internal constant FEE_BPS = 25;
     address internal constant TREASURY = address(0xfee);
     address internal constant OWNER = address(0x0117e7);
-
-    Groth16Verifier internal verifier;
     TreeUpdateBatchGroth16Verifier internal tubVerifier;
+    BatchedGroth16Verifier internal batchVerifier;
     address internal permit2;
     MockERC20 internal token;
     MockWETH9 internal weth;
@@ -51,8 +51,8 @@ contract MASPTestBase is Test {
     address internal payer;
 
     function setUp() public virtual {
-        verifier = new Groth16Verifier();
         tubVerifier = new TreeUpdateBatchGroth16Verifier();
+        batchVerifier = new BatchedGroth16Verifier();
         permit2 = new DeployPermit2().deployPermit2();
         token = new MockERC20("Test Token", "TST", 18);
         weth = new MockWETH9();
@@ -61,8 +61,8 @@ contract MASPTestBase is Test {
             _singleAssetArrays(ASSET_ID, _fixtureAssetToken(), SCALE);
 
         masp = new MASP(
-            IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
+            IBatchVerifier(address(batchVerifier)),
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,

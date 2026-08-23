@@ -15,16 +15,16 @@ contract TubCompressHarness {
 /// Verifies real Groth16 proofs against the deployed `tree_update_batch`
 /// verifier, and pins the public-signal order the contract feeds it.
 ///
-/// This is the only test in the suite that runs an actual proof through a
-/// verifier — everything else stops at layout equivalence, so a verifier keyed
-/// to a different ceremony, or a `(y, z)` ordering flipped on one side, would
-/// pass the rest of the suite.
+/// Layout tests establish only that the coefficient vector is assembled
+/// correctly. This runs a proof through the verifier, so a verifier keyed to a
+/// different ceremony, or a `(y, z)` ordering flipped on one side, is caught
+/// here rather than in production.
 ///
-/// The proofs come from `script/fixtures/gen_tree_update_batch_proof.sh`, which
-/// proves the published witness vectors against the circuits `build/` and
-/// asserts each proof's public signals against the vector's own `(y, z)` before
-/// writing. Groth16 proving is randomized: regenerating yields different — and
-/// equally valid — proof triples over the same public signals.
+/// Proofs come from `script/fixtures/gen_proof_fixture.sh`, which proves the
+/// published witness vectors against the release artifacts and asserts each
+/// proof's public signals against the vector's `(y, z)` before writing. Groth16
+/// proving is randomized: regenerating yields different but equally valid proof
+/// triples over the same public signals.
 contract TreeUpdateBatchVerifierVectorTest is Test {
     string internal constant PROOFS = "test/fixtures/tree_update_batch_proof.json";
     string internal constant VECTOR = "test/fixtures/tree_update_batch_vector.json";
@@ -71,13 +71,13 @@ contract TreeUpdateBatchVerifierVectorTest is Test {
     /// The proof fixture must have been generated from the vector this repo
     /// also pins the layout against, and at the deployed shape.
     function test_fixtureProvenance() public view {
-        assertEq(vm.parseJsonString(proofs, ".source.template"), "TreeUpdateBatch(10, 8)", "template");
+        assertEq(vm.parseJsonString(proofs, ".source.template"), "TreeUpdateBatch(10, 4)", "template");
         assertEq(
             vm.parseJsonString(proofs, ".source.layoutDigest"),
             vm.parseJsonString(vector, ".circuit.layoutDigest"),
             "layout digest must match the witness vector"
         );
-        assertEq(vm.parseJsonString(proofs, ".source.vector"), "tree-update-batch-8.json", "vector name");
+        assertEq(vm.parseJsonString(proofs, ".source.vector"), "tree-update-batch-4.json", "vector name");
     }
 
     function _accepts(uint256 i) internal view {

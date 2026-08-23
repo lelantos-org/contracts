@@ -14,6 +14,7 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
+import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 
 /// Fuzz `_validateAux`: bounds-check on every output ciphertext + clue-bits
 /// prefix mask. Aux validation runs before the SNARK call — a downstream
@@ -32,10 +33,11 @@ contract MASPAuxFuzzTest is Test {
     function setUp() public {
         IVerifier v = IVerifier(address(new MockERC20("v", "v", 18)));
         IVerifier tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        MockBatchVerifier bv = new MockBatchVerifier();
         address permit2 = new DeployPermit2().deployPermit2();
         masp = new MASP(
-            v,
             tub,
+            bv,
             ISignatureTransfer(address(permit2)),
             new uint64[](0),
             new IERC20[](0),

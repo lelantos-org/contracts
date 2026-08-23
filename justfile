@@ -133,7 +133,7 @@ deploy-anvil:
 
 # Anvil swap-stack deploy. Run AFTER deploy-anvil and export its KEY=value
 # output (MASP, PERMIT2, TOKEN_1..3) into env first, e.g.
-# `eval "$(just deploy-anvil | e2e/deploy/extract-addresses.sh)"`.
+# `eval "$(just deploy-anvil | grep -oE '^[A-Z_0-9]+=0x[0-9a-fA-F]{40}')"`.
 [doc('Deploy the swap stack to a running anvil')]
 [group('deploy')]
 deploy-test-swap:

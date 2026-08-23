@@ -34,8 +34,12 @@ library PubInputs {
     }
 
     /// MAX_L of `tree_update_batch.circom`. The coefficient vector is
-    /// `4 + 6*MAX_L_BATCH = 52`; drift breaks the circuit-to-contract binding.
-    uint256 internal constant MAX_L_BATCH = 8;
+    /// `4 + 6*MAX_L_BATCH = 28`; drift breaks the circuit-to-contract binding.
+    ///
+    /// 4 is the circuit's floor: `COUNT_BITS` requires a power of two, and a
+    /// spend emits `TRANSACT_OUT` = 3 leaves that must fit one batch. A wider
+    /// transact shape requires a new ceremony.
+    uint256 internal constant MAX_L_BATCH = 4;
 
     /// `tree_update_batch.circom` public inputs. Layout:
     ///   oldRoot, newRoot, startIndex, actualCount,
@@ -279,7 +283,7 @@ library PubInputs {
         return _finalize(s);
     }
 
-    /// Pack `TreeUpdateBatch` into `4 + 6*MAX_L_BATCH = 52` coefficients and
+    /// Pack `TreeUpdateBatch` into `4 + 6*MAX_L_BATCH = 28` coefficients and
     /// derive `(y, z)`. Order matches `tree_update_batch.circom`.
     function compressRef(TreeUpdateBatch memory tpi) internal pure returns (uint256[2] memory) {
         uint256 n = 4 + 6 * MAX_L_BATCH;

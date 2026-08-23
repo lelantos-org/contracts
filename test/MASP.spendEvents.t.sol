@@ -13,6 +13,7 @@ import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
+import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 
 /// Spend-path event emission. `AssetMoved` is emitted by the unshield entry
 /// points rather than the shared note-emit helper, so these tests fix which
@@ -30,6 +31,7 @@ contract MASPSpendEventsTest is Test {
     MockERC20 token;
     IVerifier verifier;
     IVerifier tubVerifier;
+    MockBatchVerifier batchVerifier;
     MASP masp;
 
     event AssetMoved(uint64 indexed assetId, IERC20 indexed token, uint256 inAmount, uint256 outAmount);
@@ -48,6 +50,7 @@ contract MASPSpendEventsTest is Test {
         token = new MockERC20("M", "M", 18);
         verifier = IVerifier(address(new MockERC20("v", "v", 18)));
         tubVerifier = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        batchVerifier = new MockBatchVerifier();
         address permit2 = new DeployPermit2().deployPermit2();
 
         uint64[] memory ids = new uint64[](1);
@@ -58,8 +61,8 @@ contract MASPSpendEventsTest is Test {
         scales[0] = SCALE;
 
         masp = new MASP(
-            verifier,
             tubVerifier,
+            batchVerifier,
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,
@@ -70,7 +73,9 @@ contract MASPSpendEventsTest is Test {
         );
 
         token.mint(address(masp), 100 * SCALE);
-        vm.mockCall(address(verifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        // The spend path verifies both proofs in one batched call, so this is
+        // the only mock that matters for it.
+        batchVerifier.setResult(true);
         vm.mockCall(address(tubVerifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
     }
 

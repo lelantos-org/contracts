@@ -16,6 +16,8 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
+import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
+import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 
 /// `escrowed[id]` stores only a digest, so flush and cancel require the caller
 /// to resupply the full preimage. The documented source for that preimage is
@@ -63,8 +65,8 @@ contract MASPEscrowEventRoundtripTest is Test {
         scales[0] = SCALE;
 
         masp = new MASP(
-            IVerifier(address(new Groth16Verifier())),
             IVerifier(address(new TreeUpdateBatchGroth16Verifier())),
+            IBatchVerifier(address(new BatchedGroth16Verifier())),
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,

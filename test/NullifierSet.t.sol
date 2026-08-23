@@ -8,6 +8,8 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MASPHarness } from "./invariant/MASPHarness.sol";
+import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
+import { MASP } from "../src/MASP.sol";
 
 /// Unit tests for `NullifierSet` bitmap storage via `MASPHarness`.
 /// Covers double-spend, bucket isolation, and full-bucket exhaustion.
@@ -17,8 +19,9 @@ contract NullifierSetTest is Test {
     function setUp() public {
         IVerifier v = IVerifier(address(new MockERC20("v", "v", 18)));
         IVerifier tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        MockBatchVerifier bv = new MockBatchVerifier();
         address permit2 = new DeployPermit2().deployPermit2();
-        harness = new MASPHarness(v, tub, ISignatureTransfer(address(permit2)), address(0xfee), address(this));
+        harness = new MASPHarness(tub, bv, ISignatureTransfer(address(permit2)), address(0xfee), address(this));
     }
 
     function test_unspent_beforeConsume() public view {

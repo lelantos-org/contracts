@@ -13,6 +13,7 @@ import { AssetRegistry } from "./AssetRegistry.sol";
 import { NullifierSet } from "./NullifierSet.sol";
 import { FeeConfig } from "./FeeConfig.sol";
 import { IVerifier } from "./interfaces/IVerifier.sol";
+import { IBatchVerifier } from "./interfaces/IBatchVerifier.sol";
 import { PubInputs } from "./libs/PubInputs.sol";
 import { AuxValidation } from "./libs/AuxValidation.sol";
 
@@ -32,17 +33,28 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     using PubInputs for PubInputs.Transact;
     using PubInputs for PubInputs.TreeUpdateBatch;
 
-    IVerifier public immutable VERIFIER;
     /// Verifier for `tree_update_batch.circom` (MAX_L = `PubInputs.MAX_L_BATCH`).
-    /// Used by flush (that many single-leaf deposits) and by spends
-    /// (`TRANSACT_OUT_LEAVES` output leaves).
+    /// Used by `flushBatch`, which carries a lone tree-update proof. A spend's
+    /// tree-update proof is checked by `SPEND_VERIFIER` instead.
+    ///
+    /// The "batch" here is a batch of leaves, not the batched pairing
+    /// `SPEND_VERIFIER` performs.
     IVerifier public immutable TREE_UPDATE_BATCH_VERIFIER;
+
+    /// Checks the `(transact_3x3, tree_update_batch)` proof pair a spend
+    /// carries, in one BN254 pairing call. Argument order is load-bearing:
+    /// transact first, tree-update second.
+    ///
+    /// This is the entirety of a spend's proof check; the pool holds no
+    /// standalone `transact_3x3` verifier. Attributing a rejection to one of
+    /// the two proofs is a submitter-side concern, handled off-chain.
+    IBatchVerifier public immutable SPEND_VERIFIER;
 
     /// Width of the per-token fee accumulators in `flushBatch`. Solidity does
     /// not accept a library constant as a memory-array length, so the value is
     /// duplicated here; the constructor asserts it equals
     /// `PubInputs.MAX_L_BATCH`.
-    uint256 private constant FEE_ACC_SLOTS = 8;
+    uint256 private constant FEE_ACC_SLOTS = 4;
 
     /// Output leaves per spend, i.e. `N_OUT` of the deployed transact shape.
     /// `tpi.actualCount` counts leaves, so the spend path pins it to this.
@@ -159,6 +171,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     error TreeFull();
     // --- registry / proof verification ---------------------------------------
     error ZeroVerifier();
+    /// `spendVerifier_` has code but does not answer `verifyBatch`.
+    error BadSpendVerifier();
     error ZeroPermit2();
     error ProofRejected();
     error TreeUpdateRejected();
@@ -178,8 +192,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     error DigestMismatch(uint256 id);
 
     constructor(
-        IVerifier verifier_,
         IVerifier treeUpdateBatchVerifier_,
+        IBatchVerifier spendVerifier_,
         ISignatureTransfer permit2_,
         uint64[] memory ids,
         IERC20[] memory tokens,
@@ -188,13 +202,14 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         address treasury_,
         address owner_
     ) Ownable(owner_) {
-        if (address(verifier_).code.length == 0) revert ZeroVerifier();
         if (address(treeUpdateBatchVerifier_).code.length == 0) revert ZeroVerifier();
+        if (address(spendVerifier_).code.length == 0) revert ZeroVerifier();
+        _probeSpendVerifier(spendVerifier_);
         if (address(permit2_).code.length == 0) revert ZeroPermit2();
         // Deploy-time guard for the duplicated batch width; see FEE_ACC_SLOTS.
         if (FEE_ACC_SLOTS != PubInputs.MAX_L_BATCH) revert BadBatchSize();
-        VERIFIER = verifier_;
         TREE_UPDATE_BATCH_VERIFIER = treeUpdateBatchVerifier_;
+        SPEND_VERIFIER = spendVerifier_;
         PERMIT2 = permit2_;
         _initFee(feeBps_, treasury_);
         _writeAssets(ids, tokens, scales);
@@ -639,8 +654,36 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         if (uint256(cc) + TRANSACT_OUT_LEAVES > MAX_LEAVES) revert TreeFull();
     }
 
-    /// Verify both Groth16 proofs (`transact_3x3` and `tree_update_batch`).
-    /// Public inputs are Fiat-Shamir-compressed to `(y, z)` before pairing.
+    /// Reverts unless `bv` answers `verifyBatch`.
+    ///
+    /// The slot is immutable and a wrong address fails closed, so every spend
+    /// would revert with nothing identifying the cause. An address without a
+    /// matching `verifyBatch` reverts into the `catch`.
+    ///
+    /// The return value is ignored: this establishes the interface, not the
+    /// verdict on the probe instance.
+    function _probeSpendVerifier(IBatchVerifier bv) private view {
+        uint256[2] memory g1;
+        uint256[2][2] memory g2;
+        try bv.verifyBatch(g1, g2, g1, g1, g1, g2, g1, g1) returns (bool) { }
+        catch {
+            revert BadSpendVerifier();
+        }
+    }
+
+    /// Verify both Groth16 proofs (`transact_3x3` and `tree_update_batch`) in a
+    /// single pairing check. Public inputs are Fiat-Shamir-compressed to
+    /// `(y, z)` before pairing.
+    ///
+    /// `verifyBatch` returns one bool for both proofs, so a rejection is not
+    /// attributable to either on-chain and always surfaces as `ProofRejected`.
+    /// `TreeUpdateRejected` is the flush-path error.
+    ///
+    /// The call must stay high-level with these exact static parameters:
+    /// `BatchedGroth16Verifier` pins `calldatasize` to `4 + 20 * 32` and hashes
+    /// that calldata verbatim as its transcript. Slot order is load-bearing —
+    /// transact first, tree-update second.
+    ///
     function _verifyProofs(
         Proof calldata p,
         PubInputs.Transact calldata pi,
@@ -648,11 +691,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         PubInputs.TreeUpdateBatch calldata tpi,
         AuxValidation.Output[3] calldata aux
     ) private view {
-        if (!VERIFIER.verifyProof(p.a, p.b, p.c, PubInputs.compress(pi, aux))) {
+        if (!SPEND_VERIFIER.verifyBatch(p.a, p.b, p.c, PubInputs.compress(pi, aux), tp.a, tp.b, tp.c, tpi.compress())) {
             revert ProofRejected();
-        }
-        if (!TREE_UPDATE_BATCH_VERIFIER.verifyProof(tp.a, tp.b, tp.c, tpi.compress())) {
-            revert TreeUpdateRejected();
         }
     }
 
@@ -682,23 +722,5 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         uint256 net = outAmt - fee;
         _accrueFee(token, fee);
         token.safeTransfer(recipient, net);
-    }
-
-    /// Off-chain dry-run helper for the `transact_3x3` proof.
-    function verifyProof(Proof calldata p, PubInputs.Transact calldata pi, AuxValidation.Output[3] calldata aux)
-        external
-        view
-        returns (bool)
-    {
-        return VERIFIER.verifyProof(p.a, p.b, p.c, PubInputs.compress(pi, aux));
-    }
-
-    /// Pure tree-update-batch verification helper.
-    function verifyTreeUpdateBatch(Proof calldata tp, PubInputs.TreeUpdateBatch calldata tpi)
-        external
-        view
-        returns (bool)
-    {
-        return TREE_UPDATE_BATCH_VERIFIER.verifyProof(tp.a, tp.b, tp.c, tpi.compress());
     }
 }

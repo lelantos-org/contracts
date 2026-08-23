@@ -14,6 +14,10 @@ import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
+import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
+import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
+import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
+import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 
 /// Guards with no direct assertion elsewhere in the suite: constructor
 /// dependency checks, registry bounds, spend-path magnitude bounds, batch
@@ -28,18 +32,23 @@ contract MASPGuardCoverageTest is Test {
     address internal constant RECIPIENT = address(0xF00D);
 
     MockERC20 internal token;
-    IVerifier internal v;
     IVerifier internal tub;
+    MockBatchVerifier internal bv;
+    /// Real contracts, used only by the constructor probe tests.
+    Groth16Verifier internal realVerifier;
+    BatchedGroth16Verifier internal realBatchVerifier;
     address internal permit2;
     MASP internal masp;
 
     function setUp() public {
         token = new MockERC20("T", "T", 18);
-        v = IVerifier(address(new MockERC20("v", "v", 18)));
         tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        bv = new MockBatchVerifier();
+        realVerifier = new Groth16Verifier();
+        realBatchVerifier = new BatchedGroth16Verifier();
         permit2 = new DeployPermit2().deployPermit2();
-        masp = _deploy(v, tub, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
-        vm.mockCall(address(v), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        masp = _deploy(tub, bv, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+        bv.setResult(true);
         vm.mockCall(address(tub), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
     }
 
@@ -61,14 +70,14 @@ contract MASPGuardCoverageTest is Test {
     }
 
     function _deploy(
-        IVerifier v_,
         IVerifier tub_,
+        IBatchVerifier bv_,
         ISignatureTransfer p2,
         uint64[] memory ids,
         IERC20[] memory tokens,
         uint256[] memory scales
     ) internal returns (MASP) {
-        return new MASP(v_, tub_, p2, ids, tokens, scales, FEE_BPS, TREASURY, address(this));
+        return new MASP(tub_, bv_, p2, ids, tokens, scales, FEE_BPS, TREASURY, address(this));
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
@@ -111,28 +120,77 @@ contract MASPGuardCoverageTest is Test {
         tpi.cms[2] = pi.outCm[2];
     }
 
-    // --- constructor dependency checks -------------------------------------
+    // --- batched spend verification ----------------------------------------
 
-    function test_revert_ZeroVerifier_transact() public {
-        vm.expectRevert(MASP.ZeroVerifier.selector);
-        _deploy(IVerifier(address(0)), tub, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+    /// The spend path must make exactly one verification call, to
+    /// `SPEND_VERIFIER`. Two single-proof calls would forfeit the gas saving;
+    /// no call at all would still satisfy every mocked test in the suite.
+    function test_spendRoutesThroughBatchVerifierOnly() public {
+        PubInputs.Transact memory pi = _pi();
+        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+
+        // The pool must be able to pay out for the call to complete.
+        token.mint(address(masp), 1e18);
+
+        vm.expectCall(address(bv), abi.encodeWithSelector(IBatchVerifier.verifyBatch.selector), 1);
+        // The tree-update verifier is wired for `flushBatch`; a spend must not
+        // reach it.
+        vm.expectCall(address(tub), abi.encodeWithSelector(IVerifier.verifyProof.selector), 0);
+
+        vm.prank(RELAYER);
+        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
     }
+
+    /// `verifyBatch` returns false rather than reverting, so `_verifyProofs`
+    /// must check the bool. Omitting that check is fail-open and invisible to
+    /// every test that mocks verification to `true`.
+    function test_revert_ProofRejected_whenBatchReturnsFalse() public {
+        PubInputs.Transact memory pi = _pi();
+        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+
+        bv.setResult(false);
+        vm.prank(RELAYER);
+        vm.expectRevert(MASP.ProofRejected.selector);
+        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+    }
+
+    // --- constructor dependency checks -------------------------------------
 
     function test_revert_ZeroVerifier_treeUpdate() public {
         vm.expectRevert(MASP.ZeroVerifier.selector);
-        _deploy(v, IVerifier(address(0)), ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+        _deploy(IVerifier(address(0)), bv, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
     }
 
     /// The check is `code.length == 0`, so an EOA-shaped address is rejected
     /// even though it is non-zero.
     function test_revert_ZeroVerifier_codelessAddress() public {
         vm.expectRevert(MASP.ZeroVerifier.selector);
-        _deploy(IVerifier(address(0xdeadbeef)), tub, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+        _deploy(IVerifier(address(0xdeadbeef)), bv, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+    }
+
+    function test_revert_ZeroVerifier_batch() public {
+        vm.expectRevert(MASP.ZeroVerifier.selector);
+        _deploy(tub, IBatchVerifier(address(0)), ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+    }
+
+    /// The constructor probes the spend slot rather than trusting the address.
+    /// A contract with code but no `verifyBatch` reverts into the probe's
+    /// `catch`; the tree-update verifier is the realistic copy-paste.
+    function test_revert_BadSpendVerifier_wrongInterface() public {
+        vm.expectRevert(MASP.BadSpendVerifier.selector);
+        _deploy(tub, IBatchVerifier(address(realVerifier)), ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+    }
+
+    /// The real verifier passes the probe. Without this, the test above would
+    /// also pass against a probe that rejected every address.
+    function test_realSpendVerifierPassesProbe() public {
+        MASP deployed = _deploy(tub, realBatchVerifier, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+        assertEq(address(deployed.SPEND_VERIFIER()), address(realBatchVerifier), "batch verifier wired");
     }
 
     function test_revert_ZeroPermit2() public {
         vm.expectRevert(MASP.ZeroPermit2.selector);
-        _deploy(v, tub, ISignatureTransfer(address(0)), _ids(), _tokens(), _scales());
+        _deploy(tub, bv, ISignatureTransfer(address(0)), _ids(), _tokens(), _scales());
     }
 
     // --- registry bounds ---------------------------------------------------
@@ -142,13 +200,13 @@ contract MASPGuardCoverageTest is Test {
         tokens[0] = IERC20(address(token));
         tokens[1] = IERC20(address(token));
         vm.expectRevert(AssetRegistry.LengthMismatch.selector);
-        _deploy(v, tub, ISignatureTransfer(permit2), _ids(), tokens, _scales());
+        _deploy(tub, bv, ISignatureTransfer(permit2), _ids(), tokens, _scales());
     }
 
     function test_revert_LengthMismatch_scales() public {
         uint256[] memory scales = new uint256[](2);
         vm.expectRevert(AssetRegistry.LengthMismatch.selector);
-        _deploy(v, tub, ISignatureTransfer(permit2), _ids(), _tokens(), scales);
+        _deploy(tub, bv, ISignatureTransfer(permit2), _ids(), _tokens(), scales);
     }
 
     function test_revert_ScaleTooLarge() public {
@@ -254,16 +312,4 @@ contract MASPGuardCoverageTest is Test {
     }
 
     // --- off-chain dry-run helpers -----------------------------------------
-
-    /// `verifyProof` / `verifyTreeUpdateBatch` are view helpers on the public
-    /// ABI; they must route through the same compression as the spend path.
-    function test_dryRunHelpersRouteToVerifiers() public {
-        PubInputs.Transact memory pi = _pi();
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        assertTrue(masp.verifyProof(_emptyProof(), pi, _aux()), "transact helper");
-        assertTrue(masp.verifyTreeUpdateBatch(_emptyProof(), tpi), "tree-update helper");
-
-        vm.mockCall(address(v), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(false));
-        assertFalse(masp.verifyProof(_emptyProof(), pi, _aux()), "transact helper reports rejection");
-    }
 }

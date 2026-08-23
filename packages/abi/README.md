@@ -71,9 +71,11 @@ import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json"
 | `imaspSwapAbi` | `src/swap/IMASPSwap.sol:IMASPSwap` |
 | `swapAdapterAbi` | `src/swap/ISwapAdapter.sol:ISwapAdapter` |
 | `verifierInterfaceAbi` | `src/interfaces/IVerifier.sol:IVerifier` |
+| `batchVerifierInterfaceAbi` | `src/interfaces/IBatchVerifier.sol:IBatchVerifier` |
 | `wrappedNativeAbi` | `src/interfaces/IWrappedNative.sol:IWrappedNative` |
 | `groth16VerifierAbi` | `src/verifiers/Verifier.sol:Groth16Verifier` |
 | `treeUpdateBatchVerifierAbi` | `src/verifiers/TreeUpdateBatchVerifier.sol:TreeUpdateBatchGroth16Verifier` |
+| `batchedGroth16VerifierAbi` | `src/verifiers/BatchedGroth16Verifier.sol:BatchedGroth16Verifier` |
 
 To add a contract, extend `CONTRACTS` in
 [`scripts/generate.mjs`](scripts/generate.mjs).

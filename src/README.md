@@ -40,6 +40,8 @@ Two design choices drive most of the contract structure:
 
 Consequently every spend verifies **two** independent Groth16 proofs, and the contract — not the circuits — is what cross-binds them.
 
+3. **The spend path verifies both proofs in one pairing call.** `BatchedGroth16Verifier` checks `E_1 · E_2^r2 = 1` over six pairing terms instead of two separate four-term checks, folding the `alpha`/`beta` and `gamma` terms the two circuits share. Measured saving: ~94k gas per spend. `r2` is a Fiat–Shamir coefficient over the full twenty-word calldata transcript, so the soundness error is about `2^-254`. `flushBatch` carries a single proof and uses the codegen verifier directly; its "batch" is a batch of leaves, unrelated to the batched pairing.
+
 ```mermaid
 flowchart LR
   subgraph OFFCHAIN["Off-chain"]
@@ -49,8 +51,8 @@ flowchart LR
 
   subgraph ONCHAIN["On-chain"]
     M["MASP"]
-    V1["Groth16Verifier<br/>transact 3x3"]
-    V2["TreeUpdateBatch<br/>Groth16Verifier"]
+    V2["TreeUpdateBatch<br/>Groth16Verifier<br/>flush only"]
+    BV["BatchedGroth16Verifier<br/>both spend proofs, one pairing"]
     P2["Permit2"]
     T["ERC-20"]
   end
@@ -74,8 +76,8 @@ flowchart LR
 classDiagram
   class MASP {
     +mapping escrowed
-    +IVerifier VERIFIER
     +IVerifier TREE_UPDATE_BATCH_VERIFIER
+    +IBatchVerifier SPEND_VERIFIER
     +deposit()
     +depositAuthorized()
     +flushBatch()
@@ -151,13 +153,15 @@ classDiagram
 | [libs/AuxValidation.sol](libs/AuxValidation.sol) | Bounds and curve checks on per-output FMD payloads. |
 | [SnarkCompression.sol](SnarkCompression.sol) | Horner evaluation over the coefficient vector, mod the BN254 scalar field. |
 | [BabyJubJub.sol](BabyJubJub.sol) | On-curve and prime-order-subgroup checks on the twisted Edwards curve. |
-| [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `transact_3x3` (`Groth16Verifier`). |
+| [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `transact_3x3` (`Groth16Verifier`). **Not deployed** — provenance for the `VK1_*` constants and the differential-test oracle. |
 | [verifiers/TreeUpdateBatchVerifier.sol](verifiers/TreeUpdateBatchVerifier.sol) | snarkJS codegen for `tree_update_batch` (`TreeUpdateBatchGroth16Verifier`). |
-| [interfaces/](interfaces/) | `IVerifier`, `IWrappedNative`. |
+| [verifiers/VerifyingKeys.sol](verifiers/VerifyingKeys.sol) | The thirty verifying-key constants, lifted verbatim from the two codegen files, plus the `BATCH_DOMAIN` transcript separator. |
+| [verifiers/BatchedGroth16Verifier.sol](verifiers/BatchedGroth16Verifier.sol) | Hand-written assembly verifying both spend proofs in one pairing call. |
+| [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`. |
 | [native/](native/) | `NativeAdapter`: wraps native coin into the deposit path and unwraps it out of the withdraw path. The pool itself is ERC-20 only. |
 | [swap/](swap/) | Atomic unshield → swap → re-shield wrapper and Uniswap v3 adapter. |
 
-The two files under `verifiers/` are generated output and carry `SPDX-License-Identifier: GPL-3.0` with their own upstream terms; everything else is MIT.
+`Verifier.sol` and `TreeUpdateBatchVerifier.sol` are generated output and carry `SPDX-License-Identifier: GPL-3.0` with their own upstream terms; everything else, `VerifyingKeys.sol` and `BatchedGroth16Verifier.sol` included, is MIT.
 
 ---
 
@@ -238,7 +242,7 @@ Defines the three public-input structs and the compression that turns each into 
 | Struct | Circuit | Coefficients |
 | --- | --- | --- |
 | `Transact` | `transact_3x3` | 42 = 32 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest |
-| `TreeUpdateBatch` | `tree_update_batch` | 52 = `4 + 6 × MAX_L_BATCH` |
+| `TreeUpdateBatch` | `tree_update_batch` | 28 = `4 + 6 × MAX_L_BATCH` |
 | `DepositRequest` | — (Permit2 witness only) | n/a |
 
 ```mermaid
@@ -331,7 +335,7 @@ sequenceDiagram
   Note over Rl: collect up to MAX_L_BATCH deposits,<br/>build tree witness, prove tree_update_batch
 
   Rl->>M: flushBatch(ids, meta, tp, tpi)
-  M->>M: header checks: n in [1,8], actualCount == n,<br/>oldRoot == currentRoot, startIndex == committedCount
+  M->>M: header checks: n in [1,4], actualCount == n,<br/>oldRoot == currentRoot, startIndex == committedCount
   loop each slot i
     M->>M: _drainDeposit: digest match, isDeposit[i] == 1,<br/>accumulate fee per token, delete escrowed[id]
   end
@@ -363,8 +367,7 @@ sequenceDiagram
   autonumber
   participant C as Caller (relayer)
   participant M as MASP
-  participant V as Groth16Verifier
-  participant TV as TreeUpdateBatchVerifier
+  participant BV as BatchedGroth16Verifier
   participant T as ERC-20
 
   C->>M: withdraw(p, pi, tp, tpi, aux)
@@ -372,10 +375,9 @@ sequenceDiagram
   M->>M: _validateRequest
   Note right of M: chainId, nonzero recipient/payer,<br/>relayer == msg.sender,<br/>pairwise nullifier distinctness,<br/>pi.outCm == tpi.cms,<br/>pi.outCvDep == tpi.cvDeps,<br/>tpi.isDeposit all zero,<br/>aux validation,<br/>isKnownRoot[pi.merkleRoot],<br/>tpi.oldRoot == currentRoot,<br/>tpi.startIndex == committedCount
   M->>M: _getAsset(publicAssetId)
-  M->>V: verifyProof(p, compress(pi, aux))
-  V-->>M: true
-  M->>TV: verifyProof(tp, compress(tpi))
-  TV-->>M: true
+  M->>BV: verifyBatch(p, compress(pi, aux), tp, compress(tpi))
+  Note right of BV: both Groth16 residuals in one<br/>six-term pairing check
+  BV-->>M: true
   M->>M: _consumeNullifier x3
   M->>M: _advanceRoot(newRoot, 3, oldRoot)
   M->>M: accrue fee on outAmt
@@ -493,9 +495,9 @@ On the spend side the destination is `pi.payer`, a public input of the withdraw 
 | `MAX_LEAVES` | 1 048 576 (`4^10`) | `CommitmentTree` |
 | `ROOT_HISTORY` | 64 | `CommitmentTree` |
 | `TRANSACT_IN` / `TRANSACT_OUT` | 3 / 3 | `PubInputs` |
-| `MAX_L_BATCH` | 8 | `PubInputs` |
+| `MAX_L_BATCH` | 4 | `PubInputs` |
 | `TRANSACT_COEFFS` | 42 | `PubInputs` |
-| batch coefficients | 52 (`4 + 6 × 8`) | `PubInputs` |
+| batch coefficients | 28 (`4 + 6 × 4`) | `PubInputs` |
 | `MAX_FEE_BPS` | 2 000 (20%) | `FeeConfig` |
 | `BPS_DENOMINATOR` | 10 000 | `FeeConfig` |
 | `CANCEL_DELAY_DEFAULT` | 7 200 blocks (~24 h at 12 s) | `MASP` |

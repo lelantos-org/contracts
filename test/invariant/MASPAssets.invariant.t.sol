@@ -12,6 +12,7 @@ import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { MASPHarness } from "./MASPHarness.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
+import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 
 /// Handler drives `addAsset` + `setAssetDisabled` with fuzz-generated inputs.
 /// Tracks the live id set as a ghost array so invariants can cross-check
@@ -59,8 +60,9 @@ contract MASPAssetsInvariantTest is StdInvariant, Test {
     function setUp() public {
         IVerifier v = IVerifier(address(new MockERC20("v", "v", 18)));
         IVerifier tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
+        MockBatchVerifier bv = new MockBatchVerifier();
         address permit2 = new DeployPermit2().deployPermit2();
-        masp = new MASPHarness(v, tub, ISignatureTransfer(address(permit2)), address(0xfee), address(this));
+        masp = new MASPHarness(tub, bv, ISignatureTransfer(address(permit2)), address(0xfee), address(this));
         handler = new AssetsHandler(masp);
         masp.transferOwnership(address(handler));
         targetContract(address(handler));

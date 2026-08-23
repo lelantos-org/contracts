@@ -12,6 +12,7 @@ import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 
 import { MASPTestBase } from "./utils/MASPTestBase.sol";
+import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 
 /// Owner-gated fee/treasury setters + constructor invariants.
 contract MASPAdminTest is MASPTestBase {
@@ -55,8 +56,8 @@ contract MASPAdminTest is MASPTestBase {
 
         vm.expectRevert(FeeConfig.ZeroTreasury.selector);
         new MASP(
-            IVerifier(address(verifier)),
             IVerifier(address(tubVerifier)),
+            IBatchVerifier(address(batchVerifier)),
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,
