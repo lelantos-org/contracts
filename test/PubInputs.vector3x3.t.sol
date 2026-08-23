@@ -26,7 +26,7 @@ contract Vector3x3Harness {
 }
 
 /// Pins `compress(Transact)` against the `transact-3x3` vector published by
-/// the circuits package (version 0.9.2).
+/// the circuits package (version 0.10.0).
 ///
 /// The other layout tests check the contract against reference code written in
 /// this repo, so a misreading of the circuit would be reproduced identically on

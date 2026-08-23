@@ -51,7 +51,7 @@ re-checking the manifest SHA-256.
 The `tree-update-batch-4` witness vector published by the circuits package,
 copied verbatim. SHA-256 `97c441353d720893f6d02d5bdbfe299103bae4a69230bd1baa85
 4091416b79e0`, matching the `vectors/index.json` manifest entry for
-`@lelantos-org/circuits@0.9.2`.
+`@lelantos-org/circuits@0.10.0`.
 
 Read by [PubInputs.vectorTub.t.sol](../PubInputs.vectorTub.t.sol), the batch
 counterpart to the 3x3 layout test: it drives `PubInputs.TreeUpdateBatch` from
@@ -97,7 +97,7 @@ Regenerate with `script/fixtures/gen_proof_fixture.sh transact_3x3`.
 
 ### `verification_key_3x3.json`, `verification_key_tree_update_batch.json`
 
-The two published verification keys, copied verbatim from the v0.9.2 release
+The two published verification keys, copied verbatim from the v0.10.0 release
 (SHA-256 `289d91c7…8de7fe` and `06f77fec…872ff3`). Read by
 [VerifyingKeys.t.sol](../VerifyingKeys.t.sol), which pins every constant in
 `src/verifiers/VerifyingKeys.sol` against them. The codegen verifiers' own
@@ -124,7 +124,7 @@ verifier before proving anything, so a mismatched artifact set fails there
 rather than as an unexplained rejection in a test.
 
 ```
-gh release download v0.9.2 --repo lelantos-org/circuits -D /tmp/rel092 \
+gh release download v0.10.0 --repo lelantos-org/circuits -D /tmp/rel0100 \
   -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
 RELEASE=/tmp/rel092 CIRCUITS=../circuits \
   script/fixtures/gen_proof_fixture.sh transact_3x3
