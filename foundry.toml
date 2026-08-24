@@ -124,3 +124,13 @@ tab_width = 4
 bracket_spacing = true
 # snarkjs-generated verifier files; regenerated on circuit change.
 ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.sol"]
+
+# Verification. Foundry 1.5.1 defaults `--verifier` to sourcify, so real
+# deploys must pass `--verify --verifier etherscan` explicitly. Etherscan's V2
+# unified API means the single etherscan.io key below covers mainnet, Base and
+# Arbiscan alike — there is no separate Basescan key (and `arbscan` in .env is
+# empty). Key is read from the environment; .env is auto-loaded and gitignored.
+[etherscan]
+mainnet = { key = "${ETHERSCAN_API_KEY}", chain = 1 }
+arbitrum = { key = "${ETHERSCAN_API_KEY}", chain = 42161 }
+base = { key = "${ETHERSCAN_API_KEY}", chain = 8453 }
