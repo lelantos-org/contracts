@@ -65,11 +65,10 @@ import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json"
 | `feeConfigAbi` | `src/FeeConfig.sol:FeeConfig` |
 | `nullifierSetAbi` | `src/NullifierSet.sol:NullifierSet` |
 | `nativeAdapterAbi` | `src/native/NativeAdapter.sol:NativeAdapter` |
-| `imaspNativeAbi` | `src/native/IMASPNative.sol:IMASPNative` |
 | `swapWrapperAbi` | `src/swap/SwapWrapper.sol:SwapWrapper` |
 | `uniV3AdapterAbi` | `src/swap/UniV3Adapter.sol:UniV3Adapter` |
-| `imaspSwapAbi` | `src/swap/IMASPSwap.sol:IMASPSwap` |
 | `swapAdapterAbi` | `src/swap/ISwapAdapter.sol:ISwapAdapter` |
+| `imaspPoolAbi` | `src/interfaces/IMASPPool.sol:IMASPPool` |
 | `verifierInterfaceAbi` | `src/interfaces/IVerifier.sol:IVerifier` |
 | `batchVerifierInterfaceAbi` | `src/interfaces/IBatchVerifier.sol:IBatchVerifier` |
 | `wrappedNativeAbi` | `src/interfaces/IWrappedNative.sol:IWrappedNative` |
