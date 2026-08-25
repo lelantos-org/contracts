@@ -25,7 +25,7 @@ import { SNARK_R, SNARK_Q } from "../src/verifiers/VerifyingKeys.sol";
 /// cross-binding is `MASP._validateRequest` — so any transact vector paired
 /// with any tree-update vector is a valid accepting case.
 contract BatchedGroth16VerifierTest is Test {
-    string internal constant TRANSACT_PROOFS = "test/fixtures/transact_3x3_proof.json";
+    string internal constant TRANSACT_PROOFS = "test/fixtures/transact_4x4_proof.json";
     string internal constant TUB_PROOFS = "test/fixtures/tree_update_batch_proof.json";
     uint256 internal constant N = 3;
     /// Calldata words in one `verifyBatch` instance, ten per proof.
@@ -42,7 +42,7 @@ contract BatchedGroth16VerifierTest is Test {
     Groth16Verifier internal v1;
     TreeUpdateBatchGroth16Verifier internal v2;
 
-    P[N] internal t; // transact_3x3
+    P[N] internal t; // transact_4x4
     P[N] internal u; // tree_update_batch
 
     function setUp() public {
@@ -380,7 +380,7 @@ contract BatchedGroth16VerifierTest is Test {
     function test_fixtureProvenance() public view {
         string memory tj = vm.readFile(TRANSACT_PROOFS);
         string memory uj = vm.readFile(TUB_PROOFS);
-        assertEq(vm.parseJsonString(tj, ".source.template"), "Transact(10, 3, 3)", "transact template");
+        assertEq(vm.parseJsonString(tj, ".source.template"), "Transact(10, 4, 4)", "transact template");
         assertEq(vm.parseJsonString(uj, ".source.template"), "TreeUpdateBatch(10, 4)", "tree-update template");
     }
 }

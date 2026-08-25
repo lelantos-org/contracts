@@ -12,7 +12,7 @@ import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 import { NativeAdapter } from "../../src/native/NativeAdapter.sol";
-import { IMASPNative } from "../../src/native/IMASPNative.sol";
+import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { Groth16Verifier } from "../../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
@@ -69,7 +69,7 @@ abstract contract BaseDeploy is Script {
         // configured for the chain.
         if (p.wrappedNative != address(0)) {
             core.nativeAdapter = new NativeAdapter(
-                IMASPNative(address(core.masp)), IWrappedNative(p.wrappedNative), IAllowanceTransfer(p.permit2)
+                IMASPPool(address(core.masp)), IWrappedNative(p.wrappedNative), IAllowanceTransfer(p.permit2)
             );
         }
     }

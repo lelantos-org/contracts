@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-/// Batched Groth16 verifier for the `(transact_3x3, tree_update_batch)` proof
+/// Batched Groth16 verifier for the `(transact_4x4, tree_update_batch)` proof
 /// pair a spend carries. Checks `E_1 * E_2^r2 = 1` in a single call to the BN254
 /// pairing precompile, where `E_i` is the Groth16 residual of proof `i` and `r2`
 /// is a Fiat-Shamir coefficient derived from the complete instance.
 ///
-/// Slot 1 is `transact_3x3`, slot 2 is `tree_update_batch`. **The order is
+/// Slot 1 is `transact_4x4`, slot 2 is `tree_update_batch`. **The order is
 /// load-bearing**: each slot is checked against its own `delta` and `IC`
 /// constants, so passing the proofs the other way round rejects.
 ///

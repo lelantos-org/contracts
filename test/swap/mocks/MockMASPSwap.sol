@@ -5,7 +5,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
-import { IMASPSwap } from "../../../src/swap/IMASPSwap.sol";
+import { IMASPPool } from "../../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../../src/libs/AuxValidation.sol";
 
@@ -19,7 +19,7 @@ import { AuxValidation } from "../../../src/libs/AuxValidation.sol";
 /// The harness is responsible for pre-funding the mock with token A so
 /// `withdraw` has something to push, and for registering the per-asset
 /// scale + token mapping it expects.
-contract MockMASPSwap is IMASPSwap {
+contract MockMASPSwap is IMASPPool {
     IAllowanceTransfer public immutable PERMIT2;
 
     /// assetId ⇒ ERC20 token address.
@@ -72,7 +72,7 @@ contract MockMASPSwap is IMASPSwap {
         PubInputs.Transact calldata pi,
         Proof calldata,
         PubInputs.TreeUpdateBatch calldata,
-        AuxValidation.Output[3] calldata
+        AuxValidation.Output[4] calldata
     ) external {
         address token = assetToken[pi.publicAssetId];
         // Net the unshield fee on the gross amount, mirroring MASP's
@@ -83,10 +83,11 @@ contract MockMASPSwap is IMASPSwap {
         emit MockWithdraw(pi.recipient, token, net);
     }
 
-    function depositAuthorized(PubInputs.DepositRequest calldata d, AuxValidation.Output calldata)
-        external
-        returns (uint256 id)
-    {
+    function depositAuthorized(
+        PubInputs.DepositRequest calldata d,
+        AuxValidation.Output calldata,
+        AuxValidation.Output calldata
+    ) external returns (uint256 id) {
         require(msg.sender == d.payer, "MockMASPSwap: sender != payer");
         lastDepositRecipient = d.recipient;
         lastDepositAssetId = d.publicAssetId;
@@ -125,9 +126,17 @@ contract MockMASPSwap is IMASPSwap {
     /// Refunds the escrowed total to `payer`, as MASP does. The digest and
     /// delay checks are the pool's business, not the wrapper's, so the stub
     /// skips them.
-    function cancelDeposit(uint256 id, uint48, bytes32, uint256[2] calldata, uint64, uint16, address payer, uint32)
-        external
-    {
+    function cancelDeposit(
+        uint256 id,
+        uint48,
+        bytes32,
+        uint256[2] calldata,
+        uint64,
+        uint16,
+        address payer,
+        uint32,
+        PubInputs.FeeNote calldata
+    ) external {
         uint256 total = escrowTotal[id];
         require(total != 0, "MockMASPSwap: not pending");
         require(msg.sender == payer, "MockMASPSwap: sender != payer");

@@ -18,6 +18,8 @@ import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
+import { SpendFixture } from "./utils/SpendFixture.sol";
+import { FixtureLoader } from "./utils/FixtureLoader.sol";
 
 /// Guards with no direct assertion elsewhere in the suite: constructor
 /// dependency checks, registry bounds, spend-path magnitude bounds, batch
@@ -81,11 +83,11 @@ contract MASPGuardCoverageTest is Test {
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
+        return FixtureLoader.emptyProof();
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        for (uint256 j = 0; j < 3; j++) {
+    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+        for (uint256 j = 0; j < aux.length; j++) {
             aux[j].clueRx = BabyJubJub.BASE8_X;
             aux[j].clueRy = BabyJubJub.BASE8_Y;
             aux[j].ephPubX = BabyJubJub.BASE8_X;
@@ -101,23 +103,12 @@ contract MASPGuardCoverageTest is Test {
         pi.recipient = RECIPIENT;
         pi.payer = PAYER;
         pi.relayer = RELAYER;
-        pi.nullifier[0] = bytes32(uint256(0x1111));
-        pi.nullifier[1] = bytes32(uint256(0x2222));
-        pi.nullifier[2] = bytes32(uint256(0x2223));
-        pi.outCm[0] = bytes32(uint256(0x3333));
-        pi.outCm[1] = bytes32(uint256(0x4444));
-        pi.outCm[2] = bytes32(uint256(0x4445));
+        SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
         pi.merkleRoot = masp.currentRoot();
     }
 
     function _tpi(PubInputs.Transact memory pi) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
-        tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xdead));
-        tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 3;
-        tpi.cms[0] = pi.outCm[0];
-        tpi.cms[1] = pi.outCm[1];
-        tpi.cms[2] = pi.outCm[2];
+        return SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdead)), masp.committedCount());
     }
 
     // --- batched spend verification ----------------------------------------
@@ -242,8 +233,12 @@ contract MASPGuardCoverageTest is Test {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
         tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 1;
+        // Two leaves per deposit; slot 0 is the principal, slot 1 the relayer's
+        // fee note. Only slot 0 is flipped to spend mode, which is what the
+        // guard under test must reject.
+        tpi.actualCount = 2;
         tpi.isDeposit[0] = 0; // spend mode
+        tpi.isDeposit[1] = 1;
 
         // Seed a pending deposit so the slot passes the pending check first.
         _seedDeposit();
@@ -263,9 +258,10 @@ contract MASPGuardCoverageTest is Test {
         d.payer = address(this);
         d.recipient = RECIPIENT;
         d.outCm = bytes32(uint256(0x1));
+        d.feeCm = bytes32(uint256(0xfee));
         // AllowanceTransfer path avoids needing a signature.
         _approvePermit2ToMasp();
-        masp.depositAuthorized(d, _aux()[0]);
+        masp.depositAuthorized(d, _aux()[0], _aux()[1]);
     }
 
     function _approvePermit2ToMasp() internal {
@@ -289,7 +285,7 @@ contract MASPGuardCoverageTest is Test {
     function test_revert_LowOrderPoint_clue() public {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
         // Identity (0, 1) is on-curve and order 1.
         aux[0].clueRx = 0;
         aux[0].clueRy = 1;
@@ -301,11 +297,13 @@ contract MASPGuardCoverageTest is Test {
     function test_revert_LowOrderPoint_ephemeral() public {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
         aux[1].ephPubX = 0;
         aux[1].ephPubY = 1;
         aux[2].ephPubX = 0;
         aux[2].ephPubY = 1;
+        aux[3].ephPubX = 0;
+        aux[3].ephPubY = 1;
         vm.prank(RELAYER);
         vm.expectRevert(AuxValidation.LowOrderPoint.selector);
         masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, aux);

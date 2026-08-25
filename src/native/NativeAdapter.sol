@@ -11,7 +11,7 @@ import { IWrappedNative } from "../interfaces/IWrappedNative.sol";
 import { PubInputs } from "../libs/PubInputs.sol";
 import { AuxValidation } from "../libs/AuxValidation.sol";
 
-import { IMASPNative } from "./IMASPNative.sol";
+import { IMASPPool } from "../interfaces/IMASPPool.sol";
 
 /// Native-coin bridge for an ERC-20-only MASP. The pool never sees native coin:
 /// this adapter wraps on the way in and unwraps on the way out, holding funds
@@ -36,7 +36,7 @@ import { IMASPNative } from "./IMASPNative.sol";
 contract NativeAdapter is ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
-    IMASPNative public immutable POOL;
+    IMASPPool public immutable POOL;
     IWrappedNative public immutable WRAPPED_NATIVE;
     IAllowanceTransfer public immutable PERMIT2;
 
@@ -68,7 +68,7 @@ contract NativeAdapter is ReentrancyGuardTransient {
     error NativeTransferFailed();
     error UnauthorizedNativeSender();
 
-    constructor(IMASPNative pool, IWrappedNative wrappedNative, IAllowanceTransfer permit2) {
+    constructor(IMASPPool pool, IWrappedNative wrappedNative, IAllowanceTransfer permit2) {
         if (address(pool) == address(0)) revert ZeroAddress();
         if (address(wrappedNative) == address(0)) revert ZeroAddress();
         if (address(permit2) == address(0)) revert ZeroAddress();
@@ -110,12 +110,11 @@ contract NativeAdapter is ReentrancyGuardTransient {
     ///
     /// @return id MASP-assigned deposit id.
     // slither-disable-next-line reentrancy-balance
-    function depositNative(PubInputs.DepositRequest calldata d, AuxValidation.Output calldata aux)
-        external
-        payable
-        nonReentrant
-        returns (uint256 id)
-    {
+    function depositNative(
+        PubInputs.DepositRequest calldata d,
+        AuxValidation.Output calldata aux,
+        AuxValidation.Output calldata feeAux
+    ) external payable nonReentrant returns (uint256 id) {
         if (msg.value == 0) revert ZeroValue();
         if (d.payer != address(this)) revert AdapterNotPayer();
 
@@ -123,7 +122,7 @@ contract NativeAdapter is ReentrancyGuardTransient {
         uint256 balanceBefore = weth.balanceOf(address(this));
         WRAPPED_NATIVE.deposit{ value: msg.value }();
 
-        id = POOL.depositAuthorized(d, aux);
+        id = POOL.depositAuthorized(d, aux, feeAux);
 
         // What the pool took is the escrowed total (amount plus fee at submit).
         // A non-wrapped-native asset id cannot reach here: the adapter holds no
@@ -170,7 +169,8 @@ contract NativeAdapter is ReentrancyGuardTransient {
         uint256[2] calldata cvDep,
         uint64 publicAssetId,
         uint16 fbps,
-        uint32 submittedAt
+        uint32 submittedAt,
+        PubInputs.FeeNote calldata feeNote
     ) external nonReentrant {
         Escrow memory e = escrows[id];
         if (e.refundTo == address(0)) revert NoEscrowRecord(id);
@@ -181,7 +181,7 @@ contract NativeAdapter is ReentrancyGuardTransient {
 
         IERC20 weth = IERC20(address(WRAPPED_NATIVE));
         uint256 balanceBefore = weth.balanceOf(address(this));
-        POOL.cancelDeposit(id, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt);
+        POOL.cancelDeposit(id, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt, feeNote);
         if (weth.balanceOf(address(this)) - balanceBefore != e.amount) revert RefundNotFunded(id);
 
         WRAPPED_NATIVE.withdraw(e.amount);
@@ -204,11 +204,11 @@ contract NativeAdapter is ReentrancyGuardTransient {
     /// @return net Native coin forwarded, i.e. the unshield net of MASP's fee.
     // slither-disable-next-line reentrancy-balance
     function withdrawNative(
-        IMASPNative.Proof calldata p,
+        IMASPPool.Proof calldata p,
         PubInputs.Transact calldata pi,
-        IMASPNative.Proof calldata tp,
+        IMASPPool.Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[3] calldata aux
+        AuxValidation.Output[4] calldata aux
     ) external nonReentrant returns (uint256 net) {
         if (pi.recipient != address(this)) revert AdapterNotRecipient();
         if (pi.relayer != address(this)) revert AdapterNotRelayer();

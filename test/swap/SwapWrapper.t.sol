@@ -1,57 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
-import { IMASPSwap } from "../../src/swap/IMASPSwap.sol";
+import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockSwapAdapter } from "./mocks/MockSwapAdapter.sol";
 import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
+import { SwapTestBase } from "./SwapTestBase.sol";
 
 /// Unit tests for `SwapWrapper`. Uses a stub MASP and stub adapter so the
 /// orchestration logic can be exercised without real Groth16 proofs.
-contract SwapWrapperTest is Test {
-    uint64 internal constant ASSET_A = 1;
-    uint64 internal constant ASSET_B = 2;
-    uint256 internal constant SCALE = 1e10;
-    uint16 internal constant FEE_BPS = 25;
-    address internal constant OWNER = address(0xC0FFEE);
-    address internal constant TREASURY = address(0xFEE);
-
-    MockERC20 internal tokenA;
-    MockERC20 internal tokenB;
-    IAllowanceTransfer internal permit2;
-    MockMASPSwap internal pool;
-    MockSwapAdapter internal adapter;
-    SwapWrapper internal wrapper;
-
-    function setUp() public {
-        permit2 = IAllowanceTransfer(new DeployPermit2().deployPermit2());
-        tokenA = new MockERC20("Token A", "TKA", 18);
-        tokenB = new MockERC20("Token B", "TKB", 18);
-
-        pool = new MockMASPSwap(permit2);
-        pool.registerAsset(ASSET_A, address(tokenA), SCALE);
-        pool.registerAsset(ASSET_B, address(tokenB), SCALE);
-        pool.setFeeBps(FEE_BPS);
-
-        adapter = new MockSwapAdapter();
-        wrapper = new SwapWrapper(pool, permit2, OWNER, TREASURY);
-
-        vm.prank(OWNER);
-        wrapper.setAdapterAllowed(address(adapter), true);
-
-        wrapper.prepareToken(IERC20(address(tokenB)));
-    }
-
+contract SwapWrapperTest is SwapTestBase {
     // -------- helpers ---------------------------------------------------
 
     function _mintToPool(uint256 amt) internal {
@@ -60,38 +27,6 @@ contract SwapWrapperTest is Test {
 
     function _fundAdapter(uint256 amt) internal {
         tokenB.mint(address(adapter), amt);
-    }
-
-    function _emptyProof() internal pure returns (IMASPSwap.Proof memory) {
-        return IMASPSwap.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
-    }
-
-    function _emptyTpi() internal pure returns (PubInputs.TreeUpdateBatch memory tpi) {
-        tpi.oldRoot = bytes32(0);
-        tpi.newRoot = bytes32(0);
-    }
-
-    function _emptyAux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        // Default-zero AuxValidation.Output. ciphertext bytes default to empty.
-    }
-
-    function _piWithdraw(uint64 publicOut, address recipient) internal view returns (PubInputs.Transact memory pi) {
-        pi.publicAssetId = ASSET_A;
-        pi.publicOut = publicOut;
-        pi.recipient = recipient;
-        pi.relayer = recipient;
-        // Names the address authorized to drive the swap (see
-        // SwapWrapper.UnauthorizedSwapCaller). Tests call as themselves.
-        pi.payer = address(this);
-    }
-
-    function _request(uint64 publicIn, address payer) internal view returns (PubInputs.DepositRequest memory d) {
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_B;
-        d.publicIn = publicIn;
-        d.payer = payer;
-        d.recipient = address(0xBEEF);
-        d.outCm = bytes32(uint256(1));
     }
 
     function _args(
@@ -411,7 +346,7 @@ contract SwapWrapperTest is Test {
 
     function testConstructorRejectsZeroPool() public {
         vm.expectRevert(SwapWrapper.ZeroAddress.selector);
-        new SwapWrapper(IMASPSwap(address(0)), permit2, OWNER, TREASURY);
+        new SwapWrapper(IMASPPool(address(0)), permit2, OWNER, TREASURY);
     }
 
     function testConstructorRejectsZeroPermit2() public {
@@ -543,7 +478,16 @@ contract SwapWrapperTest is Test {
 
         vm.expectEmit(true, true, true, true, address(wrapper));
         emit SwapWrapper.EscrowRefunded(depositId, driver, address(tokenB), pulled);
-        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+        wrapper.cancelEscrow(
+            depositId,
+            0,
+            bytes32(0),
+            [uint256(0), 0],
+            ASSET_B,
+            FEE_BPS,
+            0,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
 
         assertEq(tokenB.balanceOf(driver) - driverBefore, pulled, "driver refunded");
         assertEq(tokenB.balanceOf(address(wrapper)), 0, "wrapper keeps nothing");
@@ -557,7 +501,16 @@ contract SwapWrapperTest is Test {
         uint256 driverBefore = tokenB.balanceOf(driver);
 
         vm.prank(address(0xDEAD));
-        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+        wrapper.cancelEscrow(
+            depositId,
+            0,
+            bytes32(0),
+            [uint256(0), 0],
+            ASSET_B,
+            FEE_BPS,
+            0,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
 
         assertEq(tokenB.balanceOf(driver) - driverBefore, pulled, "refund follows the record, not the caller");
         assertEq(tokenB.balanceOf(address(0xDEAD)), 0, "caller gets nothing");
@@ -565,15 +518,42 @@ contract SwapWrapperTest is Test {
 
     function testRevertCancelEscrowWithoutRecord() public {
         vm.expectRevert(abi.encodeWithSelector(SwapWrapper.NoEscrowRecord.selector, uint256(42)));
-        wrapper.cancelEscrow(42, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+        wrapper.cancelEscrow(
+            42,
+            0,
+            bytes32(0),
+            [uint256(0), 0],
+            ASSET_B,
+            FEE_BPS,
+            0,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
     }
 
     function testRevertCancelEscrowReplay() public {
         (uint256 depositId,,) = _swapAndEscrow();
-        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+        wrapper.cancelEscrow(
+            depositId,
+            0,
+            bytes32(0),
+            [uint256(0), 0],
+            ASSET_B,
+            FEE_BPS,
+            0,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
 
         vm.expectRevert(abi.encodeWithSelector(SwapWrapper.NoEscrowRecord.selector, depositId));
-        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+        wrapper.cancelEscrow(
+            depositId,
+            0,
+            bytes32(0),
+            [uint256(0), 0],
+            ASSET_B,
+            FEE_BPS,
+            0,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
     }
 
     /// A flushed deposit leaves a stale record and returns nothing. Paying it
@@ -583,7 +563,16 @@ contract SwapWrapperTest is Test {
         pool.simulateFlush(depositId);
 
         vm.expectRevert(abi.encodeWithSelector(SwapWrapper.DepositAlreadySettled.selector, depositId));
-        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+        wrapper.cancelEscrow(
+            depositId,
+            0,
+            bytes32(0),
+            [uint256(0), 0],
+            ASSET_B,
+            FEE_BPS,
+            0,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
     }
 
     /// The refund is attributed by delta, so a pool that returns less than the
@@ -593,6 +582,15 @@ contract SwapWrapperTest is Test {
         pool.setRefundShortfall(1);
 
         vm.expectRevert(abi.encodeWithSelector(SwapWrapper.RefundNotFunded.selector, depositId));
-        wrapper.cancelEscrow(depositId, 0, bytes32(0), [uint256(0), 0], ASSET_B, FEE_BPS, 0);
+        wrapper.cancelEscrow(
+            depositId,
+            0,
+            bytes32(0),
+            [uint256(0), 0],
+            ASSET_B,
+            FEE_BPS,
+            0,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
     }
 }

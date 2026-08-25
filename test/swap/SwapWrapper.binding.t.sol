@@ -1,70 +1,39 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
-import { IMASPSwap } from "../../src/swap/IMASPSwap.sol";
+import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockSwapAdapter } from "./mocks/MockSwapAdapter.sol";
 import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
+import { SwapTestBase } from "./SwapTestBase.sol";
 
 /// Binding between the leg-1 withdraw proof and the leg-2 deposit.
 /// `swap` is permissionless, so `pi_w.payer` names the sole address permitted
 /// to drive the swap, and the measured MASP pull is bounded below by `minOut`
 /// so `deposit_d` cannot name a different asset or a smaller amount.
-contract SwapWrapperBindingTest is Test {
-    uint64 internal constant ASSET_A = 1;
-    uint64 internal constant ASSET_B = 2;
+contract SwapWrapperBindingTest is SwapTestBase {
     uint64 internal constant ASSET_C = 3;
-    uint256 internal constant SCALE = 1e10;
-    uint16 internal constant FEE_BPS = 25;
-    address internal constant OWNER = address(0xC0FFEE);
-    address internal constant TREASURY = address(0xFEE);
     address internal constant VICTIM_NOTE = address(0xBEEF);
     address internal constant ATTACKER_NOTE = address(0xBAD);
     /// Address the withdraw proof authorizes to drive the swap.
     address internal constant SWAP_DRIVER = address(0xD21E);
 
-    MockERC20 internal tokenA;
-    MockERC20 internal tokenB;
     MockERC20 internal tokenC;
-    IAllowanceTransfer internal permit2;
-    MockMASPSwap internal pool;
-    MockSwapAdapter internal adapter;
-    SwapWrapper internal wrapper;
 
-    function setUp() public {
-        permit2 = IAllowanceTransfer(new DeployPermit2().deployPermit2());
-        tokenA = new MockERC20("Token A", "TKA", 18);
-        tokenB = new MockERC20("Token B", "TKB", 18);
+    /// This suite needs a third asset to express a cross-asset binding attack.
+    function _registerExtraAssets() internal override {
         tokenC = new MockERC20("Token C", "TKC", 18);
-
-        pool = new MockMASPSwap(permit2);
-        pool.registerAsset(ASSET_A, address(tokenA), SCALE);
-        pool.registerAsset(ASSET_B, address(tokenB), SCALE);
         pool.registerAsset(ASSET_C, address(tokenC), SCALE);
-        pool.setFeeBps(FEE_BPS);
-
-        adapter = new MockSwapAdapter();
-        wrapper = new SwapWrapper(pool, permit2, OWNER, TREASURY);
-
-        vm.prank(OWNER);
-        wrapper.setAdapterAllowed(address(adapter), true);
-
-        wrapper.prepareToken(IERC20(address(tokenB)));
         wrapper.prepareToken(IERC20(address(tokenC)));
-    }
-
-    function _emptyProof() internal pure returns (IMASPSwap.Proof memory) {
-        return IMASPSwap.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
     }
 
     function _baseArgs(uint256 grossIn, uint256 minOut, uint64 depositIn)

@@ -13,12 +13,12 @@ import { AssetRegistry } from "../src/AssetRegistry.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
-import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
+import { SpendFixture } from "./utils/SpendFixture.sol";
 
 /// `deposit` happy path + revert coverage. Permit2 sig acceptance is
 /// faked via an ERC-1271 stub at the payer address (any sig bytes valid),
@@ -75,26 +75,13 @@ contract MASPDepositTest is Test {
         d.payer = payer;
         d.recipient = recipient;
         d.outCm = bytes32(uint256(0xdead));
+        d.feeCm = bytes32(uint256(0xfee));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
         // Baby-Jubjub prime-order generator in both point slots — passes the
         // low-order / identity rejection added to `AuxValidation`.
-        aux[0].clueRx = BabyJubJub.BASE8_X;
-        aux[0].clueRy = BabyJubJub.BASE8_Y;
-        aux[0].ephPubX = BabyJubJub.BASE8_X;
-        aux[0].ephPubY = BabyJubJub.BASE8_Y;
-        aux[0].ciphertext = hex"0001";
-        aux[1].clueRx = BabyJubJub.BASE8_X;
-        aux[1].clueRy = BabyJubJub.BASE8_Y;
-        aux[1].ephPubX = BabyJubJub.BASE8_X;
-        aux[1].ephPubY = BabyJubJub.BASE8_Y;
-        aux[1].ciphertext = hex"0001";
-        aux[2].clueRx = BabyJubJub.BASE8_X;
-        aux[2].clueRy = BabyJubJub.BASE8_Y;
-        aux[2].ephPubX = BabyJubJub.BASE8_X;
-        aux[2].ephPubY = BabyJubJub.BASE8_Y;
-        aux[2].ciphertext = hex"0001";
+        return SpendFixture.validAux();
     }
 
     function _fund(uint64 publicIn) internal returns (uint256 inAmt, uint256 fee) {
@@ -117,12 +104,12 @@ contract MASPDepositTest is Test {
         uint256 total = inAmt + fee;
 
         PubInputs.DepositRequest memory d = _request(publicIn);
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
 
         uint256 poolBefore = token.balanceOf(address(masp));
         uint256 payerBefore = token.balanceOf(payer);
 
-        uint256 id = masp.deposit(d, _sig(total), aux[0]);
+        uint256 id = masp.deposit(d, _sig(total), aux[0], aux[1]);
 
         assertEq(id, 0, "first id");
         assertEq(token.balanceOf(address(masp)) - poolBefore, total, "pool gross");
@@ -143,7 +130,12 @@ contract MASPDepositTest is Test {
                 uint48(publicIn),
                 uint16(FEE_BPS),
                 payer,
-                uint32(block.number)
+                uint32(block.number),
+                // The relayer's leaf is bound too, so a flusher cannot mint
+                // itself a different fee note than the payer funded.
+                uint48(d.feeIn),
+                d.feeCm,
+                d.feeCvDep
             )
         );
         assertEq(masp.escrowed(id), expectedDigest, "digest binds full preimage");
@@ -154,14 +146,14 @@ contract MASPDepositTest is Test {
         _fund(publicIn);
         _fund(publicIn); // second deposit's funds
         PubInputs.DepositRequest memory d = _request(publicIn);
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
         MASP.Permit2Sig memory s1 =
             MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
         MASP.Permit2Sig memory s2 =
             MASP.Permit2Sig({ nonce: 1, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
 
-        uint256 a = masp.deposit(d, s1, aux[0]);
-        uint256 b = masp.deposit(d, s2, aux[0]);
+        uint256 a = masp.deposit(d, s1, aux[0], aux[1]);
+        uint256 b = masp.deposit(d, s2, aux[0], aux[1]);
         assertEq(a, 0);
         assertEq(b, 1);
     }
@@ -169,7 +161,7 @@ contract MASPDepositTest is Test {
     function test_happy_sweep_nothingAccruedAtSubmit() public {
         uint64 publicIn = 100;
         _fund(publicIn);
-        masp.deposit(_request(publicIn), _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(_request(publicIn), _sig(type(uint256).max), _aux()[0], _aux()[1]);
 
         // Fees accrue only at flush, so a bare submit leaves nothing to sweep
         // — escrowed principal + fee stay out of `accruedFee` entirely.
@@ -185,13 +177,13 @@ contract MASPDepositTest is Test {
         PubInputs.DepositRequest memory d = _request(100);
         d.chainId = block.chainid + 1;
         vm.expectRevert(MASP.BadChainId.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
     function test_revert_MustHaveDeposit() public {
         PubInputs.DepositRequest memory d = _request(0);
         vm.expectRevert(MASP.MustHaveDeposit.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
     function test_revert_PublicInTooLarge() public {
@@ -199,36 +191,37 @@ contract MASPDepositTest is Test {
         PubInputs.DepositRequest memory d = _request(0);
         d.publicIn = uint64(uint256(type(uint48).max) + 1);
         vm.expectRevert(MASP.PublicInTooLarge.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
     function test_revert_ZeroPayer() public {
         PubInputs.DepositRequest memory d = _request(100);
         d.payer = address(0);
         vm.expectRevert(MASP.ZeroPayer.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
     function test_revert_ZeroRecipient() public {
         PubInputs.DepositRequest memory d = _request(100);
         d.recipient = address(0);
         vm.expectRevert(MASP.ZeroRecipient.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
     function test_revert_ZeroCm() public {
         PubInputs.DepositRequest memory d = _request(100);
         // A deposit has exactly one leaf, so a zero cm is the whole check.
         d.outCm = bytes32(0);
+        d.feeCm = bytes32(uint256(0xfee));
         vm.expectRevert(MASP.ZeroCm.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
     function test_revert_UnknownAsset() public {
         PubInputs.DepositRequest memory d = _request(100);
         d.publicAssetId = 999;
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, 999));
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0]);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
     // --- admin / cancelDelay -----------------------------------------------
@@ -254,5 +247,73 @@ contract MASPDepositTest is Test {
     function test_setCancelDelay_nonOwner_reverts() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
         masp.setCancelDelay(7_200);
+    }
+
+    // --- relayer fee note ---------------------------------------------------
+
+    /// The relayer's leg is charged on top of principal and treasury fee, so
+    /// the payer funds it and treasury revenue is untouched.
+    function test_happy_relayerFeeChargedOnTopOfPrincipalAndFee() public {
+        uint64 publicIn = 100;
+        uint64 feeIn = 7;
+        uint256 relayerAmt = uint256(feeIn) * SCALE;
+        (uint256 inAmt, uint256 fee) = _fund(publicIn);
+        token.mint(payer, relayerAmt);
+
+        PubInputs.DepositRequest memory d = _request(publicIn);
+        d.feeIn = feeIn;
+        AuxValidation.Output[4] memory aux = _aux();
+
+        uint256 payerBefore = token.balanceOf(payer);
+        uint256 poolBefore = token.balanceOf(address(masp));
+        masp.deposit(d, _sig(inAmt + fee + relayerAmt), aux[0], aux[1]);
+
+        uint256 total = inAmt + fee + relayerAmt;
+        assertEq(payerBefore - token.balanceOf(payer), total, "payer funds the relayer's note too");
+        assertEq(token.balanceOf(address(masp)) - poolBefore, total, "pool holds the tokens backing both leaves");
+        assertEq(masp.accruedFee(IERC20(address(token))), 0, "relayer amount is not treasury revenue");
+    }
+
+    /// `_drainDeposit` narrows `feeIn` to `uint48` for the digest, the same way
+    /// it does `publicIn`, so the submit path range-checks it the same way.
+    function test_revert_PublicInTooLarge_feeIn() public {
+        PubInputs.DepositRequest memory d = _request(100);
+        d.feeIn = uint64(uint256(type(uint48).max) + 1);
+        vm.expectRevert(MASP.PublicInTooLarge.selector);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+    }
+
+    /// A deposit mints two leaves, so the fee leaf's commitment needs the same
+    /// well-formedness check the principal's gets. `feeIn` stays zero here: a
+    /// subsidised deployment still mints the leaf, so the guard must fire on
+    /// shape alone, not on value.
+    function test_revert_ZeroCm_feeCm() public {
+        PubInputs.DepositRequest memory d = _request(100);
+        d.feeCm = bytes32(0);
+        vm.expectRevert(MASP.ZeroCm.selector);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+    }
+
+    /// Both aux payloads are validated. Without this the two arguments are
+    /// interchangeable in every other test, so a swapped or dropped `feeAux`
+    /// would pass unnoticed and publish an unvalidated payload to the event.
+    ///
+    /// Each case takes its payload from a fresh `_aux()`: a memory struct is a
+    /// reference, so reusing one would carry the previous mutation forward.
+    function test_revert_feeAuxValidatedIndependently() public {
+        _fund(100);
+        PubInputs.DepositRequest memory d = _request(100);
+
+        AuxValidation.Output memory badFee = _aux()[1];
+        badFee.ciphertext = hex"";
+        vm.expectRevert(AuxValidation.CiphertextTooShort.selector);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], badFee);
+
+        // Off-curve ephemeral key in the fee payload, principal payload intact.
+        badFee = _aux()[1];
+        badFee.ephPubX = 1;
+        badFee.ephPubY = 1;
+        vm.expectRevert(AuxValidation.OffCurvePoint.selector);
+        masp.deposit(d, _sig(type(uint256).max), _aux()[0], badFee);
     }
 }

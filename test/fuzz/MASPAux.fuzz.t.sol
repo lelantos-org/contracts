@@ -15,6 +15,8 @@ import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
+import { SpendFixture } from "../utils/SpendFixture.sol";
+import { FixtureLoader } from "../utils/FixtureLoader.sol";
 
 /// Fuzz `_validateAux`: bounds-check on every output ciphertext + clue-bits
 /// prefix mask. Aux validation runs before the SNARK call — a downstream
@@ -50,12 +52,7 @@ contract MASPAuxFuzzTest is Test {
 
     function _basePi() internal view returns (PubInputs.Transact memory pi) {
         pi.merkleRoot = masp.currentRoot();
-        pi.nullifier[0] = bytes32(uint256(1));
-        pi.nullifier[1] = bytes32(uint256(2));
-        pi.nullifier[2] = bytes32(uint256(3));
-        pi.outCm[0] = bytes32(uint256(3));
-        pi.outCm[1] = bytes32(uint256(4));
-        pi.outCm[2] = bytes32(uint256(5));
+        SpendFixture.fillOutputs(pi, 1, 3);
         pi.recipient = recipient;
         pi.chainId = block.chainid;
         pi.payer = payer;
@@ -63,35 +60,18 @@ contract MASPAuxFuzzTest is Test {
     }
 
     function _baseTpi(PubInputs.Transact memory pi) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
-        tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xdeadbeef));
-        tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 3;
-        tpi.cms[0] = pi.outCm[0];
-        tpi.cms[1] = pi.outCm[1];
-        tpi.cms[2] = pi.outCm[2];
+        return SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdeadbeef)), masp.committedCount());
     }
 
-    function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[3] memory aux) {
-        aux[0].clueRx = BabyJubJub.BASE8_X;
-        aux[0].clueRy = BabyJubJub.BASE8_Y;
-        aux[0].ephPubX = BabyJubJub.BASE8_X;
-        aux[0].ephPubY = BabyJubJub.BASE8_Y;
-        aux[1].clueRx = BabyJubJub.BASE8_X;
-        aux[1].clueRy = BabyJubJub.BASE8_Y;
-        aux[1].ephPubX = BabyJubJub.BASE8_X;
-        aux[1].ephPubY = BabyJubJub.BASE8_Y;
-        aux[2].clueRx = BabyJubJub.BASE8_X;
-        aux[2].clueRy = BabyJubJub.BASE8_Y;
-        aux[2].ephPubX = BabyJubJub.BASE8_X;
-        aux[2].ephPubY = BabyJubJub.BASE8_Y;
+    function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[4] memory aux) {
+        // Slot 0 carries the fuzzed payload under test; the rest carry `c1` so
+        // only one slot varies per run.
+        aux = SpendFixture.uniformAux(c1);
         aux[0].ciphertext = c0;
-        aux[1].ciphertext = c1;
-        aux[2].ciphertext = c1;
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
+        return FixtureLoader.emptyProof();
     }
 
     /// Valid aux: length within [MIN_LEN, MAX_LEN] and clueBits prefix's top

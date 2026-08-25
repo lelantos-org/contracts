@@ -12,11 +12,11 @@ import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockERC1271 } from "../mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
+import { SpendFixture } from "../utils/SpendFixture.sol";
 
 /// Handler exercises deposit / flushBatch / cancelDeposit / sweep
 /// randomly. Fees accrue only at flush; the handler shadows both the
@@ -38,6 +38,10 @@ contract EscrowFeeHandler is Test {
     mapping(uint256 => uint256) public feeAt;
     /// id → principal locked at submit.
     mapping(uint256 => uint256) public principalAt;
+    /// Token amount backing each deposit's relayer fee note. Distinct from
+    /// `feeAt`: this one never accrues, it becomes shielded principal.
+    mapping(uint256 => uint256) public relayerFeeAt;
+    mapping(uint256 => uint64) public relayerFeeIn;
     /// id → still pending?
     mapping(uint256 => bool) public pending;
     /// id → cancel/flush preimage shadow. The 1-slot escrow stores only the
@@ -63,31 +67,21 @@ contract EscrowFeeHandler is Test {
         payer = payer_;
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        aux[0].clueRx = BabyJubJub.BASE8_X;
-        aux[0].clueRy = BabyJubJub.BASE8_Y;
-        aux[0].ephPubX = BabyJubJub.BASE8_X;
-        aux[0].ephPubY = BabyJubJub.BASE8_Y;
-        aux[0].ciphertext = hex"0001";
-        aux[1].clueRx = BabyJubJub.BASE8_X;
-        aux[1].clueRy = BabyJubJub.BASE8_Y;
-        aux[1].ephPubX = BabyJubJub.BASE8_X;
-        aux[1].ephPubY = BabyJubJub.BASE8_Y;
-        aux[1].ciphertext = hex"0001";
-        aux[2].clueRx = BabyJubJub.BASE8_X;
-        aux[2].clueRy = BabyJubJub.BASE8_Y;
-        aux[2].ephPubX = BabyJubJub.BASE8_X;
-        aux[2].ephPubY = BabyJubJub.BASE8_Y;
-        aux[2].ciphertext = hex"0001";
+    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+        return SpendFixture.validAux();
     }
 
     /// Handler: submit a fresh deposit.
-    function submit(uint64 publicIn) external {
+    function submit(uint64 publicIn, uint64 feeIn) external {
         publicIn = uint64(bound(publicIn, 1, 1_000));
+        // Non-zero on purpose: with a zero fee note the relayer's leg is worth
+        // nothing and solvency would hold no matter how it were accounted.
+        feeIn = uint64(bound(feeIn, 1, 100));
 
         uint256 inAmt = uint256(publicIn) * SCALE;
         uint256 fee = (inAmt * FEE_BPS) / 10_000;
-        token.mint(payer, inAmt + fee);
+        uint256 relayerFee = uint256(feeIn) * SCALE;
+        token.mint(payer, inAmt + fee + relayerFee);
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
@@ -98,22 +92,26 @@ contract EscrowFeeHandler is Test {
         d.payer = payer;
         d.recipient = address(0xb0b);
         d.outCm = bytes32(uint256(0x1000 + _nonce));
+        d.feeCm = bytes32(uint256(0xfee));
+        d.feeIn = feeIn;
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
 
-        uint256 id = masp.deposit(d, sig, _aux()[0]);
+        uint256 id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
         allIds.push(id);
         feeAt[id] = fee;
         principalAt[id] = inAmt;
+        relayerFeeAt[id] = relayerFee;
+        relayerFeeIn[id] = feeIn;
         pending[id] = true;
         // forge-lint: disable-next-line(unsafe-typecast)
         preimagePublicIn[id] = uint48(publicIn);
         preimageCm0[id] = d.outCm;
         // forge-lint: disable-next-line(unsafe-typecast)
         preimageSubmittedAt[id] = uint32(block.number);
-        expectedPendingTotal += inAmt + fee;
+        expectedPendingTotal += inAmt + fee + relayerFee;
     }
 
     /// Handler: flush one pending deposit (uses mocked SNARK verify).
@@ -128,11 +126,15 @@ contract EscrowFeeHandler is Test {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(masp.committedCount()) + 1); // arbitrary; SNARK is mocked
         tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 1;
+        tpi.actualCount = 2;
         tpi.cms[0] = preimageCm0[id];
         tpi.leafAsset[0] = ASSET_ID;
         tpi.leafPublicIn[0] = uint64(preimagePublicIn[id]);
         tpi.isDeposit[0] = 1;
+        tpi.cms[1] = bytes32(uint256(0xfee));
+        tpi.leafAsset[1] = ASSET_ID;
+        tpi.leafPublicIn[1] = relayerFeeIn[id];
+        tpi.isDeposit[1] = 1;
 
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
@@ -144,8 +146,10 @@ contract EscrowFeeHandler is Test {
         masp.flushBatch(ids, meta, proof, tpi);
 
         pending[id] = false;
-        expectedPendingTotal -= principalAt[id] + feeAt[id];
-        shieldedPrincipal += principalAt[id];
+        expectedPendingTotal -= principalAt[id] + feeAt[id] + relayerFeeAt[id];
+        // The relayer's note is principal, not an accrual: the pool must keep
+        // holding the tokens behind it or the note is unspendable.
+        shieldedPrincipal += principalAt[id] + relayerFeeAt[id];
         expectedAccrued += feeAt[id];
     }
 
@@ -160,10 +164,18 @@ contract EscrowFeeHandler is Test {
 
         uint256[2] memory zCv;
         masp.cancelDeposit(
-            id, preimagePublicIn[id], preimageCm0[id], zCv, ASSET_ID, FEE_BPS, payer, preimageSubmittedAt[id]
+            id,
+            preimagePublicIn[id],
+            preimageCm0[id],
+            zCv,
+            ASSET_ID,
+            FEE_BPS,
+            payer,
+            preimageSubmittedAt[id],
+            PubInputs.FeeNote({ feeIn: uint48(relayerFeeIn[id]), feeCm: bytes32(uint256(0xfee)), feeCvDep: zCv })
         );
         pending[id] = false;
-        expectedPendingTotal -= principalAt[id] + feeAt[id];
+        expectedPendingTotal -= principalAt[id] + feeAt[id] + relayerFeeAt[id];
     }
 
     /// Handler: sweep accrued fees to treasury.

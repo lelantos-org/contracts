@@ -7,7 +7,7 @@ import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.so
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { NativeAdapter } from "../src/native/NativeAdapter.sol";
-import { IMASPNative } from "../src/native/IMASPNative.sol";
+import { IMASPPool } from "../src/interfaces/IMASPPool.sol";
 import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
@@ -35,7 +35,7 @@ contract NativeAdapterGuardsTest is Test {
         permit2 = new DeployPermit2().deployPermit2();
         pool = new MockNativePool(IAllowanceTransfer(permit2), weth);
         adapter =
-            new NativeAdapter(IMASPNative(address(pool)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
+            new NativeAdapter(IMASPPool(address(pool)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
     }
 
     function _aux() internal pure returns (AuxValidation.Output memory a) {
@@ -53,6 +53,7 @@ contract NativeAdapterGuardsTest is Test {
         d.payer = address(adapter);
         d.recipient = address(0xF00D);
         d.outCm = bytes32(uint256(0x1));
+        d.feeCm = bytes32(uint256(0xfee));
     }
 
     /// Deposit `AMOUNT`, with the pool pulling all of it.
@@ -60,24 +61,24 @@ contract NativeAdapterGuardsTest is Test {
         pool.setPullAmount(uint160(AMOUNT));
         vm.deal(DEPOSITOR, AMOUNT);
         vm.prank(DEPOSITOR);
-        id = adapter.depositNative{ value: AMOUNT }(_request(), _aux());
+        id = adapter.depositNative{ value: AMOUNT }(_request(), _aux(), _aux());
     }
 
     // --- constructor -------------------------------------------------------
 
     function test_revert_ZeroPool() public {
         vm.expectRevert(NativeAdapter.ZeroAddress.selector);
-        new NativeAdapter(IMASPNative(address(0)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
+        new NativeAdapter(IMASPPool(address(0)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
     }
 
     function test_revert_ZeroWrappedNative() public {
         vm.expectRevert(NativeAdapter.ZeroAddress.selector);
-        new NativeAdapter(IMASPNative(address(pool)), IWrappedNative(address(0)), IAllowanceTransfer(permit2));
+        new NativeAdapter(IMASPPool(address(pool)), IWrappedNative(address(0)), IAllowanceTransfer(permit2));
     }
 
     function test_revert_ZeroPermit2() public {
         vm.expectRevert(NativeAdapter.ZeroAddress.selector);
-        new NativeAdapter(IMASPNative(address(pool)), IWrappedNative(address(weth)), IAllowanceTransfer(address(0)));
+        new NativeAdapter(IMASPPool(address(pool)), IWrappedNative(address(weth)), IAllowanceTransfer(address(0)));
     }
 
     // --- deposit -----------------------------------------------------------
@@ -89,7 +90,7 @@ contract NativeAdapterGuardsTest is Test {
         vm.deal(DEPOSITOR, AMOUNT);
         vm.prank(DEPOSITOR);
         vm.expectRevert(NativeAdapter.NothingEscrowed.selector);
-        adapter.depositNative{ value: AMOUNT }(_request(), _aux());
+        adapter.depositNative{ value: AMOUNT }(_request(), _aux(), _aux());
     }
 
     /// The pool's Permit2 allowance covers the adapter's whole balance, not
@@ -107,7 +108,7 @@ contract NativeAdapterGuardsTest is Test {
         vm.deal(DEPOSITOR, AMOUNT);
         vm.prank(DEPOSITOR);
         vm.expectRevert(abi.encodeWithSelector(NativeAdapter.PullExceedsValue.selector, AMOUNT + parked, AMOUNT));
-        adapter.depositNative{ value: AMOUNT }(_request(), _aux());
+        adapter.depositNative{ value: AMOUNT }(_request(), _aux(), _aux());
 
         assertEq(weth.balanceOf(address(adapter)), parked, "parked coin untouched");
     }
@@ -121,7 +122,16 @@ contract NativeAdapterGuardsTest is Test {
         pool.setRefundAmount(AMOUNT - 1);
 
         vm.expectRevert(abi.encodeWithSelector(NativeAdapter.RefundNotFunded.selector, id));
-        adapter.cancelNative(id, 1, bytes32(uint256(0x1)), [uint256(0), 0], ASSET_WETH, 25, uint32(vm.getBlockNumber()));
+        adapter.cancelNative(
+            id,
+            1,
+            bytes32(uint256(0x1)),
+            [uint256(0), 0],
+            ASSET_WETH,
+            25,
+            uint32(vm.getBlockNumber()),
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
     }
 
     /// Same guard against an over-refund: the delta must match the record
@@ -135,7 +145,16 @@ contract NativeAdapterGuardsTest is Test {
         pool.setRefundAmount(AMOUNT + 1);
 
         vm.expectRevert(abi.encodeWithSelector(NativeAdapter.RefundNotFunded.selector, id));
-        adapter.cancelNative(id, 1, bytes32(uint256(0x1)), [uint256(0), 0], ASSET_WETH, 25, uint32(vm.getBlockNumber()));
+        adapter.cancelNative(
+            id,
+            1,
+            bytes32(uint256(0x1)),
+            [uint256(0), 0],
+            ASSET_WETH,
+            25,
+            uint32(vm.getBlockNumber()),
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
     }
 
     /// Exact refund on the funded branch pays the recorded funder in native.
@@ -143,7 +162,16 @@ contract NativeAdapterGuardsTest is Test {
         uint256 id = _deposit();
         pool.setRefundAmount(AMOUNT);
 
-        adapter.cancelNative(id, 1, bytes32(uint256(0x1)), [uint256(0), 0], ASSET_WETH, 25, uint32(vm.getBlockNumber()));
+        adapter.cancelNative(
+            id,
+            1,
+            bytes32(uint256(0x1)),
+            [uint256(0), 0],
+            ASSET_WETH,
+            25,
+            uint32(vm.getBlockNumber()),
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+        );
 
         assertEq(DEPOSITOR.balance, AMOUNT, "funder refunded in native");
     }

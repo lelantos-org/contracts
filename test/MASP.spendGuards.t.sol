@@ -12,9 +12,10 @@ import { NullifierSet } from "../src/NullifierSet.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
+import { SpendFixture } from "./utils/SpendFixture.sol";
+import { FixtureLoader } from "./utils/FixtureLoader.sol";
 
 /// Spend-path (`transfer`, `withdraw`) request-validation negative tests.
 /// Each test tampers with exactly one field to reach a specific revert.
@@ -52,48 +53,21 @@ contract MASPSpendGuardsTest is Test {
         pi.recipient = RECIPIENT;
         pi.payer = PAYER;
         pi.relayer = RELAYER;
-        pi.nullifier[0] = bytes32(uint256(1));
-        pi.nullifier[1] = bytes32(uint256(2));
-        pi.nullifier[2] = bytes32(uint256(3));
-        pi.outCm[0] = bytes32(uint256(3));
-        pi.outCm[1] = bytes32(uint256(4));
-        pi.outCm[2] = bytes32(uint256(5));
+        SpendFixture.fillOutputs(pi, 1, 3);
         pi.merkleRoot = masp.currentRoot();
         // outCvDep: all zero → matches tpi.cvDeps default
     }
 
     function _tpi(PubInputs.Transact memory pi) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
-        tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xdead));
-        tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 3;
-        tpi.cms[0] = pi.outCm[0];
-        tpi.cms[1] = pi.outCm[1];
-        tpi.cms[2] = pi.outCm[2];
-        // cvDeps: all zero → matches pi.outCvDep default
-        // isDeposit[0] = 0 (spend)
+        return SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdead)), masp.committedCount());
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
+        return FixtureLoader.emptyProof();
     }
 
-    function _validAux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        aux[0].clueRx = BabyJubJub.BASE8_X;
-        aux[0].clueRy = BabyJubJub.BASE8_Y;
-        aux[0].ephPubX = BabyJubJub.BASE8_X;
-        aux[0].ephPubY = BabyJubJub.BASE8_Y;
-        aux[0].ciphertext = hex"0001";
-        aux[1].clueRx = BabyJubJub.BASE8_X;
-        aux[1].clueRy = BabyJubJub.BASE8_Y;
-        aux[1].ephPubX = BabyJubJub.BASE8_X;
-        aux[1].ephPubY = BabyJubJub.BASE8_Y;
-        aux[1].ciphertext = hex"0001";
-        aux[2].clueRx = BabyJubJub.BASE8_X;
-        aux[2].clueRy = BabyJubJub.BASE8_Y;
-        aux[2].ephPubX = BabyJubJub.BASE8_X;
-        aux[2].ephPubY = BabyJubJub.BASE8_Y;
-        aux[2].ciphertext = hex"0001";
+    function _validAux() internal pure returns (AuxValidation.Output[4] memory aux) {
+        return SpendFixture.validAux();
     }
 
     // --- withdraw entry-point checks (before _validateRequest) --------------
@@ -204,7 +178,7 @@ contract MASPSpendGuardsTest is Test {
 
     /// Both cross-binding arrays are indexed by output, so both are swept over
     /// the whole shape rather than over a hardcoded prefix. Enumerating only
-    /// outputs 0 and 1 is what let the `cvDeps[2]` gap survive the 2x2 -> 3x3
+    /// outputs 0 and 1 is what let the `cvDeps[2]` gap survive the 2x2 -> 3x3 -> 4x4
     /// migration: the tests agreed with the bug.
     function test_CmMismatch_everyOutput() public {
         for (uint256 k = 0; k < PubInputs.TRANSACT_OUT; ++k) {

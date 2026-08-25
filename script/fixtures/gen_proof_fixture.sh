@@ -4,7 +4,7 @@
 # witness vector from @lelantos-org/circuits.
 #
 #   script/fixtures/gen_proof_fixture.sh tree_update_batch
-#   script/fixtures/gen_proof_fixture.sh transact_3x3
+#   script/fixtures/gen_proof_fixture.sh transact_4x4
 #
 # Artifacts must come from the GitHub release, not from a local
 # `circuits/build/`:
@@ -44,16 +44,16 @@ case "$CIRCUIT" in
         VERIFIER_SOL="src/verifiers/TreeUpdateBatchVerifier.sol"
         OUT_NAME="tree_update_batch_proof.json"
         ;;
-    transact_3x3)
-        VECTOR_NAME="transact-3x3.json"
-        ZKEY_NAME="3x3_final.zkey"
-        WASM_NAME="3x3.wasm"
-        VKEY_NAME="3x3_verification_key.json"
+    transact_4x4)
+        VECTOR_NAME="transact-4x4.json"
+        ZKEY_NAME="4x4_final.zkey"
+        WASM_NAME="4x4.wasm"
+        VKEY_NAME="4x4_verification_key.json"
         VERIFIER_SOL="src/verifiers/Verifier.sol"
-        OUT_NAME="transact_3x3_proof.json"
+        OUT_NAME="transact_4x4_proof.json"
         ;;
     *)
-        echo "usage: $0 {tree_update_batch|transact_3x3}" >&2
+        echo "usage: $0 {tree_update_batch|transact_4x4}" >&2
         exit 2
         ;;
 esac

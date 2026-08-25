@@ -1,0 +1,86 @@
+{
+  "schema": "lelantos.contracts.proof-fixture/1",
+  "source": {
+    "vector": "transact-4x4.json",
+    "generator": "transact",
+    "template": "Transact(10, 4, 4)",
+    "layoutDigest": "0xc05073a914b7733e2187f5e7b7481af4f1f120ee66e7d99d93a113357a3efaa2"
+  },
+  "proofs": [
+    {
+      "name": "internal-4in4out-balanced",
+      "a": [
+        "0x1c05305e0d99e7c66c28b0daec4af4efa37d0195f788923b2841442110174029",
+        "0x160fcc18291a71b15e0175448a614a4c347d875cbb465a686efb5564d6da3a8f"
+      ],
+      "b": [
+        [
+          "0x071214a8d0de942b2dd404991378ccdad5ba15fe9395d8793a1d02a026b947a1",
+          "0x0a1e133145fd3074c80bf953f1b8152bac680f8fa59bdabc552754c4a621bfa0"
+        ],
+        [
+          "0x14b2a9672a4d70d408066b301dbfbdd2ba34e6b937b293e6731c69cda8b87168",
+          "0x19f10ba50af38ec6eba134749cfbbef836e4047d4b9c890b539b6d9cbcdff132"
+        ]
+      ],
+      "c": [
+        "0x05ebf87247a365442bff23b910092c7b32188de322f6c6758fd75c0fc5a0a08a",
+        "0x2b7aeb7e1ca214de465aadf1923b7b0a0d8bc12918b685c52eb6ef28308b5a68"
+      ],
+      "pubSignals": [
+        "0x2d7d5897d27b84fb3ce8b2cb030f5bf0d7fce0407ee52b2b3affde64cf4677b6",
+        "0x1f2312f7a93e9e71428851982556b62166ea76e88d88c34d0d2674f8b5943353"
+      ]
+    },
+    {
+      "name": "deposit-3in4out-public-in",
+      "a": [
+        "0x085a91dd4d614b6d59f2d1cd057dc1016c36688fba191e7cc0c15496891fcac4",
+        "0x24294b8d13a3d0a5b443f161fad28080b21aaf69e9a0cbc5a9f80dbdee58e20d"
+      ],
+      "b": [
+        [
+          "0x10ad4ebb2aa1757074a7cd64818c42a74d73a54a9b93687ebdd9b0a815ab7b44",
+          "0x0c21e5b709f9d3c247156278de07cb2a257c0cc504bdda06a340cbe1da569e5a"
+        ],
+        [
+          "0x04ef7db4f31e68e0b41d2f9876f1c3b4407786c9de75f0b180115843bdc85121",
+          "0x0512ae9268397c37c95f3d54a5dfd6d418a33c34f88a484b64bbd4dd2f45e43e"
+        ]
+      ],
+      "c": [
+        "0x254d2167763798ead8fd619238c82e5dc2583f396720428322f96745ba7787ab",
+        "0x1a77a1027afa0d6646bab8061a0baaf9367c95bb9ab0604b73a16e32c6099a71"
+      ],
+      "pubSignals": [
+        "0x02fd6274f1215b5fc78e6d97798650a7d6a69e43366b30216134de158fdac427",
+        "0x03ad5b67d0146b59816f3734be3affe312ba88e4643981164dffc2e6f9a35546"
+      ]
+    },
+    {
+      "name": "withdraw-4in4out-public-out",
+      "a": [
+        "0x16ae7556ad7307ace3f52a7cb89609e4eafd884eb1fa6d8c60942345dbc0b7f5",
+        "0x03fa4074a0f52e98c0ead3ccd0ea67951287938ba43b96a95548433c63267792"
+      ],
+      "b": [
+        [
+          "0x28be7400d0968eb28a6d499d57c8d8ece3e32e11af6632a52257560f4f3be3a7",
+          "0x0a1c866a3dca12a90ea6b2cb0b69858ebb7c70eabca42001dc57322e35f87e2e"
+        ],
+        [
+          "0x2470fb09b1d01a95d4cc560cb447cbc9eb10e9510753ab09eb81f79b376add08",
+          "0x2484b41b6fbc960643f872042d58f65be033901c9de6fd4d122a87719912c673"
+        ]
+      ],
+      "c": [
+        "0x196ed58726a8c613a6be32700fe9656476300c5ee87cfcc97edda5b7f6604abf",
+        "0x10f2cf100f119be81fdf3ea6416f5813fb4fdf58a0633f333e0cd5357f34b383"
+      ],
+      "pubSignals": [
+        "0x185f1862ef3a3940361e64f92b17b51e80aacae4fbb0285c15a9edd3ad55b3fe",
+        "0x205f016919eaf5a77b6dee3a1a42a1680fb476f7e7ebe661595cf0d525b8afc3"
+      ]
+    }
+  ]
+}

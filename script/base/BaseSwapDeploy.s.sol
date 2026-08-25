@@ -6,7 +6,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
-import { IMASPSwap } from "../../src/swap/IMASPSwap.sol";
+import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { UniV3Adapter } from "../../src/swap/UniV3Adapter.sol";
 
@@ -30,7 +30,7 @@ abstract contract BaseSwapDeploy is Script {
         // below succeeds when the deployer is not the configured owner, then
         // handed over in the same broadcast. `Ownable` is single-step, so the
         // owner needs no acceptance tx (and no gas) to take custody.
-        wrapper = new SwapWrapper(IMASPSwap(masp), IAllowanceTransfer(permit2), tx.origin, treasury);
+        wrapper = new SwapWrapper(IMASPPool(masp), IAllowanceTransfer(permit2), tx.origin, treasury);
         require(address(wrapper) == predictedWrapper, "wrapper address drift");
         wrapper.setAdapterAllowed(address(adapter), true);
         if (owner != tx.origin) wrapper.transferOwnership(owner);

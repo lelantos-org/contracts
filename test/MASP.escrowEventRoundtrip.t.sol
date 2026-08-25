@@ -51,6 +51,39 @@ contract MASPEscrowEventRoundtripTest is Test {
         bytes32 cm;
         uint256[2] cvDep;
         uint32 submittedAt;
+        uint48 feeIn;
+        bytes32 feeCm;
+        uint256[2] feeCvDep;
+    }
+
+    /// The non-indexed body of `DepositEscrowed`, in declaration order.
+    ///
+    /// Decoded as a struct rather than a positional tuple: the body now spans
+    /// two `bytes` members, so the fee fields sit past the first dynamic
+    /// offset and cannot be read by truncating the head.
+    struct EscrowLog {
+        uint64 publicAssetId;
+        uint64 publicIn;
+        uint16 feeBpsAtSubmit;
+        bytes32 cm;
+        uint256 cvDepX;
+        uint256 cvDepY;
+        uint256 rcv;
+        uint256 clueRx;
+        uint256 clueRy;
+        uint256 ephPubX;
+        uint256 ephPubY;
+        bytes ciphertext;
+        uint64 feeIn;
+        bytes32 feeCm;
+        uint256 feeCvDepX;
+        uint256 feeCvDepY;
+        uint256 feeRcv;
+        uint256 feeClueRx;
+        uint256 feeClueRy;
+        uint256 feeEphPubX;
+        uint256 feeEphPubY;
+        bytes feeCiphertext;
     }
 
     function setUp() public {
@@ -102,6 +135,7 @@ contract MASPEscrowEventRoundtripTest is Test {
         d.payer = payer;
         d.recipient = recipient;
         d.outCm = bytes32(uint256(0x111 + nonce));
+        d.feeCm = bytes32(uint256(0xfee));
         d.cvDep = [uint256(0xaa1 + nonce), uint256(0xaa2 + nonce)];
         d.rcv = 0xccc + nonce;
 
@@ -110,11 +144,13 @@ contract MASPEscrowEventRoundtripTest is Test {
         });
 
         vm.recordLogs();
-        masp.deposit(d, sig, _aux());
+        masp.deposit(d, sig, _aux(), _aux());
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         bytes32 sigHash = keccak256(
-            "DepositEscrowed(uint256,address,address,uint64,uint64,uint16,bytes32,uint256,uint256,uint256,uint256,uint256,uint256,uint256,bytes)"
+            "DepositEscrowed(uint256,address,address,uint64,uint64,uint16,bytes32,uint256,uint256,uint256,"
+            "uint256,uint256,uint256,uint256,bytes,uint64,bytes32,uint256,uint256,uint256,uint256,uint256,"
+            "uint256,uint256,bytes)"
         );
         bool found;
         for (uint256 i = 0; i < logs.length; i++) {
@@ -122,15 +158,22 @@ contract MASPEscrowEventRoundtripTest is Test {
             found = true;
             dec.id = uint256(logs[i].topics[1]);
             dec.payer = address(uint160(uint256(logs[i].topics[2])));
-            // Head is all-static up to the first `bytes` offset, so the
-            // leading fields decode positionally.
-            (uint64 assetId, uint64 pIn, uint16 fbps, bytes32 cm, uint256 cvx, uint256 cvy) =
-                abi.decode(logs[i].data, (uint64, uint64, uint16, bytes32, uint256, uint256));
-            dec.publicAssetId = assetId;
-            dec.publicIn = pIn;
-            dec.feeBpsAtSubmit = fbps;
-            dec.cm = cm;
-            dec.cvDep = [cvx, cvy];
+            // Event data is the parameter tuple encoded inline, but decoding
+            // into a *dynamic* struct expects a leading offset to it. Prepend
+            // one rather than decoding 22 positional values, which blows the
+            // stack.
+            EscrowLog memory body = abi.decode(bytes.concat(abi.encode(uint256(0x20)), logs[i].data), (EscrowLog));
+            dec.publicAssetId = body.publicAssetId;
+            dec.publicIn = body.publicIn;
+            dec.feeBpsAtSubmit = body.feeBpsAtSubmit;
+            dec.cm = body.cm;
+            dec.cvDep = [body.cvDepX, body.cvDepY];
+            // The relayer's leaf is part of the digest, so a canceller needs it
+            // from the log too.
+            // forge-lint: disable-next-line(unsafe-typecast)
+            dec.feeIn = uint48(body.feeIn);
+            dec.feeCm = body.feeCm;
+            dec.feeCvDep = [body.feeCvDepX, body.feeCvDepY];
         }
         assertTrue(found, "DepositEscrowed not emitted");
         // The remaining preimage field is the emitting block.
@@ -168,7 +211,8 @@ contract MASPEscrowEventRoundtripTest is Test {
             dec.publicAssetId,
             dec.feeBpsAtSubmit,
             dec.payer,
-            dec.submittedAt
+            dec.submittedAt,
+            PubInputs.FeeNote({ feeIn: dec.feeIn, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep })
         );
 
         assertEq(token.balanceOf(payer) - before, expected, "refund to digest-bound payer");
@@ -204,7 +248,8 @@ contract MASPEscrowEventRoundtripTest is Test {
             dec.publicAssetId,
             dec.feeBpsAtSubmit,
             dec.payer,
-            dec.submittedAt
+            dec.submittedAt,
+            PubInputs.FeeNote({ feeIn: dec.feeIn, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep })
         );
 
         assertEq(token.balanceOf(payer) - before, atSubmit, "refund uses submit-time fee");
@@ -222,7 +267,15 @@ contract MASPEscrowEventRoundtripTest is Test {
         vm.roll(block.number + masp.cancelDelay());
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, dec.id));
         masp.cancelDeposit(
-            dec.id, uint48(dec.publicIn), dec.cm, dec.cvDep, dec.publicAssetId, maxFee, dec.payer, dec.submittedAt
+            dec.id,
+            uint48(dec.publicIn),
+            dec.cm,
+            dec.cvDep,
+            dec.publicAssetId,
+            maxFee,
+            dec.payer,
+            dec.submittedAt,
+            PubInputs.FeeNote({ feeIn: dec.feeIn, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep })
         );
     }
 }

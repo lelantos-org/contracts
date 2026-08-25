@@ -33,8 +33,11 @@ library AuxValidation {
 
     /// Validate every aux payload: length bounds, clue-bits prefix, and that
     /// clue R and ephemeral E are on-curve and in the prime-order subgroup.
-    function validate(Output[3] calldata aux) internal pure {
-        for (uint256 j; j < 3;) {
+    /// Bound by `aux.length` rather than a literal: the array width tracks the
+    /// transact shape, and a hard-coded bound left behind by a shape change
+    /// would silently skip the trailing payloads instead of failing to compile.
+    function validate(Output[4] calldata aux) internal pure {
+        for (uint256 j; j < aux.length;) {
             validate(aux[j]);
             unchecked {
                 ++j;
@@ -42,9 +45,10 @@ library AuxValidation {
         }
     }
 
-    /// Single-payload form. A deposit occupies one leaf and so carries exactly
-    /// one aux payload; the `[3]` form above runs the transact path's three
-    /// outputs through the same checks.
+    /// Single-payload form. A deposit carries one payload per leaf, and it owns
+    /// two — its principal and the relayer's fee note — so the deposit path
+    /// calls this twice rather than passing an array. The `[4]` form above runs
+    /// the transact path's four outputs through the same checks.
     function validate(Output calldata o) internal pure {
         bytes calldata ct = o.ciphertext;
         uint256 len = ct.length;

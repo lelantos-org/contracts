@@ -12,11 +12,11 @@ import { IVerifier } from "../src/interfaces/IVerifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
+import { SpendFixture } from "./utils/SpendFixture.sol";
 
 /// End-to-end test: real `tree_update_batch` Groth16 proof, real verifier
 /// contract. Submits one deposit, then flushes with the fixture proof.
@@ -67,22 +67,8 @@ contract MASPFlushBatchSnarkTest is Test {
         vm.etch(payer, address(stub).code);
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        aux[0].clueRx = BabyJubJub.BASE8_X;
-        aux[0].clueRy = BabyJubJub.BASE8_Y;
-        aux[0].ephPubX = BabyJubJub.BASE8_X;
-        aux[0].ephPubY = BabyJubJub.BASE8_Y;
-        aux[0].ciphertext = hex"0001";
-        aux[1].clueRx = BabyJubJub.BASE8_X;
-        aux[1].clueRy = BabyJubJub.BASE8_Y;
-        aux[1].ephPubX = BabyJubJub.BASE8_X;
-        aux[1].ephPubY = BabyJubJub.BASE8_Y;
-        aux[1].ciphertext = hex"0001";
-        aux[2].clueRx = BabyJubJub.BASE8_X;
-        aux[2].clueRy = BabyJubJub.BASE8_Y;
-        aux[2].ephPubX = BabyJubJub.BASE8_X;
-        aux[2].ephPubY = BabyJubJub.BASE8_Y;
-        aux[2].ciphertext = hex"0001";
+    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+        return SpendFixture.validAux();
     }
 
     function _loadFixture()

@@ -69,22 +69,22 @@ contract MASPTransferSnarkTest is Test {
     function test_transferRealSnark_succeeds() public {
         // Fixture `proof_transfer.json` is a 2x2 artifact: 30-slot
         // `txPublicSignals` and two aux blobs. The pool now verifies
-        // `transact_3x3` (42 slots, three outputs), so the fixture cannot
+        // `transact_4x4` (53 slots, four outputs), so the fixture cannot
         // satisfy it.
         //
-        // Regenerating requires a 3x3 `flatten` off-chain. The SDK's
+        // Regenerating requires a 4x4 `flatten` off-chain. The SDK's
         // `flatten` (sdk/src/circuit/compression.ts) is hard-coded to the
         // 2x2 shape with literal [0]/[1] indices and no shape parameter, and
-        // `script/fixtures/gen_proof_transfer.ts` re-exports it. The 3x3
-        // prover artifacts are published by the release (`3x3_final.zkey`,
-        // `3x3.wasm`). The blocker is a MASP-level witness: the circuit takes
+        // `script/fixtures/gen_proof_transfer.ts` re-exports it. The 4x4
+        // prover artifacts are published by the release (`4x4_final.zkey`,
+        // `4x4.wasm`). The blocker is a MASP-level witness: the circuit takes
         // `out_aux_digest` as an input while `PubInputs.compress` recomputes
         // it from aux calldata, so the aux payload, the tree roots and the
         // cross-bound cms/cvDeps must all be fixed before proving.
         //
-        // Verifier-level coverage: `test/fixtures/transact_3x3_proof.json`,
+        // Verifier-level coverage: `test/fixtures/transact_4x4_proof.json`,
         // exercised by `BatchedGroth16Verifier.t.sol`. Layout coverage:
-        // `PubInputs.vector3x3.t.sol`, which pins all 42 slots against the
+        // `PubInputs.vector4x4.t.sol`, which pins all 53 slots against the
         // circuit's published witness vector.
         vm.skip(true);
 
@@ -151,7 +151,7 @@ contract MASPTransferSnarkTest is Test {
             tpi.isDeposit[i] = uint8(vm.parseJsonUint(j, string.concat(".transfer.isDeposit[", vm.toString(i), "]")));
         }
 
-        AuxValidation.Output[3] memory aux;
+        AuxValidation.Output[4] memory aux;
         aux[0].clueRx = vm.parseJsonUint(j, ".transfer.aux[0].clueRx");
         aux[0].clueRy = vm.parseJsonUint(j, ".transfer.aux[0].clueRy");
         aux[0].ephPubX = vm.parseJsonUint(j, ".transfer.aux[0].ephPubX");
@@ -167,6 +167,11 @@ contract MASPTransferSnarkTest is Test {
         aux[2].ephPubX = vm.parseJsonUint(j, ".transfer.aux[2].ephPubX");
         aux[2].ephPubY = vm.parseJsonUint(j, ".transfer.aux[2].ephPubY");
         aux[2].ciphertext = vm.parseJsonBytes(j, ".transfer.aux[2].ciphertext");
+        aux[3].clueRx = vm.parseJsonUint(j, ".transfer.aux[3].clueRx");
+        aux[3].clueRy = vm.parseJsonUint(j, ".transfer.aux[3].clueRy");
+        aux[3].ephPubX = vm.parseJsonUint(j, ".transfer.aux[3].ephPubX");
+        aux[3].ephPubY = vm.parseJsonUint(j, ".transfer.aux[3].ephPubY");
+        aux[3].ciphertext = vm.parseJsonBytes(j, ".transfer.aux[3].ciphertext");
 
         MASP.Proof memory txProof = _readProof(j, ".transfer.txProof");
         MASP.Proof memory tubProof = _readProof(j, ".transfer.tubProof");

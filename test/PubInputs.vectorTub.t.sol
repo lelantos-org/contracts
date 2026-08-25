@@ -28,7 +28,7 @@ contract VectorTubHarness {
 /// circuit's own witness and compares against the `(y, z)` the compiled circuit
 /// produced, so the layout is anchored outside the repo.
 ///
-/// Unlike the 3x3 vector there is no substituted slot — the batch circuit takes
+/// Unlike the 4x4 transact vector there is no substituted slot — the batch circuit takes
 /// every coefficient as a public input, so all 28 come from the vector verbatim
 /// and the published `(y, z)` can be asserted directly.
 contract PubInputsVectorTubTest is Test {

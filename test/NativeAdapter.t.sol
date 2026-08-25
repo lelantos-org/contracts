@@ -10,7 +10,7 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { NativeAdapter } from "../src/native/NativeAdapter.sol";
-import { IMASPNative } from "../src/native/IMASPNative.sol";
+import { IMASPPool } from "../src/interfaces/IMASPPool.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
 import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
@@ -19,6 +19,8 @@ import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockWETH9 } from "./mocks/MockWETH9.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
+import { SpendFixture } from "./utils/SpendFixture.sol";
+import { FixtureLoader } from "./utils/FixtureLoader.sol";
 
 /// `NativeAdapter` end-to-end: wrap-on-deposit, unwrap-on-withdraw, and the
 /// refund path for adapter-owned escrows. MASP itself is ERC-20 only, so every
@@ -65,7 +67,7 @@ contract NativeAdapterTest is Test {
             tub, bv, ISignatureTransfer(permit2), ids, tokens, scales, FEE_BPS, address(0xfee), address(this)
         );
         adapter =
-            new NativeAdapter(IMASPNative(address(masp)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
+            new NativeAdapter(IMASPPool(address(masp)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
     }
 
     // --- helpers -----------------------------------------------------------
@@ -81,8 +83,8 @@ contract NativeAdapterTest is Test {
         );
     }
 
-    function _emptyProof() internal pure returns (IMASPNative.Proof memory) {
-        return IMASPNative.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
+    function _emptyProof() internal pure returns (IMASPPool.Proof memory) {
+        return IMASPPool.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
     }
 
     function _aux1() internal pure returns (AuxValidation.Output memory a) {
@@ -93,10 +95,11 @@ contract NativeAdapterTest is Test {
         a.ciphertext = hex"0001";
     }
 
-    function _aux3() internal pure returns (AuxValidation.Output[3] memory aux) {
+    function _aux3() internal pure returns (AuxValidation.Output[4] memory aux) {
         aux[0] = _aux1();
         aux[1] = _aux1();
         aux[2] = _aux1();
+        aux[3] = _aux1();
     }
 
     function _request(uint64 assetId, uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
@@ -106,6 +109,7 @@ contract NativeAdapterTest is Test {
         d.payer = address(adapter);
         d.recipient = RECIPIENT;
         d.outCm = bytes32(uint256(0x1));
+        d.feeCm = bytes32(uint256(0xfee));
     }
 
     function _total(uint64 publicIn) internal pure returns (uint256) {
@@ -121,23 +125,12 @@ contract NativeAdapterTest is Test {
         pi.recipient = address(adapter);
         pi.payer = DEPOSITOR;
         pi.relayer = address(adapter);
-        pi.nullifier[0] = bytes32(uint256(0x1111));
-        pi.nullifier[1] = bytes32(uint256(0x2222));
-        pi.nullifier[2] = bytes32(uint256(0x2223));
-        pi.outCm[0] = bytes32(uint256(0x3333));
-        pi.outCm[1] = bytes32(uint256(0x4444));
-        pi.outCm[2] = bytes32(uint256(0x4445));
+        SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
         pi.merkleRoot = masp.currentRoot();
     }
 
     function _tpi(PubInputs.Transact memory pi) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
-        tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xdead));
-        tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 3;
-        tpi.cms[0] = pi.outCm[0];
-        tpi.cms[1] = pi.outCm[1];
-        tpi.cms[2] = pi.outCm[2];
+        return SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdead)), masp.committedCount());
     }
 
     /// Cancel straight at the pool, naming the adapter as payer. Kept out of
@@ -152,7 +145,8 @@ contract NativeAdapterTest is Test {
             ASSET_WETH,
             FEE_BPS,
             address(adapter),
-            submittedAt
+            submittedAt,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
     }
 
@@ -160,7 +154,7 @@ contract NativeAdapterTest is Test {
     function _deposit(address from, uint64 publicIn, uint256 value) internal returns (uint256 id) {
         vm.deal(from, value);
         vm.prank(from);
-        id = adapter.depositNative{ value: value }(_request(ASSET_WETH, publicIn), _aux1());
+        id = adapter.depositNative{ value: value }(_request(ASSET_WETH, publicIn), _aux1(), _aux1());
     }
 
     // --- deposit -----------------------------------------------------------
@@ -206,13 +200,13 @@ contract NativeAdapterTest is Test {
         emit NativeAdapter.NativeDeposited(0, DEPOSITOR, total, 5);
 
         vm.prank(DEPOSITOR);
-        adapter.depositNative{ value: total + 5 }(_request(ASSET_WETH, publicIn), _aux1());
+        adapter.depositNative{ value: total + 5 }(_request(ASSET_WETH, publicIn), _aux1(), _aux1());
     }
 
     function test_depositNative_revert_ZeroValue() public {
         vm.prank(DEPOSITOR);
         vm.expectRevert(NativeAdapter.ZeroValue.selector);
-        adapter.depositNative{ value: 0 }(_request(ASSET_WETH, 1), _aux1());
+        adapter.depositNative{ value: 0 }(_request(ASSET_WETH, 1), _aux1(), _aux1());
     }
 
     /// The adapter must be `payer`: it is the only address whose Permit2
@@ -223,7 +217,7 @@ contract NativeAdapterTest is Test {
         vm.deal(DEPOSITOR, 1 ether);
         vm.prank(DEPOSITOR);
         vm.expectRevert(NativeAdapter.AdapterNotPayer.selector);
-        adapter.depositNative{ value: 1 ether }(d, _aux1());
+        adapter.depositNative{ value: 1 ether }(d, _aux1(), _aux1());
     }
 
     /// A non-wrapped-native asset id cannot drain the wrap: the adapter holds
@@ -232,7 +226,7 @@ contract NativeAdapterTest is Test {
         vm.deal(DEPOSITOR, 1 ether);
         vm.prank(DEPOSITOR);
         vm.expectRevert();
-        adapter.depositNative{ value: 1 ether }(_request(ASSET_ERC20, 1), _aux1());
+        adapter.depositNative{ value: 1 ether }(_request(ASSET_ERC20, 1), _aux1(), _aux1());
     }
 
     // --- cancel ------------------------------------------------------------
@@ -249,7 +243,14 @@ contract NativeAdapterTest is Test {
         emit NativeAdapter.NativeRefunded(id, DEPOSITOR, total);
 
         adapter.cancelNative(
-            id, uint48(publicIn), bytes32(uint256(0x1)), [uint256(0), 0], ASSET_WETH, FEE_BPS, submittedAt
+            id,
+            uint48(publicIn),
+            bytes32(uint256(0x1)),
+            [uint256(0), 0],
+            ASSET_WETH,
+            FEE_BPS,
+            submittedAt,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
 
         assertEq(DEPOSITOR.balance, total, "funder made whole in native");
@@ -262,7 +263,14 @@ contract NativeAdapterTest is Test {
     function test_cancelNative_revert_NoEscrowRecord() public {
         vm.expectRevert(abi.encodeWithSelector(NativeAdapter.NoEscrowRecord.selector, uint256(7)));
         adapter.cancelNative(
-            7, 1, bytes32(uint256(0x1)), [uint256(0), 0], ASSET_WETH, FEE_BPS, uint32(vm.getBlockNumber())
+            7,
+            1,
+            bytes32(uint256(0x1)),
+            [uint256(0), 0],
+            ASSET_WETH,
+            FEE_BPS,
+            uint32(vm.getBlockNumber()),
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
     }
 
@@ -282,7 +290,14 @@ contract NativeAdapterTest is Test {
 
         // The adapter-driven path still settles it.
         adapter.cancelNative(
-            id, uint48(publicIn), bytes32(uint256(0x1)), [uint256(0), 0], ASSET_WETH, FEE_BPS, submittedAt
+            id,
+            uint48(publicIn),
+            bytes32(uint256(0x1)),
+            [uint256(0), 0],
+            ASSET_WETH,
+            FEE_BPS,
+            submittedAt,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
         assertEq(DEPOSITOR.balance, total, "funder paid out");
     }
@@ -307,7 +322,8 @@ contract NativeAdapterTest is Test {
             [uint256(0), 0],
             ASSET_WETH,
             FEE_BPS,
-            uint32(vm.getBlockNumber())
+            uint32(vm.getBlockNumber()),
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
         // Flush moves no coin out of the pool, so both deposits are still there.
         assertEq(weth.balanceOf(address(masp)), 2 * total, "the surviving escrow is untouched");
@@ -325,17 +341,18 @@ contract NativeAdapterTest is Test {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
         tpi.startIndex = startIndex;
-        tpi.actualCount = 1;
+        // Principal at slot 0, the relayer's fee note at slot 1. The builder
+        // escrows a zero-value fee note, so its leaf carries `publicIn = 0`.
+        tpi.actualCount = 2;
         tpi.cms[0] = bytes32(uint256(0x1));
         tpi.leafAsset[0] = ASSET_WETH;
         tpi.leafPublicIn[0] = publicIn;
         tpi.isDeposit[0] = 1;
-        masp.flushBatch(
-            ids,
-            meta,
-            MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] }),
-            tpi
-        );
+        tpi.cms[1] = bytes32(uint256(0xfee));
+        tpi.leafAsset[1] = ASSET_WETH;
+        tpi.leafPublicIn[1] = 0;
+        tpi.isDeposit[1] = 1;
+        masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
     }
 
     /// A stale record left by a flushed deposit must not hold up an ordinary
@@ -352,7 +369,14 @@ contract NativeAdapterTest is Test {
         vm.roll(vm.getBlockNumber() + masp.cancelDelay());
 
         adapter.cancelNative(
-            liveId, uint48(publicIn), bytes32(uint256(0x1)), [uint256(0), 0], ASSET_WETH, FEE_BPS, submittedAt
+            liveId,
+            uint48(publicIn),
+            bytes32(uint256(0x1)),
+            [uint256(0), 0],
+            ASSET_WETH,
+            FEE_BPS,
+            submittedAt,
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
 
         assertEq(address(0xCAFE).balance, total, "live escrow refunded");

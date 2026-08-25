@@ -153,11 +153,11 @@ classDiagram
 | [libs/AuxValidation.sol](libs/AuxValidation.sol) | Bounds and curve checks on per-output FMD payloads. |
 | [SnarkCompression.sol](SnarkCompression.sol) | Horner evaluation over the coefficient vector, mod the BN254 scalar field. |
 | [BabyJubJub.sol](BabyJubJub.sol) | On-curve and prime-order-subgroup checks on the twisted Edwards curve. |
-| [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `transact_3x3` (`Groth16Verifier`). **Not deployed** — provenance for the `VK1_*` constants and the differential-test oracle. |
+| [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `transact_4x4` (`Groth16Verifier`). **Not deployed** — provenance for the `VK1_*` constants and the differential-test oracle. |
 | [verifiers/TreeUpdateBatchVerifier.sol](verifiers/TreeUpdateBatchVerifier.sol) | snarkJS codegen for `tree_update_batch` (`TreeUpdateBatchGroth16Verifier`). |
 | [verifiers/VerifyingKeys.sol](verifiers/VerifyingKeys.sol) | The thirty verifying-key constants, lifted verbatim from the two codegen files, plus the `BATCH_DOMAIN` transcript separator. |
 | [verifiers/BatchedGroth16Verifier.sol](verifiers/BatchedGroth16Verifier.sol) | Hand-written assembly verifying both spend proofs in one pairing call. |
-| [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`. |
+| [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both adapters call, pinned to `MASP`'s selectors by `IMASPPool.t.sol`. |
 | [native/](native/) | `NativeAdapter`: wraps native coin into the deposit path and unwraps it out of the withdraw path. The pool itself is ERC-20 only. |
 | [swap/](swap/) | Atomic unshield → swap → re-shield wrapper and Uniswap v3 adapter. |
 
@@ -223,7 +223,7 @@ Owner sets `feeBps` (capped at `MAX_FEE_BPS = 2000`, i.e. 20%) and `treasury`. F
 
 `FeeConfig` also supplies the `ReentrancyGuardTransient` base used by every state-mutating entry point.
 
-The critical invariant: **escrowed principal is never counted as accrued fee.** A deposit locks `inAmt + fee` in the pool without touching `accruedFee`; the fee is accrued only when `flushBatch` commits the leaf; `cancelDeposit` refunds principal and fee together. A sweep can therefore never drain a depositor's refundable balance.
+The critical invariant: **escrowed principal is never counted as accrued fee.** A deposit locks `inAmt + fee + the relayer note's value` in the pool without touching `accruedFee`; only the treasury's `fee` is ever accrued, and only when `flushBatch` commits the leaves; `cancelDeposit` refunds all three together, since no leaf was minted and so nobody earned the relayer's share. The relayer's portion is never accrued at all — it stays pool principal, because the note minted against it is spendable only while the pool still holds the tokens behind it. A sweep can therefore never drain a depositor's refundable balance.
 
 ---
 
@@ -241,7 +241,7 @@ Defines the three public-input structs and the compression that turns each into 
 
 | Struct | Circuit | Coefficients |
 | --- | --- | --- |
-| `Transact` | `transact_3x3` | 42 = 32 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest |
+| `Transact` | `transact_4x4` | 53 = 40 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest |
 | `TreeUpdateBatch` | `tree_update_batch` | 28 = `4 + 6 × MAX_L_BATCH` |
 | `DepositRequest` | — (Permit2 witness only) | n/a |
 
@@ -312,7 +312,7 @@ Two submit variants differ only in how funds arrive:
 
 Native-coin deposits go through [`NativeAdapter.depositNative`](native/NativeAdapter.sol), which wraps `msg.value` and then drives `depositAuthorized` as its own payer — see [Native coin](#native-coin).
 
-For `deposit`, the signed `maxTotal` caps `inAmt + fee`, bounding any fee increase between signing and execution.
+For `deposit`, the signed `maxTotal` caps the whole pull — `inAmt + fee + the relayer note's value` — bounding any fee increase between signing and execution.
 
 The escrow ledger stores only a `bytes32` digest per id. The full preimage lives in the `DepositEscrowed` event; flush and cancel resupply it as calldata, and a single keccak equality binds every submit-time field — asset, amount, commitment, fee rate, payer, and block. A nonzero digest is the presence sentinel, and `delete` on drain is what rejects a repeated id within one batch.
 
@@ -325,9 +325,9 @@ sequenceDiagram
   participant Rl as Relayer
   participant TV as TreeUpdateBatchVerifier
 
-  U->>M: deposit(d, sig, aux)
+  U->>M: deposit(d, sig, aux, feeAux)
   M->>M: _validateDeposit (chainId, amount bounds,<br/>asset enabled, aux curve checks)
-  M->>P2: permitWitnessTransferFrom(inAmt + fee)
+  M->>P2: permitWitnessTransferFrom(inAmt + fee + relayerFee)
   P2-->>M: tokens
   M->>M: escrowed[id] = digest
   M-->>Rl: emit DepositEscrowed(id, ..., cvDep, rcv, aux)
@@ -345,7 +345,7 @@ sequenceDiagram
   M->>M: _advanceRoot(newRoot, n, oldRoot)
 ```
 
-Each deposit occupies exactly one leaf, so slot `i` is leaf `i` and a batch advances the tree by exactly `n` leaves — odd `n` included. The per-leaf Pedersen commitment `cvDep` pins `(asset, value)` directly, so there is no padding leaf whose split would be free.
+Each deposit occupies `LEAVES_PER_DEPOSIT` = 2 adjacent leaves — its principal and the note paying whoever flushes it — so deposit `i` owns leaves `2i` and `2i + 1`, and a batch advances the tree by `2n`. That also halves the ceiling: a batch holds `MAX_L_BATCH / LEAVES_PER_DEPOSIT` deposits, not `MAX_L_BATCH`. The per-leaf Pedersen commitment `cvDep` pins `(asset, value)` directly, and the circuit binds each leaf's `cvDep` to its own `leafPublicIn` independently, so there is no padding leaf whose split would be free.
 
 `cancelDeposit` pays only the digest-bound `payer`, and only after `cancelDelay` blocks (default 7200, owner-tunable within `[3600, 50400]`). Because `submittedAt` is part of the digest, the delay check runs on a value the caller cannot forge. The escrow slot is cleared before the transfer (checks-effects-interactions).
 
@@ -400,10 +400,10 @@ Token movement binds to `payer` and `recipient`, both public inputs, rather than
 ```mermaid
 flowchart TD
   subgraph SHIELD["Shield leg"]
-    S1["deposit*<br/>pull inAmt + fee"] --> S2["escrowed[id] = digest<br/>(no accrual)"]
+    S1["deposit*<br/>pull inAmt + fee + relayerFee"] --> S2["escrowed[id] = digest<br/>(no accrual)"]
     S2 --> S3{"outcome"}
     S3 -->|flushBatch| S4["_accrueFee(token, fee)<br/>once per unique token"]
-    S3 -->|cancelDeposit| S5["refund inAmt + fee<br/>to payer"]
+    S3 -->|cancelDeposit| S5["refund inAmt + fee + relayerFee<br/>to payer"]
   end
   subgraph UNSHIELD["Unshield leg"]
     W1["withdraw<br/>outAmt = publicOut * scale"] --> W2["fee = outAmt * feeBps / 10000"]

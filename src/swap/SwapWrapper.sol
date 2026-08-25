@@ -11,7 +11,7 @@ import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.so
 import { PubInputs } from "../libs/PubInputs.sol";
 import { AuxValidation } from "../libs/AuxValidation.sol";
 
-import { IMASPSwap } from "./IMASPSwap.sol";
+import { IMASPPool } from "../interfaces/IMASPPool.sol";
 import { ISwapAdapter } from "./ISwapAdapter.sol";
 
 /// Atomic shielded-swap wrapper. Three legs:
@@ -27,7 +27,7 @@ import { ISwapAdapter } from "./ISwapAdapter.sol";
 contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     using SafeERC20 for IERC20;
 
-    IMASPSwap public immutable POOL;
+    IMASPPool public immutable POOL;
     IAllowanceTransfer public immutable PERMIT2;
     address public treasury;
 
@@ -88,7 +88,10 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         // `publicOut * scale - fee`. The swap uses the balance-delta receipt,
         // not this value. Reverts `InsufficientWithdraw` if less arrives.
         uint256 amountIn;
-        uint256 minOut; // must equal deposit_d.publicIn * scale
+        // Floor on the pool's pull, which is `deposit_d.publicIn * scale` plus
+        // MASP's fee plus the relayer note's value — not `publicIn * scale`
+        // alone, as it was before deposits grew a second leaf.
+        uint256 minOut;
         // --- venue ---
         address adapter;
         bytes route;
@@ -96,19 +99,32 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         // forwards it to the adapter.
         uint256 deadline;
         // --- leg 1: withdraw A from MASP into the wrapper ---
-        IMASPSwap.Proof p_w;
+        IMASPPool.Proof p_w;
         PubInputs.Transact pi_w;
-        IMASPSwap.Proof tp_w;
+        IMASPPool.Proof tp_w;
         PubInputs.TreeUpdateBatch tpi_w;
-        AuxValidation.Output[3] aux_w;
+        AuxValidation.Output[4] aux_w;
         // --- leg 2: escrow B into MASP via Permit2 AllowanceTransfer ---
         PubInputs.DepositRequest deposit_d;
-        // One leaf per deposit, hence one aux payload; leg 1's withdraw carries
-        // one per transact output.
+        // The depositor's payload for the B note. Leg 1's withdraw carries one
+        // per transact output; a deposit carries one per deposit leaf, and
+        // there are two of those — see `fee_aux_d`.
         AuxValidation.Output aux_d;
+        // The relayer leaf's payload. Not optional and not zeroable: MASP runs
+        // it through `AuxValidation` like any other, so a zeroed struct reverts
+        // `CiphertextTooShort`, and `deposit_d.feeCm == 0` reverts `ZeroCm`.
+        // A deployment that does not want to pay a flush relayer sets
+        // `deposit_d.feeIn` to zero and still supplies a well-formed payload;
+        // the leaf is minted either way.
+        //
+        // Its value is funded by the caller on top of the escrowed principal,
+        // so it comes out of the slippage cushion `minOut` leaves behind —
+        // which is why `_escrowAndSettle` bounds the pull by `actualOut` rather
+        // than assuming it equals `minOut`.
+        AuxValidation.Output fee_aux_d;
     }
 
-    constructor(IMASPSwap pool, IAllowanceTransfer permit2, address owner_, address treasury_) Ownable(owner_) {
+    constructor(IMASPPool pool, IAllowanceTransfer permit2, address owner_, address treasury_) Ownable(owner_) {
         if (address(pool) == address(0)) revert ZeroAddress();
         if (address(permit2) == address(0)) revert ZeroAddress();
         if (treasury_ == address(0)) revert ZeroAddress();
@@ -240,7 +256,7 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         IERC20 outToken = IERC20(a.tokenOut);
 
         uint256 balanceBefore = outToken.balanceOf(address(this));
-        depositId = POOL.depositAuthorized(a.deposit_d, a.aux_d);
+        depositId = POOL.depositAuthorized(a.deposit_d, a.aux_d, a.fee_aux_d);
         uint256 pulled = balanceBefore - outToken.balanceOf(address(this));
         if (pulled > actualOut) revert MaspPullExceedsActualOut(actualOut, pulled);
         // Bounding the pull below by `minOut` constrains `deposit_d`: the
@@ -266,6 +282,11 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     /// recorded driver, not the caller. The digest preimage comes from the
     /// deposit's `DepositEscrowed` event, minus `payer` — always this wrapper.
     ///
+    /// `feeNote` is the relayer leaf's half of that preimage. The wrapper
+    /// cannot reconstruct it: MASP binds it at submit from caller-supplied
+    /// calldata and stores only the digest, so it has to come back in from the
+    /// event like every other preimage field.
+    ///
     /// Without this, an escrow that is never flushed is unrecoverable: MASP
     /// refunds the digest-bound payer, and a contract payer may only cancel its
     /// own deposit, so no other party can reach it.
@@ -281,7 +302,8 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         uint256[2] calldata cvDep,
         uint64 publicAssetId,
         uint16 fbps,
-        uint32 submittedAt
+        uint32 submittedAt,
+        PubInputs.FeeNote calldata feeNote
     ) external nonReentrant {
         Escrow memory e = escrows[depositId];
         if (e.refundTo == address(0)) revert NoEscrowRecord(depositId);
@@ -292,7 +314,7 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
 
         IERC20 token = IERC20(e.token);
         uint256 balanceBefore = token.balanceOf(address(this));
-        POOL.cancelDeposit(depositId, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt);
+        POOL.cancelDeposit(depositId, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt, feeNote);
         if (token.balanceOf(address(this)) - balanceBefore != e.amount) revert RefundNotFunded(depositId);
 
         token.safeTransfer(e.refundTo, e.amount);

@@ -14,6 +14,8 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
+import { SpendFixture } from "./utils/SpendFixture.sol";
+import { FixtureLoader } from "./utils/FixtureLoader.sol";
 
 /// Spend-path event emission. `AssetMoved` is emitted by the unshield entry
 /// points rather than the shared note-emit helper, so these tests fix which
@@ -79,8 +81,8 @@ contract MASPSpendEventsTest is Test {
         vm.mockCall(address(tubVerifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        for (uint256 j = 0; j < 3; j++) {
+    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+        for (uint256 j = 0; j < aux.length; j++) {
             aux[j].clueRx = BabyJubJub.BASE8_X;
             aux[j].clueRy = BabyJubJub.BASE8_Y;
             aux[j].ephPubX = BabyJubJub.BASE8_X;
@@ -90,7 +92,7 @@ contract MASPSpendEventsTest is Test {
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
+        return FixtureLoader.emptyProof();
     }
 
     function _spend(uint64 publicOut)
@@ -105,21 +107,10 @@ contract MASPSpendEventsTest is Test {
         pi.recipient = RECIPIENT;
         pi.payer = PAYER;
         pi.relayer = RELAYER;
-        pi.nullifier[0] = bytes32(uint256(0x1111));
-        pi.nullifier[1] = bytes32(uint256(0x2222));
-        pi.nullifier[2] = bytes32(uint256(0x2223));
-        pi.outCm[0] = bytes32(uint256(0x3333));
-        pi.outCm[1] = bytes32(uint256(0x4444));
-        pi.outCm[2] = bytes32(uint256(0x4445));
+        SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
         pi.merkleRoot = genesis;
 
-        tpi.oldRoot = genesis;
-        tpi.newRoot = bytes32(uint256(0xABCD));
-        tpi.startIndex = 0;
-        tpi.actualCount = 3;
-        tpi.cms[0] = pi.outCm[0];
-        tpi.cms[1] = pi.outCm[1];
-        tpi.cms[2] = pi.outCm[2];
+        tpi = SpendFixture.batchFor(pi, genesis, bytes32(uint256(0xABCD)), 0);
     }
 
     /// `withdraw` reports the gross unshielded amount, before the pool fee, as
@@ -186,7 +177,7 @@ contract MASPSpendEventsTest is Test {
     /// with the per-leaf `NotePayload` events: leaf `k` sits at
     /// `startIndex + k`. Nothing in the events states the index directly, so
     /// the mapping rests entirely on emission order and count. A wrong index
-    /// yields a bad Merkle path and an unspendable note, and at the 3x3 shape
+    /// yields a bad Merkle path and an unspendable note, and at the 4x4 shape
     /// a mis-mapping misplaces three leaves rather than two.
     ///
     /// This pins the whole indexer contract for a spend: how many events of

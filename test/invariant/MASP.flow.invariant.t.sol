@@ -12,11 +12,11 @@ import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockERC1271 } from "../mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
+import { SpendFixture } from "../utils/SpendFixture.sol";
 
 /// Whole-flow invariant for the MASP deposit / batch / cancel / sweep
 /// state machine. The existing per-slice invariants
@@ -88,22 +88,8 @@ contract MaspFlowHandler is Test {
         lastNewRoot = genesis;
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        aux[0].clueRx = BabyJubJub.BASE8_X;
-        aux[0].clueRy = BabyJubJub.BASE8_Y;
-        aux[0].ephPubX = BabyJubJub.BASE8_X;
-        aux[0].ephPubY = BabyJubJub.BASE8_Y;
-        aux[0].ciphertext = hex"0001";
-        aux[1].clueRx = BabyJubJub.BASE8_X;
-        aux[1].clueRy = BabyJubJub.BASE8_Y;
-        aux[1].ephPubX = BabyJubJub.BASE8_X;
-        aux[1].ephPubY = BabyJubJub.BASE8_Y;
-        aux[1].ciphertext = hex"0001";
-        aux[2].clueRx = BabyJubJub.BASE8_X;
-        aux[2].clueRy = BabyJubJub.BASE8_Y;
-        aux[2].ephPubX = BabyJubJub.BASE8_X;
-        aux[2].ephPubY = BabyJubJub.BASE8_Y;
-        aux[2].ciphertext = hex"0001";
+    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+        return SpendFixture.validAux();
     }
 
     function submit(uint64 publicIn) external {
@@ -122,12 +108,13 @@ contract MaspFlowHandler is Test {
         d.payer = payer;
         d.recipient = address(0xb0b);
         d.outCm = bytes32(uint256(0x1000 + _nonce));
+        d.feeCm = bytes32(uint256(0xfee));
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
         });
 
-        uint256 id = masp.deposit(d, sig, _aux()[0]);
+        uint256 id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
         allIds.push(id);
         status[id] = Status.Pending;
         principalAt[id] = inAmt;
@@ -187,7 +174,15 @@ contract MaspFlowHandler is Test {
         uint256[2] memory zCv;
         // forge-lint: disable-next-line(unsafe-typecast)
         masp.cancelDeposit(
-            id, preimagePublicIn[id], preimageCm0[id], zCv, ASSET_ID, FEE_BPS, payer, uint32(submitBlock[id])
+            id,
+            preimagePublicIn[id],
+            preimageCm0[id],
+            zCv,
+            ASSET_ID,
+            FEE_BPS,
+            payer,
+            uint32(submitBlock[id]),
+            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: zCv })
         );
 
         // Cancel-delay assertion: must have waited at least cancelDelay

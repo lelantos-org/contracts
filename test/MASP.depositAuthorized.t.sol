@@ -13,10 +13,10 @@ import { IVerifier } from "../src/interfaces/IVerifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
+import { SpendFixture } from "./utils/SpendFixture.sol";
 
 /// `depositAuthorized` — Permit2 AllowanceTransfer-based deposit.
 /// Tests use `IAllowanceTransfer.approve` from the payer to set up the
@@ -78,24 +78,11 @@ contract MASPDepositAuthorizedTest is Test {
         d.payer = payerAddr;
         d.recipient = recipient;
         d.outCm = keccak256(abi.encode(salt, "cm0"));
+        d.feeCm = bytes32(uint256(0xfee));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        aux[0].clueRx = BabyJubJub.BASE8_X;
-        aux[0].clueRy = BabyJubJub.BASE8_Y;
-        aux[0].ephPubX = BabyJubJub.BASE8_X;
-        aux[0].ephPubY = BabyJubJub.BASE8_Y;
-        aux[0].ciphertext = hex"0001";
-        aux[1].clueRx = BabyJubJub.BASE8_X;
-        aux[1].clueRy = BabyJubJub.BASE8_Y;
-        aux[1].ephPubX = BabyJubJub.BASE8_X;
-        aux[1].ephPubY = BabyJubJub.BASE8_Y;
-        aux[1].ciphertext = hex"0001";
-        aux[2].clueRx = BabyJubJub.BASE8_X;
-        aux[2].clueRy = BabyJubJub.BASE8_Y;
-        aux[2].ephPubX = BabyJubJub.BASE8_X;
-        aux[2].ephPubY = BabyJubJub.BASE8_Y;
-        aux[2].ciphertext = hex"0001";
+    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+        return SpendFixture.validAux();
     }
 
     function _total(uint64 publicIn) internal pure returns (uint256) {
@@ -118,10 +105,10 @@ contract MASPDepositAuthorizedTest is Test {
         uint256 poolBefore = token.balanceOf(address(masp));
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
 
         vm.prank(payer);
-        uint256 id = masp.depositAuthorized(d, aux[0]);
+        uint256 id = masp.depositAuthorized(d, aux[0], aux[1]);
 
         assertEq(id, 0);
         assertEq(token.balanceOf(address(masp)) - poolBefore, total, "MASP credited");
@@ -135,17 +122,17 @@ contract MASPDepositAuthorizedTest is Test {
         token.mint(payer, total * 4);
         _setupAllowance(uint160(total * 3), uint48(block.timestamp + 1 days));
 
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
         for (uint256 i; i < 3; i++) {
             PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(i + 1));
             vm.prank(payer);
-            masp.depositAuthorized(d, aux[0]);
+            masp.depositAuthorized(d, aux[0], aux[1]);
         }
         // Fourth deposit must fail: allowance exhausted.
         PubInputs.DepositRequest memory d4 = _request(amt, payer, bytes32(uint256(4)));
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.InsufficientAllowance.selector, uint160(0)));
-        masp.depositAuthorized(d4, aux[0]);
+        masp.depositAuthorized(d4, aux[0], aux[1]);
     }
 
     function testRevertsOnExpiredAllowance() public {
@@ -158,11 +145,11 @@ contract MASPDepositAuthorizedTest is Test {
         vm.warp(uint256(exp) + 1);
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(exp)));
-        masp.depositAuthorized(d, aux[0]);
+        masp.depositAuthorized(d, aux[0], aux[1]);
     }
 
     function testRevertsOnSenderNotPayer() public {
@@ -172,12 +159,12 @@ contract MASPDepositAuthorizedTest is Test {
         _setupAllowance(uint160(total), uint48(block.timestamp + 1 days));
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
 
         address other = address(0xdead);
         vm.prank(other);
         vm.expectRevert(MASP.PayerNotSender.selector);
-        masp.depositAuthorized(d, aux[0]);
+        masp.depositAuthorized(d, aux[0], aux[1]);
     }
 
     function testRevertsOnNoAllowance() public {
@@ -186,10 +173,10 @@ contract MASPDepositAuthorizedTest is Test {
         // No allowance set up.
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[3] memory aux = _aux();
+        AuxValidation.Output[4] memory aux = _aux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(0)));
-        masp.depositAuthorized(d, aux[0]);
+        masp.depositAuthorized(d, aux[0], aux[1]);
     }
 }

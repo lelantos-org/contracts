@@ -3,16 +3,16 @@ pragma solidity 0.8.30;
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
-import { IMASPNative } from "../../src/native/IMASPNative.sol";
+import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockWETH9 } from "./MockWETH9.sol";
 
-/// Misbehaving `IMASPNative` for `NativeAdapter` guard coverage. Real MASP
+/// Misbehaving `IMASPPool` for `NativeAdapter` guard coverage. Real MASP
 /// cannot produce these responses — a deposit always pulls, and a cancel
 /// always refunds the full escrowed total — so the adapter's guards against
 /// them are only reachable through a stand-in pool.
-contract MockNativePool is IMASPNative {
+contract MockNativePool is IMASPPool {
     IAllowanceTransfer public immutable PERMIT2;
     MockWETH9 public immutable WETH;
 
@@ -46,19 +46,28 @@ contract MockNativePool is IMASPNative {
         return escrowDigest;
     }
 
-    function depositAuthorized(PubInputs.DepositRequest calldata, AuxValidation.Output calldata)
-        external
-        returns (uint256 id)
-    {
+    function depositAuthorized(
+        PubInputs.DepositRequest calldata,
+        AuxValidation.Output calldata,
+        AuxValidation.Output calldata
+    ) external returns (uint256 id) {
         if (pullAmount != 0) {
             PERMIT2.transferFrom(msg.sender, address(this), pullAmount, address(WETH));
         }
         id = nextId++;
     }
 
-    function cancelDeposit(uint256, uint48, bytes32, uint256[2] calldata, uint64, uint16, address payer, uint32)
-        external
-    {
+    function cancelDeposit(
+        uint256,
+        uint48,
+        bytes32,
+        uint256[2] calldata,
+        uint64,
+        uint16,
+        address payer,
+        uint32,
+        PubInputs.FeeNote calldata
+    ) external {
         if (refundAmount != 0) WETH.transfer(payer, refundAmount);
     }
 
@@ -67,6 +76,6 @@ contract MockNativePool is IMASPNative {
         PubInputs.Transact calldata,
         Proof calldata,
         PubInputs.TreeUpdateBatch calldata,
-        AuxValidation.Output[3] calldata
+        AuxValidation.Output[4] calldata
     ) external { }
 }

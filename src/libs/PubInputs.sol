@@ -7,12 +7,12 @@ import { AuxValidation } from "./AuxValidation.sol";
 /// Public-input structs and Fiat-Shamir compression. Layouts must match the
 /// circuit-side PolyEval coefficient orders word-for-word.
 library PubInputs {
-    /// Shielded inputs and outputs of `transact_3x3.circom`. Changing either
+    /// Shielded inputs and outputs of `transact_4x4.circom`. Changing either
     /// requires a new circuit, a new ceremony, and a new verifier.
-    uint256 internal constant TRANSACT_IN = 3;
-    uint256 internal constant TRANSACT_OUT = 3;
+    uint256 internal constant TRANSACT_IN = 4;
+    uint256 internal constant TRANSACT_OUT = 4;
 
-    /// `transact_3x3.circom` public signals: 32 struct words, then
+    /// `transact_4x4.circom` public signals: 40 struct words, then
     /// `3 * TRANSACT_OUT` clue coefficients and the aux digest, all derived in
     /// `compress`. `outCvDep` is the per-output Pedersen value commitment
     /// anchoring (asset, value) into the leaf; it is forwarded into
@@ -36,9 +36,10 @@ library PubInputs {
     /// MAX_L of `tree_update_batch.circom`. The coefficient vector is
     /// `4 + 6*MAX_L_BATCH = 28`; drift breaks the circuit-to-contract binding.
     ///
-    /// 4 is the circuit's floor: `COUNT_BITS` requires a power of two, and a
-    /// spend emits `TRANSACT_OUT` = 3 leaves that must fit one batch. A wider
-    /// transact shape requires a new ceremony.
+    /// 4 is both the circuit's floor and, at the 4x4 transact shape, an exact
+    /// fit: `COUNT_BITS` requires a power of two, and a spend emits
+    /// `TRANSACT_OUT` = 4 leaves that must fit one batch. A transact shape
+    /// wider than 4 outputs requires a new `tree_update_batch` ceremony.
     uint256 internal constant MAX_L_BATCH = 4;
 
     /// `tree_update_batch.circom` public inputs. Layout:
@@ -61,9 +62,19 @@ library PubInputs {
         uint8[MAX_L_BATCH] isDeposit;
     }
 
-    /// Depositor-signed payload, bound via the Permit2 witness. A deposit
-    /// occupies exactly one leaf, whose Pedersen commitment `cvDep` the batch
-    /// circuit pins to `publicIn` units of `publicAssetId` under blinder `rcv`.
+    /// Depositor-signed payload, bound via the Permit2 witness.
+    ///
+    /// A deposit occupies **two** leaves: the depositor's note, and a note
+    /// paying the relayer that flushes it. Each is pinned by the batch circuit
+    /// independently — `cvDep` to `publicIn` units under `rcv`, and `feeCvDep`
+    /// to `feeIn` units under `feeRcv` — because the circuit's deposit binding
+    /// is per leaf, not aggregate.
+    ///
+    /// Paying the relayer with a note rather than an on-chain amount keeps its
+    /// identity and the fee off the event, and makes the fee unstealable:
+    /// `flushBatch` is permissionless, so anything payable to `msg.sender`
+    /// could be taken by whoever front-runs the batch its assembler paid a
+    /// Groth16 to build.
     struct DepositRequest {
         /// Full-width, matching `Transact.chainId`. Both encode to a single ABI
         /// word, so the Permit2 witness preimage is identical either way. The
@@ -77,6 +88,37 @@ library PubInputs {
         bytes32 outCm;
         uint256[2] cvDep;
         uint256 rcv;
+        /// Relayer fee note, in the same asset as the deposit.
+        ///
+        /// `feeIn` may be zero: a deployment that subsidises deposits still
+        /// mints the leaf, so there is one code path rather than two. The leaf
+        /// is spent either way, which is why a batch holds two deposits.
+        uint64 feeIn;
+        bytes32 feeCm;
+        uint256[2] feeCvDep;
+        uint256 feeRcv;
+    }
+
+    /// Leaves one deposit occupies: the depositor's note and the relayer's.
+    uint256 internal constant LEAVES_PER_DEPOSIT = 2;
+
+    /// The relayer's leaf as it appears in the escrow digest, and therefore in
+    /// every call that must resupply that preimage — `flushBatch` and
+    /// `cancelDeposit`, plus the adapters that forward to them.
+    ///
+    /// Distinct from `DepositRequest`'s fee fields, which are the *submitted*
+    /// form: `feeIn` is narrowed to `uint48` here (the digest's width, enforced
+    /// at submit) and `feeRcv` is absent, since the blinder is published in the
+    /// event rather than bound into the digest.
+    ///
+    /// Fully static, so `abi.encode`ing this struct produces the same bytes as
+    /// the three fields inline. That is what lets it replace them in
+    /// `_depositDigest` without moving any digest already in storage;
+    /// `MASPDepositTest.test_happy_pullsFundsAndEscrows` pins it.
+    struct FeeNote {
+        uint48 feeIn;
+        bytes32 feeCm;
+        uint256[2] feeCvDep;
     }
 
     /// Coefficient-vector lengths. Both structs are fully static, so their ABI
@@ -84,10 +126,10 @@ library PubInputs {
     /// which the calldata `compress` overloads rely. `PubInputs.t.sol` pins that
     /// equivalence against the `memory` reference paths.
     /// `1 + TRANSACT_IN + TRANSACT_OUT + 3 + 2*TRANSACT_IN + 2*TRANSACT_OUT
-    /// + 4 + 2*TRANSACT_OUT = 32` at the 3x3 shape.
-    uint256 private constant TRANSACT_CALLDATA_WORDS = 32;
+    /// + 4 + 2*TRANSACT_OUT = 40` at the 4x4 shape.
+    uint256 private constant TRANSACT_CALLDATA_WORDS = 40;
     /// Struct words, then `(clueRx, clueRy, clueBits)` per output, then the
-    /// aux digest: `9 + 3*TRANSACT_IN + 8*TRANSACT_OUT = 42`.
+    /// aux digest: `9 + 3*TRANSACT_IN + 8*TRANSACT_OUT = 53`.
     uint256 internal constant TRANSACT_COEFFS = TRANSACT_CALLDATA_WORDS + 3 * TRANSACT_OUT + 1;
     uint256 private constant BATCH_COEFFS = 4 + 6 * MAX_L_BATCH;
 
@@ -100,8 +142,8 @@ library PubInputs {
 
     // ================= calldata fast paths ===================================
 
-    /// `compress(Transact)` read directly from calldata. Words [0..31] are
-    /// copied verbatim; [32..41] are derived from `aux`. Avoids the
+    /// `compress(Transact)` read directly from calldata. Words [0..39] are
+    /// copied verbatim; [40..52] are derived from `aux`. Avoids the
     /// calldata-to-memory ABI decode of the struct and the `abi.encode` copy
     /// performed by `_finalize`.
     function compress(Transact calldata pi, AuxValidation.Output[TRANSACT_OUT] calldata aux)
@@ -126,18 +168,18 @@ library PubInputs {
 
         // Re-clean sub-word members: raw calldata may carry dirty high bits that
         // a typed member read would have masked off. Word indices follow the
-        // 3x3 layout: [7..9] the three uint64 publics, [22] recipient,
-        // [24] payer, [25] relayer.
+        // 4x4 layout: [9..11] the three uint64 publics, [28] recipient,
+        // [30] payer, [31] relayer.
         assembly ("memory-safe") {
-            let p := add(d, 0xe0) // [7] publicAssetId, [8] publicIn, [9] publicOut
+            let p := add(d, 0x120) // [9] publicAssetId, [10] publicIn, [11] publicOut
             mstore(p, and(mload(p), MASK_U64))
             p := add(p, 0x20)
             mstore(p, and(mload(p), MASK_U64))
             p := add(p, 0x20)
             mstore(p, and(mload(p), MASK_U64))
-            p := add(d, 0x2c0) // [22] recipient
+            p := add(d, 0x380) // [28] recipient
             mstore(p, and(mload(p), MASK_U160))
-            p := add(d, 0x300) // [24] payer, [25] relayer
+            p := add(d, 0x3c0) // [30] payer, [31] relayer
             mstore(p, and(mload(p), MASK_U160))
             p := add(p, 0x20)
             mstore(p, and(mload(p), MASK_U160))
@@ -237,10 +279,10 @@ library PubInputs {
     // independently of the calldata fast paths above. Not used on-chain;
     // `PubInputs.t.sol` fuzzes `compressRef == compress` to detect drift.
 
-    /// Pack `Transact` into `TRANSACT_COEFFS = 42` coefficients and derive
+    /// Pack `Transact` into `TRANSACT_COEFFS = 53` coefficients and derive
     /// `(y, z)`. Written as a cursor walk rather than fixed indices, so the
     /// layout is what the reference asserts. Order matches the
-    /// `transact_3x3.circom` PolyEval.
+    /// `transact_4x4.circom` PolyEval.
     function compressRef(Transact memory pi, AuxValidation.Output[TRANSACT_OUT] calldata aux)
         internal
         pure

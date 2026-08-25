@@ -23,7 +23,7 @@ contract PubInputsHarness {
         return PubInputs.compressRef(m);
     }
 
-    function transact(PubInputs.Transact calldata pi, AuxValidation.Output[3] calldata aux)
+    function transact(PubInputs.Transact calldata pi, AuxValidation.Output[4] calldata aux)
         external
         pure
         returns (uint256[2] memory)
@@ -31,7 +31,7 @@ contract PubInputsHarness {
         return PubInputs.compress(pi, aux);
     }
 
-    function transactRef(PubInputs.Transact calldata pi, AuxValidation.Output[3] calldata aux)
+    function transactRef(PubInputs.Transact calldata pi, AuxValidation.Output[4] calldata aux)
         external
         pure
         returns (uint256[2] memory)
@@ -132,8 +132,8 @@ contract PubInputsTest is Test {
             }
         }
 
-        AuxValidation.Output[3] memory aux;
-        for (uint256 j = 0; j < 3; j++) {
+        AuxValidation.Output[4] memory aux;
+        for (uint256 j = 0; j < aux.length; j++) {
             aux[j].clueRx = uint256(keccak256(abi.encode(cvSeed, "rx", j))) % R;
             aux[j].clueRy = uint256(keccak256(abi.encode(cvSeed, "ry", j))) % R;
             aux[j].ciphertext = abi.encodePacked(uint16(0x0123), bytes32(cvSeed));

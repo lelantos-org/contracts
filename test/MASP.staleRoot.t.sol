@@ -11,11 +11,12 @@ import { MASP } from "../src/MASP.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
 import { AuxValidation } from "../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../src/BabyJubJub.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MASPSpendHarness } from "./utils/MASPSpendHarness.sol";
 import { CommitmentTree } from "../src/CommitmentTree.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
+import { SpendFixture } from "./utils/SpendFixture.sol";
+import { FixtureLoader } from "./utils/FixtureLoader.sol";
 
 /// Root ring-buffer eviction: a spend using a root that has been evicted from
 /// the 64-slot ring buffer must revert with `UnknownRoot`.
@@ -53,26 +54,12 @@ contract MASPStaleRootTest is Test {
         );
     }
 
-    function _validAux() internal pure returns (AuxValidation.Output[3] memory aux) {
-        aux[0].clueRx = BabyJubJub.BASE8_X;
-        aux[0].clueRy = BabyJubJub.BASE8_Y;
-        aux[0].ephPubX = BabyJubJub.BASE8_X;
-        aux[0].ephPubY = BabyJubJub.BASE8_Y;
-        aux[0].ciphertext = hex"0001";
-        aux[1].clueRx = BabyJubJub.BASE8_X;
-        aux[1].clueRy = BabyJubJub.BASE8_Y;
-        aux[1].ephPubX = BabyJubJub.BASE8_X;
-        aux[1].ephPubY = BabyJubJub.BASE8_Y;
-        aux[1].ciphertext = hex"0001";
-        aux[2].clueRx = BabyJubJub.BASE8_X;
-        aux[2].clueRy = BabyJubJub.BASE8_Y;
-        aux[2].ephPubX = BabyJubJub.BASE8_X;
-        aux[2].ephPubY = BabyJubJub.BASE8_Y;
-        aux[2].ciphertext = hex"0001";
+    function _validAux() internal pure returns (AuxValidation.Output[4] memory aux) {
+        return SpendFixture.validAux();
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
+        return FixtureLoader.emptyProof();
     }
 
     /// Advance the ring buffer `ROOT_HISTORY` times with distinct roots so
@@ -100,22 +87,11 @@ contract MASPStaleRootTest is Test {
         pi.recipient = RECIPIENT;
         pi.payer = PAYER;
         pi.relayer = RELAYER;
-        pi.nullifier[0] = bytes32(uint256(1));
-        pi.nullifier[1] = bytes32(uint256(2));
-        pi.nullifier[2] = bytes32(uint256(3));
-        pi.outCm[0] = bytes32(uint256(3));
-        pi.outCm[1] = bytes32(uint256(4));
-        pi.outCm[2] = bytes32(uint256(5));
+        SpendFixture.fillOutputs(pi, 1, 3);
         pi.merkleRoot = genesis; // evicted — no longer known
 
-        PubInputs.TreeUpdateBatch memory tpi;
-        tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xdead));
-        tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 3;
-        tpi.cms[0] = pi.outCm[0];
-        tpi.cms[1] = pi.outCm[1];
-        tpi.cms[2] = pi.outCm[2];
+        PubInputs.TreeUpdateBatch memory tpi =
+            SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdead)), masp.committedCount());
 
         vm.prank(RELAYER);
         vm.expectRevert(MASP.UnknownRoot.selector);
