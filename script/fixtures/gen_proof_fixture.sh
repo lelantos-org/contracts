@@ -18,13 +18,13 @@
 #
 # Fetch them first (they are not in the npm tarball):
 #
-#   gh release download v0.10.0 --repo lelantos-org/circuits -D <dir> \
+#   gh release download v0.11.2 --repo lelantos-org/circuits -D <dir> \
 #     -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
 #
 # then point RELEASE at <dir> and CIRCUITS at a circuits checkout (for the
 # vectors and the snarkjs binary):
 #
-#   RELEASE=/path/to/rel092 CIRCUITS=../circuits \
+#   RELEASE=/path/to/rel0112 CIRCUITS=../circuits \
 #     script/fixtures/gen_proof_fixture.sh tree_update_batch
 #
 # Groth16 proving is randomized, so a refresh produces a different but equally
@@ -60,7 +60,7 @@ esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CIRCUITS="$(cd "${CIRCUITS:-$HERE/../circuits}" && pwd)"
-RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of v0.10.0 release assets}" && pwd)"
+RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of v0.11.2 release assets}" && pwd)"
 
 VECTOR="$CIRCUITS/vectors/$VECTOR_NAME"
 SNARKJS="$CIRCUITS/node_modules/.bin/snarkjs"
