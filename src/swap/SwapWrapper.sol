@@ -88,9 +88,8 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         // `publicOut * scale - fee`. The swap uses the balance-delta receipt,
         // not this value. Reverts `InsufficientWithdraw` if less arrives.
         uint256 amountIn;
-        // Floor on the pool's pull, which is `deposit_d.publicIn * scale` plus
-        // MASP's fee plus the relayer note's value — not `publicIn * scale`
-        // alone, as it was before deposits grew a second leaf.
+        // Floor on the pool's pull: `deposit_d.publicIn * scale`, plus MASP's
+        // fee, plus the relayer note's value.
         uint256 minOut;
         // --- venue ---
         address adapter;
@@ -106,9 +105,8 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         AuxValidation.Output[4] aux_w;
         // --- leg 2: escrow B into MASP via Permit2 AllowanceTransfer ---
         PubInputs.DepositRequest deposit_d;
-        // The depositor's payload for the B note. Leg 1's withdraw carries one
-        // per transact output; a deposit carries one per deposit leaf, and
-        // there are two of those — see `fee_aux_d`.
+        // The depositor's payload for the B note. A deposit carries one payload
+        // per leaf and occupies two; the second is `fee_aux_d`.
         AuxValidation.Output aux_d;
         // The relayer leaf's payload. Not optional and not zeroable: MASP runs
         // it through `AuxValidation` like any other, so a zeroed struct reverts
@@ -117,10 +115,9 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         // `deposit_d.feeIn` to zero and still supplies a well-formed payload;
         // the leaf is minted either way.
         //
-        // Its value is funded by the caller on top of the escrowed principal,
-        // so it comes out of the slippage cushion `minOut` leaves behind —
-        // which is why `_escrowAndSettle` bounds the pull by `actualOut` rather
-        // than assuming it equals `minOut`.
+        // Its value is funded on top of the escrowed principal, out of the
+        // slippage cushion `minOut` leaves behind, so `_escrowAndSettle` bounds
+        // the pull by `actualOut` and not by `minOut`.
         AuxValidation.Output fee_aux_d;
     }
 
@@ -197,10 +194,9 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         (depositId, dust) = _escrowAndSettle(a, actualOut);
 
         // Donation-tolerant leftover invariant: the pre-swap balances must be
-        // untouched. The drift is reported as a magnitude, since a balance below
-        // the snapshot violates the invariant just as one above does and a
-        // fixed-direction subtraction would underflow before the error could be
-        // raised.
+        // untouched. Drift is reported as a magnitude, since a balance below the
+        // snapshot violates the invariant as much as one above, and a
+        // fixed-direction subtraction would underflow.
         uint256 leftIn = inToken.balanceOf(address(this));
         if (leftIn != inBefore) revert LeftoverBalance(a.tokenIn, _absDiff(leftIn, inBefore));
         uint256 leftOut = outToken.balanceOf(address(this));
@@ -292,8 +288,8 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     /// own deposit, so no other party can reach it.
     ///
     /// The refund is attributed by balance delta across the pool call, which is
-    /// sound precisely because the wrapper must be the one making it. A deposit
-    /// that is already settled was flushed and has no refund to forward.
+    /// sound because the wrapper is necessarily the caller. A deposit that is
+    /// already settled was flushed and has no refund to forward.
     // slither-disable-next-line reentrancy-balance
     function cancelEscrow(
         uint256 depositId,

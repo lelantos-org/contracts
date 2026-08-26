@@ -11,13 +11,13 @@ abstract contract NullifierSet {
     error DoubleSpend();
     error DuplicateNullifier();
 
-    /// True iff `nf` has been spent.
+    /// Whether `nf` has been spent.
     function spent(bytes32 nf) external view returns (bool) {
         uint256 n = uint256(nf);
         return (_spentBuckets[n >> 8] >> (n & 0xff)) & 1 != 0;
     }
 
-    /// Mark `nf` spent in the packed bitmap. Reverts on a double-spend.
+    /// Marks `nf` spent. Reverts with `DoubleSpend` if it is already set.
     function _consumeNullifier(bytes32 nf) internal {
         uint256 n = uint256(nf);
         uint256 bucketIdx = n >> 8;

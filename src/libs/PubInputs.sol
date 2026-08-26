@@ -36,10 +36,10 @@ library PubInputs {
     /// MAX_L of `tree_update_batch.circom`. The coefficient vector is
     /// `4 + 6*MAX_L_BATCH = 28`; drift breaks the circuit-to-contract binding.
     ///
-    /// 4 is both the circuit's floor and, at the 4x4 transact shape, an exact
-    /// fit: `COUNT_BITS` requires a power of two, and a spend emits
-    /// `TRANSACT_OUT` = 4 leaves that must fit one batch. A transact shape
-    /// wider than 4 outputs requires a new `tree_update_batch` ceremony.
+    /// 4 is the circuit's floor and an exact fit at the 4x4 transact shape:
+    /// `COUNT_BITS` requires a power of two, and a spend emits `TRANSACT_OUT`
+    /// = 4 leaves that must fit one batch. A wider transact shape requires a
+    /// new `tree_update_batch` ceremony.
     uint256 internal constant MAX_L_BATCH = 4;
 
     /// `tree_update_batch.circom` public inputs. Layout:
@@ -64,22 +64,19 @@ library PubInputs {
 
     /// Depositor-signed payload, bound via the Permit2 witness.
     ///
-    /// A deposit occupies **two** leaves: the depositor's note, and a note
-    /// paying the relayer that flushes it. Each is pinned by the batch circuit
-    /// independently — `cvDep` to `publicIn` units under `rcv`, and `feeCvDep`
-    /// to `feeIn` units under `feeRcv` — because the circuit's deposit binding
-    /// is per leaf, not aggregate.
+    /// A deposit occupies two leaves: the depositor's note, and a note paying
+    /// the relayer that flushes it. The circuit's deposit binding is per leaf,
+    /// so each is pinned independently — `cvDep` to `publicIn` units under
+    /// `rcv`, `feeCvDep` to `feeIn` units under `feeRcv`.
     ///
-    /// Paying the relayer with a note rather than an on-chain amount keeps its
-    /// identity and the fee off the event, and makes the fee unstealable:
-    /// `flushBatch` is permissionless, so anything payable to `msg.sender`
-    /// could be taken by whoever front-runs the batch its assembler paid a
-    /// Groth16 to build.
+    /// Paying the relayer in a note keeps its identity and the fee amount off
+    /// the event, and makes the fee unstealable: `flushBatch` is
+    /// permissionless, so an on-chain amount payable to `msg.sender` could be
+    /// claimed by whoever front-runs the assembled batch.
     struct DepositRequest {
-        /// Full-width, matching `Transact.chainId`. Both encode to a single ABI
-        /// word, so the Permit2 witness preimage is identical either way. The
-        /// wider type also makes dirty high bits fail the `!= block.chainid`
-        /// gate rather than being masked before it.
+        /// Full width, matching `Transact.chainId`, and one ABI word in the
+        /// Permit2 witness preimage. Dirty high bits fail the `!= block.chainid`
+        /// gate instead of being masked off by a narrower type.
         uint256 chainId;
         uint64 publicAssetId;
         uint64 publicIn;
@@ -90,9 +87,8 @@ library PubInputs {
         uint256 rcv;
         /// Relayer fee note, in the same asset as the deposit.
         ///
-        /// `feeIn` may be zero: a deployment that subsidises deposits still
-        /// mints the leaf, so there is one code path rather than two. The leaf
-        /// is spent either way, which is why a batch holds two deposits.
+        /// `feeIn` may be zero; a deployment that subsidises deposits still
+        /// mints the leaf, so a deposit always occupies two leaves.
         uint64 feeIn;
         bytes32 feeCm;
         uint256[2] feeCvDep;
@@ -106,15 +102,14 @@ library PubInputs {
     /// every call that must resupply that preimage — `flushBatch` and
     /// `cancelDeposit`, plus the adapters that forward to them.
     ///
-    /// Distinct from `DepositRequest`'s fee fields, which are the *submitted*
-    /// form: `feeIn` is narrowed to `uint48` here (the digest's width, enforced
-    /// at submit) and `feeRcv` is absent, since the blinder is published in the
-    /// event rather than bound into the digest.
+    /// Distinct from `DepositRequest`'s fee fields, which are the submitted
+    /// form: `feeIn` is narrowed here to `uint48`, the digest's width, enforced
+    /// at submit; `feeRcv` is absent, as the blinder is published in the event
+    /// and not bound into the digest.
     ///
-    /// Fully static, so `abi.encode`ing this struct produces the same bytes as
-    /// the three fields inline. That is what lets it replace them in
-    /// `_depositDigest` without moving any digest already in storage;
-    /// `MASPDepositTest.test_happy_pullsFundsAndEscrows` pins it.
+    /// Fully static, so `abi.encode` of this struct yields the same bytes as
+    /// the three fields encoded inline. `MASPDepositTest.test_happy_pullsFundsAndEscrows`
+    /// pins that encoding.
     struct FeeNote {
         uint48 feeIn;
         bytes32 feeCm;
@@ -201,12 +196,11 @@ library PubInputs {
             }
         }
 
-        // Final slot binds the whole encrypted-note payload. The clue fields
-        // above are per-output but leave `ephPub` and `ciphertext` unbound, so
-        // without this a relayer could keep the clue intact — the proof still
-        // verifies and the recipient's FMD scan still flags the note — while
-        // corrupting the payload beyond recovery. Recomputed here rather than
-        // read from calldata, so it cannot be forged.
+        // Final slot binds the whole encrypted-note payload. The per-output
+        // clue fields above leave `ephPub` and `ciphertext` unbound, so without
+        // it a relayer could corrupt the payload beyond recovery while leaving
+        // the clue — and therefore the proof and the recipient's FMD scan —
+        // intact. Recomputed here, never read from calldata.
         uint256 digest = auxDigest(aux);
         uint256 digestSlot = d + AUX_DIGEST_SLOT * 0x20;
         assembly ("memory-safe") {
@@ -279,10 +273,9 @@ library PubInputs {
     // independently of the calldata fast paths above. Not used on-chain;
     // `PubInputs.t.sol` fuzzes `compressRef == compress` to detect drift.
 
-    /// Pack `Transact` into `TRANSACT_COEFFS = 53` coefficients and derive
-    /// `(y, z)`. Written as a cursor walk rather than fixed indices, so the
-    /// layout is what the reference asserts. Order matches the
-    /// `transact_4x4.circom` PolyEval.
+    /// Packs `Transact` into `TRANSACT_COEFFS = 53` coefficients and derives
+    /// `(y, z)`. A cursor walk, so the layout itself is what the reference
+    /// asserts. Order matches the `transact_4x4.circom` PolyEval.
     function compressRef(Transact memory pi, AuxValidation.Output[TRANSACT_OUT] calldata aux)
         internal
         pure
@@ -325,8 +318,8 @@ library PubInputs {
         return _finalize(s);
     }
 
-    /// Pack `TreeUpdateBatch` into `4 + 6*MAX_L_BATCH = 28` coefficients and
-    /// derive `(y, z)`. Order matches `tree_update_batch.circom`.
+    /// Packs `TreeUpdateBatch` into `4 + 6*MAX_L_BATCH = 28` coefficients and
+    /// derives `(y, z)`. Order matches `tree_update_batch.circom`.
     function compressRef(TreeUpdateBatch memory tpi) internal pure returns (uint256[2] memory) {
         uint256 n = 4 + 6 * MAX_L_BATCH;
         // Allocated uninitialized; every slot [0..n-1] is written below.

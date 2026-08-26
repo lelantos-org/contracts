@@ -63,8 +63,8 @@ contract UniV3Adapter is ISwapAdapter {
     }
 
     /// Approve, swap, then reset. The trailing reset to zero keeps tokens that
-    /// reject non-zero to non-zero approval changes, such as USDT, usable on the
-    /// next swap.
+    /// reject non-zero-to-non-zero approval changes, such as USDT, usable on
+    /// the next swap.
     function swap(
         address tokenIn,
         address tokenOut,

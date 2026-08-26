@@ -26,9 +26,9 @@ import { IMASPPool } from "../interfaces/IMASPPool.sol";
 /// * `withdrawNative` — drive `MASP.withdraw` with the adapter as `recipient`,
 ///   then unwrap and forward the proceeds to `pi.payer`.
 ///
-/// Every amount is measured as a balance delta across the pool call: neither the
-/// deposit fee nor the withdraw fee is visible here, and mirroring MASP's fee
-/// math would drift whenever `feeBps` changes.
+/// Every amount is measured as a balance delta across the pool call. MASP's
+/// deposit and withdraw fees are not visible here, and a mirrored fee
+/// calculation would drift whenever `feeBps` changes.
 ///
 /// Ownerless and permissionless. All authority comes from the SNARK public
 /// inputs (`pi.payer` names the native recipient on the spend side) or from the
@@ -106,7 +106,7 @@ contract NativeAdapter is ReentrancyGuardTransient {
     /// adapter learns nothing the pool does not.
     ///
     /// `msg.value` above the pool's pull (deposit amount plus fee) is unwrapped
-    /// and returned, so callers may overshoot rather than mirror the fee math.
+    /// and returned, so a caller may overshoot instead of computing the fee.
     ///
     /// @return id MASP-assigned deposit id.
     // slither-disable-next-line reentrancy-balance
@@ -128,16 +128,15 @@ contract NativeAdapter is ReentrancyGuardTransient {
         // A non-wrapped-native asset id cannot reach here: the adapter holds no
         // other token and permits none, so the pull would revert.
         uint256 pulled = balanceBefore + msg.value - weth.balanceOf(address(this));
-        // Exact zero is a presence test on a measured delta — "the pool took
-        // nothing" — not arithmetic on an attacker-movable quantity. A partial
-        // pull is caught by the record and by the ceiling check below.
+        // Exact zero is a presence test on a measured delta, not arithmetic on
+        // an attacker-movable quantity. A partial pull is caught by the record
+        // and by the ceiling check below.
         // slither-disable-next-line incorrect-equality
         if (pulled == 0) revert NothingEscrowed();
         // The Permit2 allowance to the pool is unbounded and covers this
-        // contract's whole balance, so a caller who oversizes `d.publicIn` could
-        // otherwise escrow refunds parked here for other depositors into a note
-        // of their own. Stated as an explicit invariant rather than relying on
-        // the `returned` subtraction below to underflow.
+        // contract's whole balance, so without this bound a caller who oversizes
+        // `d.publicIn` could escrow refunds parked here for other depositors
+        // into a note of their own.
         if (pulled > msg.value) revert PullExceedsValue(pulled, msg.value);
 
         escrows[id] = Escrow({ refundTo: msg.sender, amount: pulled });
@@ -157,10 +156,9 @@ contract NativeAdapter is ReentrancyGuardTransient {
     /// — that is always this adapter.
     ///
     /// The refund is attributed by the wrapped-balance delta across the pool
-    /// call, which is sound because the adapter is necessarily the one making
-    /// it: MASP refuses a cancel of a contract payer's deposit from any other
-    /// sender. A deposit that is already settled was therefore flushed, and has
-    /// no refund to forward.
+    /// call. MASP refuses a cancel of a contract payer's deposit from any other
+    /// sender, so the adapter is necessarily the caller; a deposit that is
+    /// already settled was flushed and has no refund to forward.
     // slither-disable-next-line reentrancy-balance
     function cancelNative(
         uint256 id,
@@ -197,9 +195,8 @@ contract NativeAdapter is ReentrancyGuardTransient {
     ///
     /// The native coin goes to `pi.payer`, a public input of the proof that
     /// carries no other constraint on the spend path. Binding the destination to
-    /// the proof rather than to a calldata argument keeps the call
-    /// permissionless for relayers while leaving no field a front-runner could
-    /// repoint.
+    /// the proof keeps the call permissionless for relayers and leaves no field
+    /// a front-runner could repoint.
     ///
     /// @return net Native coin forwarded, i.e. the unshield net of MASP's fee.
     // slither-disable-next-line reentrancy-balance
@@ -218,9 +215,9 @@ contract NativeAdapter is ReentrancyGuardTransient {
         POOL.withdraw(p, pi, tp, tpi, aux);
         net = weth.balanceOf(address(this)) - balanceBefore;
         // A zero delta means the spend was denominated in another asset, which
-        // the pool has pushed here as a token this contract cannot return.
-        // Revert so the unshield never happens. Exact zero is a presence test
-        // on a measured delta: any nonzero value is coin this call unshielded.
+        // the pool has pushed here as a token this contract cannot return; the
+        // revert undoes the unshield. Exact zero is a presence test on a
+        // measured delta: any nonzero value is coin this call unshielded.
         // slither-disable-next-line incorrect-equality
         if (net == 0) revert NothingUnshielded();
 

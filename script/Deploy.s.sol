@@ -3,22 +3,15 @@ pragma solidity 0.8.30;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { MASP } from "../src/MASP.sol";
-import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
-import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatchVerifier.sol";
-
-import { NativeAdapter } from "../src/native/NativeAdapter.sol";
-
 import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 
 /// Mainnet (or any non-ephemeral chain) deploy. Deploys only the contracts
-/// owned by this repo: `Groth16Verifier`, `TreeUpdateBatchGroth16Verifier`,
-/// `MASP`, and — when `wrappedNative` is configured — `NativeAdapter`.
-/// All external dependencies — Permit2, the chain's wrapped native coin
-/// (WETH/WBNB/etc.), and the registered ERC20 tokens — are
-/// passed in via a JSON config (`MAINNET_CONFIG`, default
-/// `script/config/mainnet.json`). Refuses to run if any required address
-/// has no code at deploy time.
+/// owned by this repo: `TreeUpdateBatchGroth16Verifier`,
+/// `BatchedGroth16Verifier`, `MASP`, and, when `wrappedNative` is configured,
+/// `NativeAdapter`. External dependencies — Permit2, the chain's wrapped native
+/// coin, and the registered ERC-20 tokens — come from a JSON config
+/// (`MAINNET_CONFIG`, default `script/config/mainnet.json`). Reverts if any
+/// required address has no code at deploy time.
 ///
 /// Config schema:
 ///   {
@@ -33,9 +26,9 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 ///   }
 ///
 /// Scale guidance: `publicIn = baseUnits / scale` must fit `uint48` (~2.81e14).
-/// 18-decimal tokens require `scale >= 1e10` (cap ≈ 2.8M tokens); 6/8-decimal
-/// tokens fit with `scale = 1`. Notes commit value in circuit units, so scale
-/// is immutable for the lifetime of any held note — set correctly at deploy.
+/// 18-decimal tokens require `scale >= 1e10` (cap ~2.8M tokens); 6- and
+/// 8-decimal tokens fit with `scale = 1`. Notes commit value in circuit units,
+/// so an asset's scale is fixed for the lifetime of every note held in it.
 contract Deploy is BaseDeploy {
     string constant DEFAULT_CONFIG = "script/config/mainnet.json";
 

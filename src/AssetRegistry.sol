@@ -54,9 +54,8 @@ abstract contract AssetRegistry is Ownable {
         return _assets[id];
     }
 
-    /// Existence check for paths that move no tokens. `token` and `disabled`
-    /// share slot 0, so this reads one slot where `_getAsset` reads two: `scale`
-    /// occupies slot 1 and costs a second cold SLOAD.
+    /// Existence check for paths that move no tokens. Reads only slot 0, shared
+    /// by `token` and `disabled`; `_getAsset` also loads `scale` from slot 1.
     function _requireAssetKnown(uint64 id) internal view {
         if (address(_assets[id].token) == address(0)) revert UnknownAsset(id);
     }

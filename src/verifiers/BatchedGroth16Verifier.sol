@@ -151,7 +151,7 @@ contract BatchedGroth16Verifier is IBatchVerifier {
                 return(0x00, 0x20)
             }
 
-            // dst := s * (x, y). `dst` must not alias `s`crAtch.
+            // dst := s * (x, y). `dst` must not alias `scratch`.
             function g1Mul(x, y, s, dst, scratch) {
                 mstore(scratch, x)
                 mstore(add(scratch, 0x20), y)
@@ -177,8 +177,7 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // The transcript is the calldata body verbatim. Without this check a
             // caller could append arbitrary trailing bytes and resample `r2` for
             // an otherwise fixed instance. Each resample still costs a ~2^254
-            // search, so this is not closing an attack — it removes the sampling
-            // oracle outright, and it costs 3 gas.
+            // search; the check removes the sampling oracle outright for 3 gas.
             // ---------------------------------------------------------------
             if iszero(eq(calldatasize(), CD_LEN)) { reject() }
 
@@ -198,11 +197,9 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // `a1.y` is the one word that reaches no precompile unreduced: it is
             // negated below, and `mod(sub(q, v), q)` maps both `v` and `v + q` to
             // the same point, so two encodings of one instance would hash to two
-            // different transcripts. Harmless at this scale — a couple of free
-            // resamples against a 2^254 search — but pinning it makes the
-            // transcript a strict function of the instance. Every other
-            // coordinate is rejected unreduced by ECMUL or by the pairing
-            // precompile.
+            // different transcripts. Pinning it makes the transcript a strict
+            // function of the instance. Every other coordinate is rejected
+            // unreduced by ECMUL or by the pairing precompile.
             let a1y := calldataload(0x24)
             if iszero(lt(a1y, SNARK_Q)) { reject() }
 
@@ -231,7 +228,7 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             //   PI_i = IC0_i + y_i * IC1_i + z_i * IC2_i
             //
             // These two blocks are the only place the per-circuit IC constants
-            // appear. They are kept textually parallel on purpose.
+            // appear, and are kept textually parallel.
             // ---------------------------------------------------------------
 
             // transact_4x4
@@ -266,14 +263,13 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // point at infinity the product is `(0, 0)` and `mod(sub(q, 0), q)`
             // preserves it.
             //
-            // This order is load-bearing, and it is the reason `a2.y` needs no
-            // counterpart to the `a1.y` range check above: the raw `a2.y` never
-            // reaches an arithmetic op, so an unreduced encoding is rejected by
-            // ECMUL rather than folded to a canonical point. Swapping the two
-            // lines — negating the calldata `y` and then multiplying — would
-            // make two encodings of one instance hash to two transcripts and
-            // hand a prover free `r2` resamples. Add the `lt(a2y, SNARK_Q)`
-            // check before ever reordering this.
+            // The order is significant, and is why `a2.y` needs no counterpart
+            // to the `a1.y` range check above: the raw `a2.y` never reaches an
+            // arithmetic op, so an unreduced encoding is rejected by ECMUL
+            // instead of being folded to a canonical point. Negating the
+            // calldata `y` before multiplying would make two encodings of one
+            // instance hash to two transcripts and hand a prover free `r2`
+            // resamples; add an `lt(a2y, SNARK_Q)` check before reordering.
             g1Mul(calldataload(0x144), calldataload(0x164), r2, add(pair, 0xc0), scr)
             mstore(add(pair, 0xe0), mod(sub(SNARK_Q, mload(add(pair, 0xe0))), SNARK_Q))
             calldatacopy(add(pair, 0x100), 0x184, 0x80)
@@ -304,8 +300,8 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             mstore(add(pair, 0x380), VK1_DELTA_Y1)
             mstore(add(pair, 0x3a0), VK1_DELTA_Y2)
 
-            // Pair 5 — (r2 * C_2, delta_2). Distinct deltas are exactly why the
-            // C terms cannot fold and the batch is six pairs rather than five.
+            // Pair 5 — (r2 * C_2, delta_2). Distinct deltas are why the C terms
+            // cannot fold, making the batch six pairs rather than five.
             g1Mul(calldataload(0x204), calldataload(0x224), r2, add(pair, 0x3c0), scr)
             mstore(add(pair, 0x400), VK2_DELTA_X1)
             mstore(add(pair, 0x420), VK2_DELTA_X2)

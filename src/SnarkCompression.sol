@@ -26,10 +26,9 @@ library SnarkCompression {
     /// without the per-element bounds check; the caller owns the region.
     /// Reverts `CoefficientOutOfField` if any word is `>= R`.
     function evaluatePolyAtRaw(uint256 dataPtr, uint256 length, uint256 z) internal pure returns (uint256 y) {
-        // Loop control dominates, since MULMOD and ADDMOD are 8 gas each, so the
-        // body is unrolled by two and the field check reverts in place rather
-        // than setting a flag for a post-loop branch. Both on-chain coefficient
-        // vectors (42 and 28) are even.
+        // MULMOD and ADDMOD cost 8 gas each, so loop control dominates: the body
+        // is unrolled by two and the field check reverts in place. Both on-chain
+        // coefficient vectors (42 and 28) have even length.
         uint256 errSel = uint256(uint32(CoefficientOutOfField.selector)) << 224;
         assembly ("memory-safe") {
             let r := R

@@ -13,14 +13,13 @@ import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 import { NativeAdapter } from "../../src/native/NativeAdapter.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
-import { Groth16Verifier } from "../../src/verifiers/Verifier.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 
-/// Shared MASP-core deploy + KEY=value logging for `Deploy.s.sol` and
-/// `DeployTest.s.sol`. Abstract `Script` (not library) — helpers call
-/// `vm.*` cheatcodes which libraries cannot access.
+/// Shared MASP-core deploy and KEY=value logging for `Deploy.s.sol` and
+/// `DeployTest.s.sol`. An abstract `Script` rather than a library, as the
+/// helpers use `vm.*` cheatcodes.
 abstract contract BaseDeploy is Script {
     struct MaspParams {
         address permit2;
@@ -36,8 +35,8 @@ abstract contract BaseDeploy is Script {
     }
 
     /// The contracts one core deploy produces. A struct rather than a return
-    /// tuple: every member is a plain address at the log boundary, where a
-    /// positional list would be mis-orderable without a compiler error.
+    /// tuple: every member is a plain address at the log boundary, where
+    /// positional ordering would not be compiler-checked.
     struct MaspCore {
         TreeUpdateBatchGroth16Verifier tubVerifier;
         BatchedGroth16Verifier spendVerifier;

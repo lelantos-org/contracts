@@ -12,9 +12,9 @@ import { MockSwapRouter02 } from "../test/swap/mocks/MockSwapRouter02.sol";
 import { BaseSwapDeploy } from "./base/BaseSwapDeploy.s.sol";
 
 /// Test/anvil swap stack: deploys `MockQuoterV2`, `MockSwapRouter02`,
-/// `UniV3Adapter`, `SwapWrapper`, then seeds the linear-rate table across
-/// the 4 UniV3 fee tiers. Run AFTER `DeployTest.s.sol` — reads its
-/// KEY=value output via env vars.
+/// `UniV3Adapter` and `SwapWrapper`, then seeds the linear-rate table across
+/// the four UniV3 fee tiers. Run after `DeployTest.s.sol`, whose KEY=value
+/// output supplies the env vars below.
 ///
 /// Required env (populated from DeployTest output):
 ///   MASP                — MASP address
@@ -50,10 +50,9 @@ contract DeployTestSwap is BaseSwapDeploy {
         MockSwapRouter02 r = new MockSwapRouter02();
         (UniV3Adapter a, SwapWrapper w) = _deploySwapStack(masp, permit2, address(r), owner, treasury);
 
-        // Linear-rate seeding for every directed pair across all 4 UniV3
-        // fee tiers. Output scales with amountIn so the demo UI shows
-        // sensible numbers ("1 WETH → ~3000 mDAI"). Real DEX behaviour
-        // (price impact, tier divergence) intentionally skipped.
+        // Linear-rate seeding for every directed pair across all four UniV3 fee
+        // tiers. Output scales with `amountIn`, so the demo UI shows plausible
+        // numbers; price impact and per-tier divergence are not modelled.
         uint24[4] memory fees = [uint24(100), uint24(500), uint24(3000), uint24(10000)];
         uint256 gasEstimate = 80_000;
         for (uint256 i; i < tokens.length; ++i) {
@@ -81,12 +80,11 @@ contract DeployTestSwap is BaseSwapDeploy {
         console2.log(string.concat("SWAP_WRAPPER=", vm.toString(wrapper)));
     }
 
-    /// Per-pair linear rate `amountOut(1e18 amountIn) = ratePer1e18`.
-    /// Indexes match the asset_registry fixture: 0=WETH(18), 1=mDAI(18),
-    /// 2=mWBTC(8). Logical prices: 1 ETH = 3000 DAI; 1 ETH = 0.05 BTC;
-    /// 1 BTC = 60000 DAI. Rates account for the WETH/mDAI vs mWBTC
-    /// decimals delta (10×) so a natural-language input ("1.0 WETH")
-    /// yields the headline output.
+    /// Per-pair linear rate `amountOut(1e18 amountIn) = ratePer1e18`. Indices
+    /// match the asset_registry fixture: 0 = WETH (18), 1 = mDAI (18),
+    /// 2 = mWBTC (8). Modelled prices: 1 ETH = 3000 DAI, 1 ETH = 0.05 BTC,
+    /// 1 BTC = 60000 DAI, adjusted for the decimals delta between mWBTC and the
+    /// 18-decimal tokens.
     function _swapRate(uint256 fromIdx, uint256 toIdx) private pure returns (uint256) {
         if (fromIdx == 0 && toIdx == 1) return 3_000e18; // WETH → mDAI
         if (fromIdx == 1 && toIdx == 0) return 333_333_333_333_333; // mDAI → WETH

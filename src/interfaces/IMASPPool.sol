@@ -6,18 +6,12 @@ import { AuxValidation } from "../libs/AuxValidation.sol";
 
 /// The MASP surface the adapters call.
 ///
-/// One interface, not one per adapter. `NativeAdapter` and `SwapWrapper` need
-/// exactly the same four functions, and for as long as each kept its own
-/// hand-written copy the two were free to disagree — which they did: the swap
-/// copy was left on the pre-fee-note `cancelDeposit`, and because a stale
-/// interface is a wrong selector at runtime rather than a build failure,
-/// `SwapWrapper.cancelEscrow` compiled cleanly while being unable to dispatch
-/// against the deployed pool at all.
-///
-/// Solidity still cannot check a hand-written interface against the contract it
-/// describes, so a single copy only narrows the exposure. `IMASPPoolTest` pins
-/// every selector below against `MASP`'s, which closes it: a signature that
-/// moves in one place and not the other fails the suite instead of the deploy.
+/// `NativeAdapter` and `SwapWrapper` require the same four functions and share
+/// this declaration. Solidity does not check a hand-written interface against
+/// the contract it describes, and a mismatched signature is a wrong selector at
+/// runtime rather than a compile error, so `IMASPPoolTest` pins every selector
+/// below against `MASP`'s: a signature that changes in one place and not the
+/// other fails the test suite.
 interface IMASPPool {
     struct Proof {
         uint256[2] a;

@@ -34,20 +34,20 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     using PubInputs for PubInputs.TreeUpdateBatch;
 
     /// Verifier for `tree_update_batch.circom` (MAX_L = `PubInputs.MAX_L_BATCH`).
-    /// Used by `flushBatch`, which carries a lone tree-update proof. A spend's
-    /// tree-update proof is checked by `SPEND_VERIFIER` instead.
+    /// Used by `flushBatch`, which carries a lone tree-update proof; a spend's
+    /// tree-update proof is checked by `SPEND_VERIFIER`.
     ///
-    /// The "batch" here is a batch of leaves, not the batched pairing
+    /// "Batch" here denotes a batch of leaves, not the batched pairing
     /// `SPEND_VERIFIER` performs.
     IVerifier public immutable TREE_UPDATE_BATCH_VERIFIER;
 
     /// Checks the `(transact_4x4, tree_update_batch)` proof pair a spend
-    /// carries, in one BN254 pairing call. Argument order is load-bearing:
+    /// carries, in one BN254 pairing call. Argument order is significant:
     /// transact first, tree-update second.
     ///
     /// This is the entirety of a spend's proof check; the pool holds no
     /// standalone `transact_4x4` verifier. Attributing a rejection to one of
-    /// the two proofs is a submitter-side concern, handled off-chain.
+    /// the two proofs is done off-chain.
     IBatchVerifier public immutable SPEND_VERIFIER;
 
     /// Width of the per-token fee accumulators in `flushBatch`. Solidity does
@@ -151,10 +151,9 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         uint256 ephPubX,
         uint256 ephPubY,
         bytes ciphertext,
-        // The relayer's fee note. Non-indexed: all three topic slots are
-        // already taken, and a relayer finds its note by trial decryption
-        // rather than by filtering, so indexing would buy nothing and would
-        // publish who is being paid.
+        // The relayer's fee note. Non-indexed: the three topic slots are
+        // taken, and a relayer locates its note by trial decryption, so
+        // indexing would publish who is paid without aiding lookup.
         uint64 feeIn,
         bytes32 feeCm,
         uint256 feeCvDepX,
@@ -270,9 +269,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         if (pi.publicOut != 0) revert MustNotHaveWithdraw();
         _validateRequest(pi, tpi, aux);
         // No tokens move, so neither `token` nor `scale` is read; only the
-        // registry existence check applies. `_requireAssetKnown` touches slot 0
-        // alone, avoiding the cold SLOAD of the `scale` slot performed by
-        // `_getAsset`.
+        // registry existence check applies.
         _requireAssetKnown(pi.publicAssetId);
         _finalize(p, pi, tp, tpi, aux);
         _emitNotes(pi, aux);
@@ -411,11 +408,10 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     /// mirror the per-deposit payloads in `ids` order; the circuit enforces
     /// `isDeposit` on active slots and zeros for padding.
     ///
-    /// A deposit occupies `LEAVES_PER_DEPOSIT` adjacent leaves — its principal
-    /// and the note paying whoever flushes it — so deposit `i` owns leaves `2i`
-    /// and `2i + 1`, and the batch advances the tree by `2n`. That also halves
-    /// the ceiling: `MAX_L_BATCH / LEAVES_PER_DEPOSIT` deposits, not
-    /// `MAX_L_BATCH`.
+    /// A deposit occupies `LEAVES_PER_DEPOSIT` adjacent leaves, its principal
+    /// and the note paying whoever flushes it: deposit `i` owns leaves `2i` and
+    /// `2i + 1`, and the batch advances the tree by `2n`. One batch therefore
+    /// holds `MAX_L_BATCH / LEAVES_PER_DEPOSIT` deposits.
     function flushBatch(
         uint256[] calldata ids,
         DepositMeta[] calldata meta,
@@ -456,8 +452,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     /// Batch-level header checks: size, count alignment, tree position.
     ///
     /// `n` counts deposits; the batch commits `LEAVES_PER_DEPOSIT * n` leaves,
-    /// because each deposit mints the depositor's note and the relayer's fee
-    /// note. That halves how many deposits fit one batch.
+    /// as each deposit mints the depositor's note and the relayer's fee note.
     function _validateBatchHeader(uint256 n, PubInputs.TreeUpdateBatch calldata tpi) private view {
         uint256 leaves = n * PubInputs.LEAVES_PER_DEPOSIT;
         if (n == 0 || leaves > PubInputs.MAX_L_BATCH) revert BadBatchSize();
@@ -567,12 +562,10 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
                 feeBpsAtSubmit,
                 payer,
                 submittedAt,
-                // The relayer's leaf is bound here for the same reason the
-                // depositor's is: `flushBatch` supplies both from calldata, so
-                // without this a flusher could mint itself an arbitrary note.
-                //
-                // `FeeNote` is static, so this encodes to the same four words
-                // its fields did inline; the preimage is unchanged.
+                // The relayer's leaf is bound like the depositor's:
+                // `flushBatch` supplies both from calldata, so without this a
+                // flusher could mint itself an arbitrary note. `FeeNote` is
+                // static and encodes to four words in place.
                 fee
             )
         );
@@ -596,14 +589,13 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     /// equality binds every value to submit time.
     ///
     /// Permissionless for EOA payers: `deposit` is Permit2-signature based, so
-    /// a payer may be an address that never sends a transaction and depends on
-    /// a relayer to cancel for it. A *contract* payer is different — it can
-    /// always transact for itself, and it is the party that must observe the
-    /// refund arriving, since the coin is returned to it rather than to whoever
-    /// funded it. `NativeAdapter` is exactly that: settled by a third party, its
-    /// refund lands on the adapter with nothing left on-chain to distinguish it
-    /// from a flushed deposit, stranding the funder's claim. Requiring contract
-    /// payers to drive their own cancel removes that state entirely.
+    /// a payer may be an address that never sends a transaction and relies on a
+    /// relayer to cancel for it. Contract payers must call this themselves.
+    /// They can always transact for themselves, and the refund is returned to
+    /// the payer rather than to whoever funded it, so the payer is the party
+    /// that must observe it arriving. `NativeAdapter` is such a payer: a refund
+    /// landing on it through a third-party call leaves nothing on-chain to
+    /// distinguish it from a flushed deposit, stranding the funder's claim.
     function cancelDeposit(
         uint256 id,
         uint48 publicIn,
@@ -633,9 +625,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
 
         AssetEntry memory a = _getAsset(publicAssetId);
         (uint256 inAmt, uint256 fee) = _computeAmounts(uint256(publicIn), a.scale, uint256(fbps));
-        // The relayer's portion refunds with everything else: no leaf was
-        // minted, so nobody earned it. Omitting it would take money from the
-        // payer that no one received.
+        // The relayer's portion refunds with the rest: no leaf was minted, so
+        // the fee was never earned.
         uint256 total = inAmt + fee + _relayerAmount(uint256(feeNote.feeIn), a.scale);
 
         // CEI: clear escrow before external transfer.
@@ -659,10 +650,10 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
 
     /// Token amount backing the relayer's fee note.
     ///
-    /// Unlike the treasury fee this is never accrued: it stays pool principal,
-    /// because a shielded note is only spendable while the pool still holds the
-    /// tokens behind it. It is charged on top of `inAmt + fee`, so the payer
-    /// funds it and treasury revenue is untouched.
+    /// Never accrued, unlike the treasury fee: it stays pool principal, since a
+    /// shielded note is spendable only while the pool holds the tokens behind
+    /// it. Charged on top of `inAmt + fee`, so the payer funds it and treasury
+    /// revenue is unaffected.
     function _relayerAmount(uint256 feeIn, uint256 scale) private pure returns (uint256) {
         return feeIn * scale;
     }
@@ -725,9 +716,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         if (pi.recipient == address(0)) revert ZeroRecipient();
         if (pi.payer == address(0)) revert ZeroPayer();
         if (pi.relayer != msg.sender) revert BadRelayer();
-        // Pairwise across all inputs: a single `[0] != [1]` check would let a
-        // caller repeat a nullifier in a later slot and spend one note twice
-        // within the same transaction.
+        // Pairwise across all inputs: a nullifier repeated in any two slots
+        // would spend one note twice within a single transaction.
         for (uint256 a = 0; a < PubInputs.TRANSACT_IN; ++a) {
             for (uint256 b = a + 1; b < PubInputs.TRANSACT_IN; ++b) {
                 if (pi.nullifier[a] == pi.nullifier[b]) revert DuplicateNullifier();
@@ -767,12 +757,10 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
 
     /// Reverts unless `bv` answers `verifyBatch`.
     ///
-    /// The slot is immutable and a wrong address fails closed, so every spend
-    /// would revert with nothing identifying the cause. An address without a
-    /// matching `verifyBatch` reverts into the `catch`.
-    ///
-    /// The return value is ignored: this establishes the interface, not the
-    /// verdict on the probe instance.
+    /// The slot is immutable and a wrong address fails closed, which would make
+    /// every spend revert with nothing identifying the cause. An address without
+    /// a matching `verifyBatch` reverts into the `catch`. The return value is
+    /// ignored: the probe establishes the interface, not a verdict.
     function _probeSpendVerifier(IBatchVerifier bv) private view {
         // Zero-valued probe arguments; memory is already zeroed.
         // slither-disable-next-line uninitialized-local
@@ -796,9 +784,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     ///
     /// The call must stay high-level with these exact static parameters:
     /// `BatchedGroth16Verifier` pins `calldatasize` to `4 + 20 * 32` and hashes
-    /// that calldata verbatim as its transcript. Slot order is load-bearing —
+    /// that calldata verbatim as its transcript. Slot order is significant:
     /// transact first, tree-update second.
-    ///
     function _verifyProofs(
         Proof calldata p,
         PubInputs.Transact calldata pi,

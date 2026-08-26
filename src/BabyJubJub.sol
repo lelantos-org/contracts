@@ -21,7 +21,7 @@ library BabyJubJub {
         return x == 0 && y == 1;
     }
 
-    /// True iff (x, y) lies on Baby-Jubjub. Does not check subgroup membership.
+    /// Whether (x, y) lies on Baby-Jubjub. Subgroup membership is not checked.
     function isOnCurve(uint256 x, uint256 y) internal pure returns (bool) {
         if (x >= P || y >= P) return false;
         uint256 xx = mulmod(x, x, P);
@@ -31,10 +31,10 @@ library BabyJubJub {
         return lhs == rhs;
     }
 
-    /// True iff (x, y) has order dividing the cofactor 8, i.e. the identity or a
-    /// small-subgroup point. The caller must have checked `isOnCurve` first.
-    /// Rejecting these points blocks small-subgroup attacks on FMD clues, and
-    /// backs the equivalent in-circuit constraint.
+    /// Whether (x, y) has order dividing the cofactor 8: the identity or a
+    /// small-subgroup point. Requires an on-curve input; callers must run
+    /// `isOnCurve` first. Rejecting these points blocks small-subgroup attacks
+    /// on FMD clues and mirrors the equivalent in-circuit constraint.
     function isLowOrder(uint256 x, uint256 y) internal pure returns (bool) {
         if (isIdentity(x, y)) return true;
         // Three projective doublings. The formula is complete on Baby-Jubjub

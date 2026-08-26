@@ -11,12 +11,12 @@ pragma solidity 0.8.30;
 // `Verifier.sol` is not deployed. It is the provenance of the `VK1_*` constants
 // below and the oracle in `test/BatchedGroth16Verifier.t.sol`.
 //
-// `alpha`, `beta` and `gamma` are **shared**: both circuits were set up against
-// the same `powersOfTau28_hez_final_16.ptau`, so alpha and beta are the same
+// `alpha`, `beta` and `gamma` are shared: both circuits were set up against the
+// same `powersOfTau28_hez_final_16.ptau`, so alpha and beta are the same
 // ptau-derived points, and snarkjs always fixes gamma to the G2 generator. Only
-// `delta` and the `IC` points are per-circuit. That sharing is what lets the
-// batched verifier fold the two `e(alpha, beta)` terms into one and the two
-// `e(PI_i, gamma)` terms into one — six pairings instead of eight.
+// `delta` and the `IC` points are per-circuit. That sharing lets the batched
+// verifier fold the two `e(alpha, beta)` terms into one and the two
+// `e(PI_i, gamma)` terms into one: six pairings instead of eight.
 //
 // These are declared at file level, not as library members, because inline
 // assembly can reference a file-level or contract-level `constant` of value type
