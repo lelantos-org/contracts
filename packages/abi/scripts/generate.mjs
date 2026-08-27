@@ -37,6 +37,7 @@ const CONTRACTS = [
     { source: "src/native/NativeAdapter.sol", contract: "NativeAdapter", export: "nativeAdapterAbi" },
     { source: "src/swap/SwapWrapper.sol", contract: "SwapWrapper", export: "swapWrapperAbi" },
     { source: "src/swap/UniV3Adapter.sol", contract: "UniV3Adapter", export: "uniV3AdapterAbi" },
+    { source: "src/swap/UniV4Adapter.sol", contract: "UniV4Adapter", export: "uniV4AdapterAbi" },
     { source: "src/swap/ISwapAdapter.sol", contract: "ISwapAdapter", export: "swapAdapterAbi" },
     { source: "src/interfaces/IMASPPool.sol", contract: "IMASPPool", export: "imaspPoolAbi" },
     { source: "src/interfaces/IVerifier.sol", contract: "IVerifier", export: "verifierInterfaceAbi" },

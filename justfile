@@ -155,7 +155,8 @@ deploy-mainnet *args:
 dry-run-mainnet *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ MASP_SCRIPT }} -vvv {{ args }}
 
-# Mainnet swap-stack deploy (UniV3Adapter + SwapWrapper). Reads $SWAP_CONFIG
+# Mainnet swap-stack deploy (UniV3Adapter + optional UniV4Adapter + SwapWrapper).
+# Reads $SWAP_CONFIG
 # (default script/config/mainnet.swap.json). Run AFTER deploy-mainnet — the
 # config must list the deployed MASP address.
 [doc('Deploy the swap stack to a real chain (broadcasts)')]

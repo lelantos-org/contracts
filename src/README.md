@@ -159,7 +159,7 @@ classDiagram
 | [verifiers/BatchedGroth16Verifier.sol](verifiers/BatchedGroth16Verifier.sol) | Hand-written assembly verifying both spend proofs in one pairing call. |
 | [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both adapters call, pinned to `MASP`'s selectors by `IMASPPool.t.sol`. |
 | [native/](native/) | `NativeAdapter`: wraps native coin into the deposit path and unwraps it out of the withdraw path. The pool itself is ERC-20 only. |
-| [swap/](swap/) | Atomic unshield → swap → re-shield wrapper and Uniswap v3 adapter. |
+| [swap/](swap/) | Atomic unshield → swap → re-shield wrapper, plus the Uniswap v3 and v4 adapters. |
 
 `Verifier.sol` and `TreeUpdateBatchVerifier.sol` are generated output and carry `SPDX-License-Identifier: GPL-3.0` with their own upstream terms; everything else, `VerifyingKeys.sol` and `BatchedGroth16Verifier.sol` included, is MIT.
 
@@ -429,8 +429,8 @@ sequenceDiagram
   participant U as User (pi_w.payer)
   participant SW as SwapWrapper
   participant M as MASP
-  participant AD as UniV3Adapter
-  participant RT as SwapRouter02
+  participant AD as ISwapAdapter (UniV3 / UniV4)
+  participant RT as Venue router
   participant TR as Treasury
 
   U->>SW: swap(SwapArgs)
@@ -440,8 +440,9 @@ sequenceDiagram
   M-->>SW: tokenIn (net of MASP fee)
   SW->>SW: received = balance delta, revert if below amountIn
   SW->>AD: transfer received, then swap(...)
-  AD->>RT: exactInputSingle / exactInput
-  RT-->>SW: actualOut of tokenOut
+  AD->>RT: exactInputSingle / exactInput (v3)<br/>or execute(V4_SWAP) (v4)
+  RT-->>AD: tokenOut
+  AD-->>SW: actualOut
   SW->>SW: revert if actualOut below minOut
   SW->>M: depositAuthorized(deposit_d, aux_d)
   M-->>SW: depositId (pulled via Permit2)
@@ -463,6 +464,10 @@ The `msg.sender == pi_w.payer` check is what stops a mempool replay: `swap` is p
 An escrow the wrapper creates is owned by the wrapper: MASP refunds the digest-bound payer, and a contract payer may only cancel its own deposit. `swap` therefore records `escrows[depositId] = (refundTo, token, amount)` with `refundTo = pi_w.payer`, the address authorized to drive that swap, and `cancelEscrow` is what recovers a leg that never gets flushed. Anyone may call it, the destination is the recorded driver rather than the caller, and the refund is attributed by balance delta across the pool call — sound because the wrapper is necessarily the one making it. An already-settled deposit was flushed and is rejected with `DepositAlreadySettled` rather than paid out of another escrow's coin.
 
 `UniV3Adapter` is a thin pull-then-push adapter: the wrapper pre-transfers `amountIn`, the adapter approves the router, swaps, resets the approval to zero (keeping tokens such as USDT, which reject non-zero-to-non-zero approval changes, usable on the next call), and returns the output to `msg.sender`. A 64-byte `route` is decoded as `(uint24 fee, uint160 sqrtPriceLimitX96)` and routed single-hop; any other length is treated as a packed multi-hop path. `swap` is restricted to the pinned `WRAPPER`, without which any caller could drain donated tokens by routing output to themselves.
+
+`UniV4Adapter` is the same shape against the UniversalRouter's `V4_SWAP` command, with three differences worth naming. It needs **no approval at all**: it transfers `amountIn` to the router and settles with `CONTRACT_BALANCE` / `payerIsUser = false`, which pays out of the router's own balance and keeps the flow off Permit2. It **measures its own balance delta**, because `execute` returns nothing where `SwapRouter02.exactInputSingle` returns `amountOut`. And it **forwards `deadline`** to the router, which enforces it, where SwapRouter02 takes none. Its 64-byte `route` is `(uint24 fee, int24 tickSpacing)`; currency ordering is derived from the token addresses and `hooks` is pinned to `address(0)`, so neither can be named by the caller — `route` is unauthenticated calldata, and an attacker-chosen hook would otherwise be invoked by the PoolManager mid-swap.
+
+Adding a venue is additive: a new `ISwapAdapter`, `setAdapterAllowed`, and nothing else. `SwapWrapper` never decodes `route` and its safety argument does not depend on the venue.
 
 ---
 

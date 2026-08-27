@@ -24,6 +24,15 @@ fs_permissions = [
 ignored_warnings_from = ["lib"]
 chain_id = 31337
 
+# Fork-test endpoints, used only by `test/swap/fork/`. Those tests `vm.skip`
+# themselves unless FORK_TESTS=1, so a checkout with none of these vars set
+# still runs `forge test` clean.
+[rpc_endpoints]
+base = "${BASE_RPC_URL}"
+mainnet = "${MAINNET_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+
+
 [invariant]
 runs = 256
 depth = 64
@@ -110,7 +119,7 @@ ignored_warnings_from = ["lib"]
 # below and runs in CI's dedicated SMT job.
 
 [profile.smt.model_checker]
-contracts = { "src/MASP.sol" = ["MASP"], "src/AssetRegistry.sol" = ["AssetRegistry"], "src/CommitmentTree.sol" = ["CommitmentTree"], "src/FeeConfig.sol" = ["FeeConfig"], "src/NullifierSet.sol" = ["NullifierSet"], "src/swap/SwapWrapper.sol" = ["SwapWrapper"], "src/swap/UniV3Adapter.sol" = ["UniV3Adapter"] }
+contracts = { "src/MASP.sol" = ["MASP"], "src/AssetRegistry.sol" = ["AssetRegistry"], "src/CommitmentTree.sol" = ["CommitmentTree"], "src/FeeConfig.sol" = ["FeeConfig"], "src/NullifierSet.sol" = ["NullifierSet"], "src/swap/SwapWrapper.sol" = ["SwapWrapper"], "src/swap/UniV3Adapter.sol" = ["UniV3Adapter"], "src/swap/UniV4Adapter.sol" = ["UniV4Adapter"] }
 engine = "all"
 timeout = 120000
 targets = ["assert", "underflow", "overflow", "divByZero", "constantCondition", "popEmptyArray", "outOfBounds", "balance", "assertions"]
