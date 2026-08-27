@@ -7,6 +7,7 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
+import { uniformBps } from "./FeeArrays.sol";
 
 /// Test-only subclass that lets a test seed the commitment-tree state
 /// directly (root + committedCount) without going through the
@@ -22,7 +23,20 @@ contract MASPSpendHarness is MASP {
         uint256[] memory scales,
         address treasury_,
         address owner_
-    ) MASP(treeUpdateBatchVerifier_, batchVerifier_, permit2_, ids, tokens, scales, 0, treasury_, owner_) { }
+    )
+        MASP(
+            treeUpdateBatchVerifier_,
+            batchVerifier_,
+            permit2_,
+            ids,
+            tokens,
+            scales,
+            uniformBps(ids.length, 0),
+            uniformBps(ids.length, 0),
+            treasury_,
+            owner_
+        )
+    { }
 
     /// Seed the tree to a known root + committedCount without proof.
     function seedRoot(bytes32 newRoot, uint64 inserted) external {

@@ -20,6 +20,7 @@ import { MockERC1271 } from "../mocks/MockERC1271.sol";
 import { FixtureLoader } from "./FixtureLoader.sol";
 import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
+import { uniformBps } from "./FeeArrays.sol";
 
 /// Shared deployment + setup harness for MASP unit tests. Wires up real
 /// Groth16 verifiers, a real Uniswap Permit2, and a `MockERC20` registered
@@ -67,7 +68,8 @@ contract MASPTestBase is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             TREASURY,
             OWNER
         );

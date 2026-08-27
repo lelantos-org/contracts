@@ -8,6 +8,7 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
+import { uniformBps } from "../utils/FeeArrays.sol";
 
 /// Test-only subclass exposing internal entrypoints so invariant handlers can
 /// drive state transitions without going through the SNARK pipeline. The full
@@ -28,7 +29,8 @@ contract MASPHarness is MASP {
             new uint64[](0),
             new IERC20[](0),
             new uint256[](0),
-            0,
+            uniformBps(0, 0),
+            uniformBps(0, 0),
             treasury_,
             owner_
         )

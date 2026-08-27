@@ -18,6 +18,7 @@ import { MockERC1271 } from "./mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 contract MASPCancelDepositTest is Test {
     uint64 internal constant ASSET_ID = 1;
@@ -57,7 +58,8 @@ contract MASPCancelDepositTest is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             TREASURY,
             OWNER
         );

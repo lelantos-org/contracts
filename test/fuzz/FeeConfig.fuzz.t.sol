@@ -16,7 +16,7 @@ contract FeeConfigFuzzTest is Test {
 
     function setUp() public {
         token = new MockERC20("T", "T", 18);
-        fc = new FeeConfigHarness(100, TREASURY, OWNER);
+        fc = new FeeConfigHarness(TREASURY, OWNER);
         // Pre-fund so sweep can transfer.
         token.mint(address(fc), type(uint128).max);
     }

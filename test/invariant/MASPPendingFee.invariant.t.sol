@@ -17,6 +17,7 @@ import { MockERC1271 } from "../mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
+import { uniformBps } from "../utils/FeeArrays.sol";
 
 /// Handler exercises deposit / flushBatch / cancelDeposit / sweep
 /// randomly. Fees accrue only at flush; the handler shadows both the
@@ -234,7 +235,8 @@ contract MASPEscrowFeeInvariantTest is Test {
             ids,
             tokens,
             scales,
-            25,
+            uniformBps(ids.length, 25),
+            uniformBps(ids.length, 25),
             address(0xfee),
             address(this)
         );

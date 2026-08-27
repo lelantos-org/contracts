@@ -19,7 +19,7 @@ contract MASPAssetsTest is MASPTestBase {
         MockERC20 newTok = new MockERC20("New", "NEW", 18);
 
         vm.prank(OWNER);
-        masp.addAsset(2, IERC20(address(newTok)), 7);
+        masp.addAsset(2, IERC20(address(newTok)), 7, 11, 13);
 
         AssetRegistry.AssetEntry memory a = masp.asset(2);
         assertEq(address(a.token), address(newTok));
@@ -32,27 +32,27 @@ contract MASPAssetsTest is MASPTestBase {
         address attacker = address(0xa11ce);
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
-        masp.addAsset(2, IERC20(address(newTok)), 1);
+        masp.addAsset(2, IERC20(address(newTok)), 1, 0, 0);
     }
 
     function testAddAssetRevertsDuplicate() public {
         MockERC20 newTok = new MockERC20("New", "NEW", 18);
         vm.prank(OWNER);
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.DuplicateAsset.selector, ASSET_ID));
-        masp.addAsset(ASSET_ID, IERC20(address(newTok)), 1);
+        masp.addAsset(ASSET_ID, IERC20(address(newTok)), 1, 0, 0);
     }
 
     function testAddAssetRevertsZeroToken() public {
         vm.prank(OWNER);
         vm.expectRevert(AssetRegistry.ZeroToken.selector);
-        masp.addAsset(3, IERC20(address(0)), 1);
+        masp.addAsset(3, IERC20(address(0)), 1, 0, 0);
     }
 
     function testAddAssetRevertsZeroScale() public {
         MockERC20 newTok = new MockERC20("X", "X", 18);
         vm.prank(OWNER);
         vm.expectRevert(AssetRegistry.ZeroScale.selector);
-        masp.addAsset(3, IERC20(address(newTok)), 0);
+        masp.addAsset(3, IERC20(address(newTok)), 0, 0, 0);
     }
 
     function testAddAssetEmitsRegistered() public {
@@ -60,7 +60,7 @@ contract MASPAssetsTest is MASPTestBase {
         vm.expectEmit(true, true, false, true, address(masp));
         emit AssetRegistry.AssetRegistered(7, IERC20(address(newTok)), 42);
         vm.prank(OWNER);
-        masp.addAsset(7, IERC20(address(newTok)), 42);
+        masp.addAsset(7, IERC20(address(newTok)), 42, 0, 0);
     }
 
     function testSetAssetDisabledOnlyOwner() public {

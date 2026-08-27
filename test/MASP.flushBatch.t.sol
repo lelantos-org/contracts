@@ -19,6 +19,7 @@ import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
 import { FixtureLoader } from "./utils/FixtureLoader.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// `flushBatch` contract-level coverage. SNARK verification is mocked via
 /// `vm.mockCall`, isolating the storage/event/sentinel logic from circuit-side
@@ -64,7 +65,8 @@ contract MASPFlushBatchTest is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             TREASURY,
             OWNER
         );

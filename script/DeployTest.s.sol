@@ -93,10 +93,21 @@ contract DeployTest is BaseDeploy {
             tokenAddrs[i] = tokenAddr;
         }
 
-        // Fee parameters. Defaults: 25 bps (0.25%) per leg, treasury =
+        // Fee parameters. Rates are per asset and per leg on chain; this
+        // script applies one pair uniformly across the fixture registry, which
+        // is what a local stack wants. A deployment that needs them to differ
+        // per asset edits the arrays directly, as `Deploy.s.sol` does from
+        // config. Defaults: 25 bps (0.25%) on each leg, treasury =
         // MASP_TREASURY env var, owner = MASP_OWNER env var (or tx.origin
         // under broadcast).
-        p.feeBps = uint16(vm.envOr("MASP_FEE_BPS", uint256(25)));
+        uint16 depositBps = uint16(vm.envOr("MASP_DEPOSIT_BPS", uint256(25)));
+        uint16 withdrawBps = uint16(vm.envOr("MASP_WITHDRAW_BPS", uint256(25)));
+        p.depositBps = new uint16[](n);
+        p.withdrawBps = new uint16[](n);
+        for (uint256 i; i < n; ++i) {
+            p.depositBps[i] = depositBps;
+            p.withdrawBps[i] = withdrawBps;
+        }
         p.treasury = vm.envOr("MASP_TREASURY", 0x000000000000000000000000000000000000dEaD);
         p.owner = vm.envOr("MASP_OWNER", tx.origin);
 

@@ -10,8 +10,8 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 
 /// Concrete `FeeConfig` exposing the internal helpers for unit tests.
 contract FeeConfigHarness is FeeConfig {
-    constructor(uint16 feeBps_, address treasury_, address owner_) Ownable(owner_) {
-        _initFee(feeBps_, treasury_);
+    constructor(address treasury_, address owner_) Ownable(owner_) {
+        _initTreasury(treasury_);
     }
 
     function accrue(IERC20 token, uint256 amount) external {
@@ -27,7 +27,7 @@ contract FeeConfigTest is Test {
 
     function setUp() public {
         token = new MockERC20("T", "T", 18);
-        fc = new FeeConfigHarness(100, TREASURY, OWNER); // 1% fee
+        fc = new FeeConfigHarness(TREASURY, OWNER); // rates live per asset, not here
         // Pre-fund harness so sweep transfers can succeed.
         token.mint(address(fc), 1_000_000 ether);
     }

@@ -17,6 +17,7 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// `depositAuthorized` — Permit2 AllowanceTransfer-based deposit.
 /// Tests use `IAllowanceTransfer.approve` from the payer to set up the
@@ -57,7 +58,8 @@ contract MASPDepositAuthorizedTest is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             TREASURY,
             OWNER
         );

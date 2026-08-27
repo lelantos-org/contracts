@@ -14,6 +14,7 @@ import { TreeUpdateBatchGroth16Verifier } from "../src/verifiers/TreeUpdateBatch
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 contract MASPDeployTest is Test {
     string constant REGISTRY_FIXTURE = "test/fixtures/asset_registry.json";
@@ -54,7 +55,8 @@ contract MASPDeployTest is Test {
             ids,
             tokens,
             scales,
-            25,
+            uniformBps(ids.length, 25),
+            uniformBps(ids.length, 25),
             address(0xfee),
             address(this)
         );

@@ -16,6 +16,7 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
 import { FixtureLoader } from "./utils/FixtureLoader.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// Spend-path event emission. `AssetMoved` is emitted by the unshield entry
 /// points rather than the shared note-emit helper, so these tests fix which
@@ -69,7 +70,8 @@ contract MASPSpendEventsTest is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             address(0xfee),
             address(this)
         );

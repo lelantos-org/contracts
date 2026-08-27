@@ -13,20 +13,23 @@ import { AuxValidation } from "../src/libs/AuxValidation.sol";
 
 import { MASPTestBase } from "./utils/MASPTestBase.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// Owner-gated fee/treasury setters + constructor invariants.
 contract MASPAdminTest is MASPTestBase {
-    function testSetFeeBpsOnlyOwner() public {
+    function testSetAssetFeeOnlyOwner() public {
         address attacker = address(0xa11ce);
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
-        masp.setFeeBps(50);
+        masp.setAssetFee(ASSET_ID, 50, 50);
     }
 
-    function testSetFeeBpsUpdates() public {
+    function testSetAssetFeeUpdates() public {
         vm.prank(OWNER);
-        masp.setFeeBps(50);
-        assertEq(masp.feeBps(), 50);
+        masp.setAssetFee(ASSET_ID, 50, 60);
+        (uint16 dep, uint16 wit) = masp.assetFees(ASSET_ID);
+        assertEq(dep, 50);
+        assertEq(wit, 60);
     }
 
     function testSetTreasuryZeroReverts() public {
@@ -62,7 +65,8 @@ contract MASPAdminTest is MASPTestBase {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             address(0),
             OWNER
         );

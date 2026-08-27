@@ -17,6 +17,7 @@ import { MockERC1271 } from "../mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
+import { uniformBps } from "../utils/FeeArrays.sol";
 
 /// Whole-flow invariant for the MASP deposit / batch / cancel / sweep
 /// state machine. The existing per-slice invariants
@@ -250,7 +251,8 @@ contract MaspFlowInvariantTest is Test {
             ids,
             tokens,
             scales,
-            25,
+            uniformBps(ids.length, 25),
+            uniformBps(ids.length, 25),
             address(0xfee),
             address(this)
         );

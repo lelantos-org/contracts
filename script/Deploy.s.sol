@@ -17,13 +17,22 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 ///   {
 ///     "permit2":        "0x...",   required, must have code
 ///     "wrappedNative":  "0x...",   optional, address(0) skips the NativeAdapter deploy
-///     "feeBps":   25,
+///     "depositBps":  [0, 0, 0],       parallel to ids
+///     "withdrawBps": [20, 20, 20],    parallel to ids
 ///     "treasury": "0x...",
 ///     "owner":    "0x...",
 ///     "ids":      [1, 2, 3],
 ///     "tokens":   ["0x...", ...], parallel to ids, must have code
 ///     "scales":   ["1e10", "1", "1"]  parallel to ids
 ///   }
+///
+/// Fee guidance: rates are per asset and per leg, and there is no pool-wide
+/// fallback — a zero in these arrays is a real zero, not "unset". Both are
+/// capped at `MAX_FEE_BPS` (2000 = 20%) and are fixed at registration; only
+/// `setAssetFee(id, depositBps, withdrawBps)` changes them afterwards. Note
+/// the two legs are not protected equally: a deposit rate is snapshotted into
+/// the escrow digest at submit, while a withdraw rate is read live at
+/// execution and is bound by nothing the spender signed.
 ///
 /// Scale guidance: `publicIn = baseUnits / scale` must fit `uint48` (~2.81e14).
 /// 18-decimal tokens require `scale >= 1e10` (cap ~2.8M tokens); 6- and
@@ -49,7 +58,6 @@ contract Deploy is BaseDeploy {
         MaspParams memory p;
         p.permit2 = vm.parseJsonAddress(j, ".permit2");
         p.wrappedNative = vm.parseJsonAddress(j, ".wrappedNative");
-        p.feeBps = uint16(vm.parseJsonUint(j, ".feeBps"));
         p.treasury = vm.parseJsonAddress(j, ".treasury");
         p.owner = vm.parseJsonAddress(j, ".owner");
 
@@ -60,6 +68,22 @@ contract Deploy is BaseDeploy {
         uint256 n = rawIds.length;
         require(tokenList.length == n, "config length mismatch");
         require(p.scales.length == n, "config length mismatch");
+
+        // Parsed as uint256 (the cheatcode has no uint16 array form) and
+        // narrowed here; a value past the fee ceiling reverts in `_addAsset`
+        // rather than wrapping silently.
+        uint256[] memory rawDeposit = vm.parseJsonUintArray(j, ".depositBps");
+        uint256[] memory rawWithdraw = vm.parseJsonUintArray(j, ".withdrawBps");
+        require(rawDeposit.length == n, "config length mismatch");
+        require(rawWithdraw.length == n, "config length mismatch");
+        p.depositBps = new uint16[](n);
+        p.withdrawBps = new uint16[](n);
+        for (uint256 i; i < n; ++i) {
+            require(rawDeposit[i] <= type(uint16).max, "depositBps overflow");
+            require(rawWithdraw[i] <= type(uint16).max, "withdrawBps overflow");
+            p.depositBps[i] = uint16(rawDeposit[i]);
+            p.withdrawBps[i] = uint16(rawWithdraw[i]);
+        }
 
         _requireCode(p.permit2, "permit2 has no code");
         if (p.wrappedNative != address(0)) _requireCode(p.wrappedNative, "wrappedNative has no code");

@@ -6,36 +6,35 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
+import { Fees } from "./libs/Fees.sol";
+
 /// Owner-set fees with per-token accrual, drained to `treasury` by the
 /// permissionless `sweep`. Fees accrue at flush, so `accruedFee` never holds
 /// escrowed funds.
+///
+/// There is no pool-wide rate. Every asset carries its own deposit and
+/// withdraw rates in its registry entry (`AssetRegistry`), set when it is
+/// registered and mutable only through `setAssetFee`. A stored `0` therefore
+/// means exactly 0 — there is no sentinel and no inheritance, so no owner
+/// action can re-rate an asset that was not named in the call.
 abstract contract FeeConfig is Ownable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
-    uint16 public constant BPS_DENOMINATOR = 10_000;
+    uint16 public constant BPS_DENOMINATOR = Fees.BPS_DENOMINATOR;
 
-    /// Ceiling on `feeBps` (20%).
-    uint16 public constant MAX_FEE_BPS = 2_000;
+    /// Ceiling on any rate, global or per-asset (20%).
+    uint16 public constant MAX_FEE_BPS = Fees.MAX_FEE_BPS;
 
     address public treasury;
-    uint16 public feeBps;
 
     /// Total fees accrued per token. Monotone between sweeps.
     mapping(IERC20 => uint256) public accruedFee;
 
     error ZeroTreasury();
-    error FeeTooHigh();
 
-    function _initFee(uint16 feeBps_, address treasury_) internal {
+    function _initTreasury(address treasury_) internal {
         if (treasury_ == address(0)) revert ZeroTreasury();
-        if (feeBps_ > MAX_FEE_BPS) revert FeeTooHigh();
-        feeBps = feeBps_;
         treasury = treasury_;
-    }
-
-    function setFeeBps(uint16 newFeeBps) external onlyOwner {
-        if (newFeeBps > MAX_FEE_BPS) revert FeeTooHigh();
-        feeBps = newFeeBps;
     }
 
     function setTreasury(address newTreasury) external onlyOwner {

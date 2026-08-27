@@ -28,7 +28,7 @@ contract AssetsHandler is Test {
 
     function addAsset(uint64 rawId) external {
         IERC20 tok = IERC20(address(new MockERC20("M", "M", 18)));
-        try masp.addAsset(rawId, tok, 1) {
+        try masp.addAsset(rawId, tok, 1, 0, 0) {
             ghostIds.push(rawId);
         } catch {
             // Duplicate / zero / not-owner — ghost unchanged.

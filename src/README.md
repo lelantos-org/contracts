@@ -103,10 +103,10 @@ classDiagram
     -mapping _assets
     +addAsset()
     +setAssetDisabled()
+    +setAssetFee()
   }
   class FeeConfig {
     <<abstract>>
-    +uint16 feeBps
     +address treasury
     +mapping accruedFee
     +sweep()
@@ -219,7 +219,7 @@ Maps a circuit-visible `uint64 publicAssetId` to an ERC-20 address and a `scale`
 
 ### FeeConfig
 
-Owner sets `feeBps` (capped at `MAX_FEE_BPS = 2000`, i.e. 20%) and `treasury`. Fees accumulate per token in `accruedFee` and are drained by `sweep`, which is permissionless — anyone may call it, but the destination is owner-pinned to `treasury`.
+Rates are **per asset**, not pool-wide: every `AssetEntry` carries its own `depositBps` and `withdrawBps`, set when the asset is registered and changed only by `setAssetFee(id, …)`. Both are capped at `MAX_FEE_BPS = 2000` (20%), and a stored `0` means zero — there is no fallback and no sentinel, so a fee change reaches exactly the ids named in the call. The constructor's rate argument is a starting value written into each genesis entry, not retained state. Fees accumulate per token in `accruedFee` and are drained by `sweep`, which is permissionless — anyone may call it, but the destination is owner-pinned to `treasury`.
 
 `FeeConfig` also supplies the `ReentrancyGuardTransient` base used by every state-mutating entry point.
 
@@ -406,7 +406,7 @@ flowchart TD
     S3 -->|cancelDeposit| S5["refund inAmt + fee + relayerFee<br/>to payer"]
   end
   subgraph UNSHIELD["Unshield leg"]
-    W1["withdraw<br/>outAmt = publicOut * scale"] --> W2["fee = outAmt * feeBps / 10000"]
+    W1["withdraw<br/>outAmt = publicOut * scale"] --> W2["fee = outAmt * asset.withdrawBps / 10000"]
     W2 --> W3["_accrueFee(token, fee)"]
     W2 --> W4["send outAmt - fee<br/>to recipient"]
   end
@@ -415,7 +415,7 @@ flowchart TD
   A -->|"sweep(token), permissionless"| TR["treasury"]
 ```
 
-Deposit fees use the `feeBps` snapshot taken at submit time and carried in the digest; withdraw fees use the live `feeBps`. `flushBatch` accumulates fees into a fixed `MAX_L_BATCH`-wide array keyed by token address and writes one `SSTORE` per *unique* token, rather than one per deposit.
+Deposit fees use the asset's `depositBps` snapshotted at submit time and carried in the digest, so a later `setAssetFee` cannot re-rate a pending deposit or its cancellation; withdraw fees read the asset's `withdrawBps` live at execution, which is bound by nothing the spender signed — `MAX_FEE_BPS` is the only ceiling on that leg. `flushBatch` accumulates fees into a fixed `MAX_L_BATCH`-wide array keyed by token address and writes one `SSTORE` per *unique* token, rather than one per deposit.
 
 ---
 
@@ -481,7 +481,7 @@ Adding a venue is additive: a new `ISwapAdapter`, `setAdapterAllowed`, and nothi
 | `cancelNative` | `cancelDeposit` (adapter is the digest-bound `payer`) | unwrap the refund, forward it to the recorded funder |
 | `withdrawNative` | `withdraw` (adapter is `pi.recipient` and `pi.relayer`) | unwrap the proceeds, forward them to `pi.payer` |
 
-Amounts are measured as **balance deltas across the pool call**, never recomputed: neither the deposit fee nor the withdraw fee is visible to the adapter, and mirroring MASP's fee math would drift the moment `feeBps` changed between quote and execution. On the deposit leg that also means callers may overshoot `msg.value` rather than reproduce the fee formula — the surplus is unwrapped and returned in the same transaction.
+Amounts are measured as **balance deltas across the pool call**, never recomputed: neither the deposit fee nor the withdraw fee is visible to the adapter, and mirroring MASP's fee math would drift the moment the asset's rate changed between quote and execution. On the deposit leg that also means callers may overshoot `msg.value` rather than reproduce the fee formula — the surplus is unwrapped and returned in the same transaction.
 
 Because the pool refunds the digest-bound `payer` — the adapter — a canceled escrow needs an on-adapter record of who funded it: `escrows[id]` holds `(refundTo, amount)`.
 

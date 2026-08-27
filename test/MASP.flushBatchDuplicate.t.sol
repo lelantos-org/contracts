@@ -16,6 +16,7 @@ import { MockERC1271 } from "./mocks/MockERC1271.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
 import { FixtureLoader } from "./utils/FixtureLoader.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// `flushBatch` edge cases not covered by `MASP.flushBatch.t.sol`:
 ///   - duplicate deposit id in the same `ids` array
@@ -58,7 +59,8 @@ contract MASPFlushBatchDuplicateTest is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             TREASURY,
             OWNER
         );

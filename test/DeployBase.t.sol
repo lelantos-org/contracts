@@ -12,6 +12,7 @@ import { NativeAdapter } from "../src/native/NativeAdapter.sol";
 import { BaseDeploy } from "../script/base/BaseDeploy.s.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockWETH9 } from "./mocks/MockWETH9.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// Exposes the shared deploy helper both deploy scripts route through.
 contract BaseDeployHarness is BaseDeploy {
@@ -50,7 +51,8 @@ contract DeployBaseTest is Test {
         p.ids = ids;
         p.tokens = tokens;
         p.scales = scales;
-        p.feeBps = 25;
+        p.depositBps = uniformBps(1, 25);
+        p.withdrawBps = uniformBps(1, 25);
         p.treasury = address(0xfee);
         p.owner = address(this);
     }

@@ -29,7 +29,12 @@ abstract contract BaseDeploy is Script {
         uint64[] ids;
         IERC20[] tokens;
         uint256[] scales;
-        uint16 feeBps;
+        /// Per-asset rates, parallel to `ids`. There is no pool-wide fee:
+        /// each asset is registered with its own pair and only `setAssetFee`
+        /// changes them afterwards. Both are capped at `MAX_FEE_BPS` (20%),
+        /// and a zero is a real rate, not a default.
+        uint16[] depositBps;
+        uint16[] withdrawBps;
         address treasury;
         address owner;
     }
@@ -59,7 +64,8 @@ abstract contract BaseDeploy is Script {
             p.ids,
             p.tokens,
             p.scales,
-            p.feeBps,
+            p.depositBps,
+            p.withdrawBps,
             p.treasury,
             p.owner
         );

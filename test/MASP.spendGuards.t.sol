@@ -16,6 +16,7 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
 import { FixtureLoader } from "./utils/FixtureLoader.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// Spend-path (`transfer`, `withdraw`) request-validation negative tests.
 /// Each test tampers with exactly one field to reach a specific revert.
@@ -40,7 +41,8 @@ contract MASPSpendGuardsTest is Test {
             new uint64[](0),
             new IERC20[](0),
             new uint256[](0),
-            0,
+            uniformBps(0, 0),
+            uniformBps(0, 0),
             address(0xfee),
             address(this)
         );

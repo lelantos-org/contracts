@@ -1,7 +1,8 @@
 {
   "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   "wrappedNative": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
-  "feeBps": 20,
+  "depositBps": [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20],
+  "withdrawBps": [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20],
   "treasury": "0x5bd6FF58B6E4ad4bBe14dBA26F387Ea89C598323",
   "owner": "0x5bd6FF58B6E4ad4bBe14dBA26F387Ea89C598323",
   "ids": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],

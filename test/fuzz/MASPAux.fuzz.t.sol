@@ -17,6 +17,7 @@ import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
+import { uniformBps } from "../utils/FeeArrays.sol";
 
 /// Fuzz `_validateAux`: bounds-check on every output ciphertext + clue-bits
 /// prefix mask. Aux validation runs before the SNARK call — a downstream
@@ -44,7 +45,8 @@ contract MASPAuxFuzzTest is Test {
             new uint64[](0),
             new IERC20[](0),
             new uint256[](0),
-            0,
+            uniformBps(0, 0),
+            uniformBps(0, 0),
             address(0xfee),
             address(this)
         );

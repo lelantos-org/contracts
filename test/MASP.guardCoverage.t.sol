@@ -20,6 +20,7 @@ import { Groth16Verifier } from "../src/verifiers/Verifier.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
 import { FixtureLoader } from "./utils/FixtureLoader.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// Guards with no direct assertion elsewhere in the suite: constructor
 /// dependency checks, registry bounds, spend-path magnitude bounds, batch
@@ -79,7 +80,18 @@ contract MASPGuardCoverageTest is Test {
         IERC20[] memory tokens,
         uint256[] memory scales
     ) internal returns (MASP) {
-        return new MASP(tub_, bv_, p2, ids, tokens, scales, FEE_BPS, TREASURY, address(this));
+        return new MASP(
+            tub_,
+            bv_,
+            p2,
+            ids,
+            tokens,
+            scales,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
+            TREASURY,
+            address(this)
+        );
     }
 
     function _emptyProof() internal pure returns (MASP.Proof memory) {
@@ -202,11 +214,11 @@ contract MASPGuardCoverageTest is Test {
 
     function test_revert_ScaleTooLarge() public {
         vm.expectRevert(AssetRegistry.ScaleTooLarge.selector);
-        masp.addAsset(2, IERC20(address(token)), 1e18 + 1);
+        masp.addAsset(2, IERC20(address(token)), 1e18 + 1, 0, 0);
     }
 
     function test_scaleAtBound_accepted() public {
-        masp.addAsset(2, IERC20(address(token)), 1e18);
+        masp.addAsset(2, IERC20(address(token)), 1e18, 0, 0);
         assertEq(masp.asset(2).scale, 1e18, "scale at bound");
     }
 

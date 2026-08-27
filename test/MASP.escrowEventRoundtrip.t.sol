@@ -18,6 +18,7 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockERC1271 } from "./mocks/MockERC1271.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// `escrowed[id]` stores only a digest, so flush and cancel require the caller
 /// to resupply the full preimage. The documented source for that preimage is
@@ -104,7 +105,8 @@ contract MASPEscrowEventRoundtripTest is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             TREASURY,
             OWNER
         );
@@ -126,7 +128,8 @@ contract MASPEscrowEventRoundtripTest is Test {
     /// Submit a deposit and recover the cancel preimage purely from the log.
     function _submitAndDecode(uint64 publicIn, uint256 nonce) internal returns (Decoded memory dec) {
         uint256 inAmt = uint256(publicIn) * SCALE;
-        token.mint(payer, inAmt + (inAmt * masp.feeBps()) / 10_000);
+        (uint16 depBps,) = masp.assetFees(ASSET_ID);
+        token.mint(payer, inAmt + (inAmt * depBps) / 10_000);
 
         PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
@@ -230,8 +233,9 @@ contract MASPEscrowEventRoundtripTest is Test {
         // Read the bound first: an inline call would consume the prank.
         uint16 maxFee = masp.MAX_FEE_BPS();
         vm.prank(OWNER);
-        masp.setFeeBps(maxFee);
-        assertEq(masp.feeBps(), maxFee, "fee raised");
+        masp.setAssetFee(ASSET_ID, maxFee, maxFee);
+        (uint16 raised,) = masp.assetFees(ASSET_ID);
+        assertEq(raised, maxFee, "fee raised");
 
         uint256 inAmt = uint256(publicIn) * SCALE;
         uint256 atSubmit = inAmt + (inAmt * FEE_BPS) / 10_000;
@@ -262,7 +266,7 @@ contract MASPEscrowEventRoundtripTest is Test {
 
         uint16 maxFee = masp.MAX_FEE_BPS();
         vm.prank(OWNER);
-        masp.setFeeBps(maxFee);
+        masp.setAssetFee(ASSET_ID, maxFee, maxFee);
 
         vm.roll(block.number + masp.cancelDelay());
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, dec.id));

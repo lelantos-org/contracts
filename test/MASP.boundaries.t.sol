@@ -17,6 +17,7 @@ import { MockERC20 } from "./mocks/MockERC20.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
 import { FixtureLoader } from "./utils/FixtureLoader.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// Explicit boundary unit tests for `_validateAux` — the fuzz suite covers
 /// the interior, but exact endpoints (MIN, MAX, MIN-1, MAX+1, every clueBits
@@ -39,7 +40,8 @@ contract MASPBoundariesTest is Test {
             new uint64[](0),
             new IERC20[](0),
             new uint256[](0),
-            0,
+            uniformBps(0, 0),
+            uniformBps(0, 0),
             address(0xfee),
             address(this)
         );

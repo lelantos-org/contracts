@@ -28,7 +28,7 @@ import { IMASPPool } from "../interfaces/IMASPPool.sol";
 ///
 /// Every amount is measured as a balance delta across the pool call. MASP's
 /// deposit and withdraw fees are not visible here, and a mirrored fee
-/// calculation would drift whenever `feeBps` changes.
+/// calculation would drift whenever the asset's fee rate changes.
 ///
 /// Ownerless and permissionless. All authority comes from the SNARK public
 /// inputs (`pi.payer` names the native recipient on the spend side) or from the

@@ -215,7 +215,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         uint64[] memory ids,
         IERC20[] memory tokens,
         uint256[] memory scales,
-        uint16 feeBps_,
+        uint16[] memory depositBps,
+        uint16[] memory withdrawBps,
         address treasury_,
         address owner_
     ) Ownable(owner_) {
@@ -228,8 +229,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         TREE_UPDATE_BATCH_VERIFIER = treeUpdateBatchVerifier_;
         SPEND_VERIFIER = spendVerifier_;
         PERMIT2 = permit2_;
-        _initFee(feeBps_, treasury_);
-        _writeAssets(ids, tokens, scales);
+        _initTreasury(treasury_);
+        _writeAssets(ids, tokens, scales, depositBps, withdrawBps);
         cancelDelay = CANCEL_DELAY_DEFAULT;
     }
 
@@ -237,6 +238,17 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         if (newDelay < CANCEL_DELAY_MIN || newDelay > CANCEL_DELAY_MAX) revert BadCancelDelay();
         emit CancelDelayUpdated(cancelDelay, newDelay);
         cancelDelay = newDelay;
+    }
+
+    /// The rates `id` charges on each leg. A convenience over `asset(id)` for
+    /// callers that want only the fees; both are literal, so this reads the
+    /// same values the transact paths use.
+    ///
+    /// Reverts `UnknownAsset` for an unregistered id, matching `asset`.
+    function assetFees(uint64 id) external view returns (uint16 depositBps, uint16 withdrawBps) {
+        AssetEntry memory a = _getAsset(id);
+        if (address(a.token) == address(0)) revert UnknownAsset(id);
+        return (a.depositBps, a.withdrawBps);
     }
 
     /// ERC-20 unshield. Pool pushes `outAmt - fee` to `pi.recipient`.
@@ -252,7 +264,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         AssetEntry memory a = _preflight(pi, tpi, aux);
         _finalize(p, pi, tp, tpi, aux);
         uint256 outAmt = uint256(pi.publicOut) * a.scale;
-        _unshieldLeg(a.token, pi.recipient, outAmt);
+        _unshieldLeg(a.token, pi.recipient, outAmt, a.withdrawBps);
         emit AssetMoved(pi.publicAssetId, a.token, 0, outAmt);
         _emitNotes(pi, aux);
     }
@@ -288,7 +300,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         AuxValidation.Output calldata feeAux
     ) external nonReentrant returns (uint256 id) {
         AssetEntry memory a = _validateDeposit(d, aux, feeAux);
-        uint16 fbps = feeBps;
+        uint16 fbps = a.depositBps;
         (uint256 inAmt, uint256 fee) = _computeAmounts(d.publicIn, a.scale, fbps);
         _permit2Pull(
             a.token, d.payer, sig, inAmt + fee + _relayerAmount(d.feeIn, a.scale), keccak256(abi.encode(d, aux, feeAux))
@@ -308,7 +320,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         AssetEntry memory a = _validateDeposit(d, aux, feeAux);
         if (msg.sender != d.payer) revert PayerNotSender();
 
-        uint16 fbps = feeBps;
+        uint16 fbps = a.depositBps;
         (uint256 inAmt, uint256 fee) = _computeAmounts(d.publicIn, a.scale, fbps);
         uint256 total = inAmt + fee + _relayerAmount(d.feeIn, a.scale);
         if (total > type(uint160).max) revert AmountOverflowsAllowance();
@@ -819,8 +831,14 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     }
 
     /// Send `outAmt - fee` to `recipient`; accrue `fee`.
-    function _unshieldLeg(IERC20 token, address recipient, uint256 outAmt) private {
-        uint256 fee = (outAmt * feeBps) / BPS_DENOMINATOR;
+    ///
+    /// The rate arrives as an argument rather than being read here: the caller
+    /// already holds the `AssetEntry`, and resolving at the call site keeps the
+    /// per-asset override and the global fallback in one place
+    /// (`FeeConfig._resolveFee`). Unlike the deposit legs, this rate is read at
+    /// execution and is bound by nothing the spender signed.
+    function _unshieldLeg(IERC20 token, address recipient, uint256 outAmt, uint16 fbps) private {
+        uint256 fee = (outAmt * fbps) / BPS_DENOMINATOR;
         uint256 net = outAmt - fee;
         _accrueFee(token, fee);
         token.safeTransfer(recipient, net);

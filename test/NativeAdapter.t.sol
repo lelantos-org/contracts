@@ -21,6 +21,7 @@ import { MockWETH9 } from "./mocks/MockWETH9.sol";
 import { MockBatchVerifier } from "./mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
 import { FixtureLoader } from "./utils/FixtureLoader.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// `NativeAdapter` end-to-end: wrap-on-deposit, unwrap-on-withdraw, and the
 /// refund path for adapter-owned escrows. MASP itself is ERC-20 only, so every
@@ -64,7 +65,16 @@ contract NativeAdapterTest is Test {
         scales[1] = SCALE;
 
         masp = new MASP(
-            tub, bv, ISignatureTransfer(permit2), ids, tokens, scales, FEE_BPS, address(0xfee), address(this)
+            tub,
+            bv,
+            ISignatureTransfer(permit2),
+            ids,
+            tokens,
+            scales,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
+            address(0xfee),
+            address(this)
         );
         adapter =
             new NativeAdapter(IMASPPool(address(masp)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));

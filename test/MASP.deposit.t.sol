@@ -19,6 +19,7 @@ import { MockERC1271 } from "./mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// `deposit` happy path + revert coverage. Permit2 sig acceptance is
 /// faked via an ERC-1271 stub at the payer address (any sig bytes valid),
@@ -58,7 +59,8 @@ contract MASPDepositTest is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             TREASURY,
             OWNER
         );

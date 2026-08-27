@@ -17,6 +17,7 @@ import { MockERC1271 } from "./mocks/MockERC1271.sol";
 import { BatchedGroth16Verifier } from "../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "./utils/SpendFixture.sol";
+import { uniformBps } from "./utils/FeeArrays.sol";
 
 /// End-to-end test: real `tree_update_batch` Groth16 proof, real verifier
 /// contract. Submits one deposit, then flushes with the fixture proof.
@@ -58,7 +59,8 @@ contract MASPFlushBatchSnarkTest is Test {
             ids,
             tokens,
             scales,
-            FEE_BPS,
+            uniformBps(ids.length, FEE_BPS),
+            uniformBps(ids.length, FEE_BPS),
             TREASURY,
             OWNER
         );
