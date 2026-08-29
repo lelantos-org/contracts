@@ -101,6 +101,9 @@ contract UniV3Adapter is ISwapAdapter {
         uint256 outBefore = outToken.balanceOf(address(this));
         if (route.length == SINGLE_HOP_ROUTE_LEN) {
             (uint24 fee, uint160 sqrtPriceLimitX96) = abi.decode(route, (uint24, uint160));
+            // The router's reported output is ignored on purpose; `actualOut`
+            // is the measured balance delta, for the reason given above.
+            // slither-disable-next-line unused-return
             ROUTER.exactInputSingle(
                 ISwapRouter02.ExactInputSingleParams({
                     tokenIn: tokenIn,
@@ -113,6 +116,8 @@ contract UniV3Adapter is ISwapAdapter {
                 })
             );
         } else {
+            // As above: the reported output is ignored in favour of the delta.
+            // slither-disable-next-line unused-return
             ROUTER.exactInput(
                 ISwapRouter02.ExactInputParams({
                     path: route, recipient: address(this), amountIn: amountIn, amountOutMinimum: minOut
