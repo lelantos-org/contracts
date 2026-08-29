@@ -58,16 +58,17 @@ No peripheral holds a privileged position. None is registered with the pool, non
 | `libs/AuxValidation.sol` | Bounds and curve checks on per-output FMD payloads. |
 | `SnarkCompression.sol` | Horner evaluation over the coefficient vector. |
 | `BabyJubJub.sol` | On-curve and prime-order-subgroup checks. |
+| `MaspEscrowSatellite.sol` | Base for peripherals that escrow as their own payer: Permit2 arming, bounded balance-delta measurement, escrow record, cancel-and-verify. |
 | `native/NativeAdapter.sol` | Peripheral: wraps native coin into the deposit path, unwraps it out of the withdraw path. |
-| `native/IMASPNative.sol` | Pool surface `NativeAdapter` calls. |
 | `swap/SwapWrapper.sol` | Peripheral: atomic unshield to swap to re-shield across a MASP pair, plus escrow recovery. |
 | `swap/UniV3Adapter.sol` | Uniswap SwapRouter02 adapter for `SwapWrapper`. |
-| `swap/IMASPSwap.sol` | Pool surface `SwapWrapper` calls. |
+| `swap/UniV4Adapter.sol` | Uniswap v4 UniversalRouter adapter for `SwapWrapper`. |
+| `swap/ISwapAdapter.sol` | Venue-adapter interface `SwapWrapper` calls. |
 | `verifiers/BatchedGroth16Verifier.sol` | Checks a spend's `(transact_3x3, tree_update_batch)` proof pair in one pairing call. |
 | `verifiers/TreeUpdateBatchVerifier.sol` | snarkJS codegen for `tree_update_batch`. Used by `flushBatch`. |
 | `verifiers/Verifier.sol` | snarkJS codegen for `transact_3x3`. Not deployed; provenance for the `VK1_*` constants and the differential-test oracle. |
 | `verifiers/VerifyingKeys.sol` | The thirty verifying-key constants and the `BATCH_DOMAIN` transcript separator. |
-| `interfaces/` | `IVerifier`, `IBatchVerifier`, `IWrappedNative`. |
+| `interfaces/` | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both peripherals call. |
 
 ## Gas and contract size
 
@@ -85,22 +86,24 @@ Per-function aggregates from `forge test --gas-report`, with verification mocked
 
 | Function | Min | Avg | Max |
 | --- | --- | --- | --- |
-| `deposit` | 27 588 | 108 473 | 160 501 |
-| `depositAuthorized` | 34 150 | 88 577 | 133 962 |
-| `flushBatch` | 28 056 | 120 358 | 172 675 |
-| `cancelDeposit` | 25 310 | 39 670 | 66 111 |
-| `transfer` | 40 586 | 56 983 | 214 575 |
-| `withdraw` | 40 708 | 183 235 | 277 385 |
-| `sweep` | 24 226 | 29 075 | 56 898 |
-| `NativeAdapter.depositNative` | 25 622 | 162 568 | 232 408 |
-| `NativeAdapter.cancelNative` | 27 220 | 71 354 | 92 143 |
-| `NativeAdapter.withdrawNative` | 40 873 | 222 400 | 321 657 |
-| `SwapWrapper.swap` | 40 144 | 60 760 | 441 201 |
-| `SwapWrapper.cancelEscrow` | 29 333 | 64 937 | 91 385 |
+| `deposit` | 30 906 | 118 833 | 170 834 |
+| `depositAuthorized` | 29 435 | 90 862 | 144 207 |
+| `flushBatch` | 28 066 | 119 192 | 176 692 |
+| `cancelDeposit` | 26 270 | 41 262 | 68 351 |
+| `transfer` | 44 215 | 64 229 | 209 947 |
+| `withdraw` | 43 571 | 197 510 | 293 965 |
+| `sweep` | 24 229 | 27 234 | 56 901 |
+| `NativeAdapter.depositNative` | 28 961 | 154 470 | 221 136 |
+| `NativeAdapter.cancelNative` | 25 526 | 68 517 | 89 799 |
+| `NativeAdapter.withdrawNative` | 44 523 | 220 334 | 316 733 |
+| `SwapWrapper.swap` | 43 618 | 63 423 | 424 699 |
+| `SwapWrapper.cancelEscrow` | 25 508 | 61 265 | 88 040 |
 
 The three `NativeAdapter` rows include the MASP call they wrap (escrow pull, refund, or unshield) plus the wrap/unwrap legs.
 
-A shielded transfer therefore costs roughly 524 000 gas end to end: the `transfer` maximum above plus one batched pair check.
+A shielded transfer therefore costs roughly 519 000 gas end to end: the `transfer` maximum above plus one batched pair check.
+
+Both peripherals hold their escrow record in a single storage slot (`refundTo` as an address, `amount` as a `uint96`), which is worth about 22 000 gas per escrow; see [src/README.md](src/README.md#escrow-satellites) for the width bound that makes it safe.
 
 `flushBatch` amortizes one tree-update proof and the root advance across up to `PubInputs.MAX_L_BATCH` (4) deposits, with fees accrued once per unique token in the batch.
 
@@ -108,11 +111,12 @@ Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 
 | Contract | Runtime (B) | Margin (B) |
 | --- | --- | --- |
-| `MASP` | 16 889 | 7 687 |
-| `SwapWrapper` | 8 465 | 16 111 |
-| `NativeAdapter` | 6 813 | 17 763 |
+| `MASP` | 19 142 | 5 434 |
+| `SwapWrapper` | 8 753 | 15 823 |
+| `NativeAdapter` | 7 071 | 17 505 |
+| `UniV4Adapter` | 2 820 | 21 756 |
+| `UniV3Adapter` | 2 596 | 21 980 |
 | `BatchedGroth16Verifier` | 2 229 | 22 347 |
-| `UniV3Adapter` | 2 073 | 22 503 |
 | `TreeUpdateBatchGroth16Verifier` | 1 463 | 23 113 |
 
 `Groth16Verifier` (1 463 B) is not deployed by the scripts; the batched verifier checks spend proofs.

@@ -183,11 +183,13 @@ flowchart TD
   B --> C{"evicted slot nonzero<br/>and != newRoot?"}
   C -->|yes| D["isKnownRoot[evicted] = false"]
   C -->|no| E["keep evicted marked known"]
-  D --> F["roots[newIdx] = newRoot<br/>rootIndex = newIdx<br/>isKnownRoot[newRoot] = true"]
+  D --> F["roots[newIdx] = newRoot<br/>isKnownRoot[newRoot] = true"]
   E --> F
-  F --> G["committedCount += inserted"]
+  F --> G["rootIndex = newIdx<br/>committedCount += inserted"]
   G --> H["emit RootAdvanced"]
 ```
+
+`rootIndex` and `committedCount` share a storage slot. Both are read at the top of `_advanceRoot` and written together at the bottom, with the `roots` and `isKnownRoot` writes in between, so the pair costs one `SLOAD` and one `SSTORE` rather than two of each. Splitting those writes apart puts an unrelated store between them and the optimizer stops fusing them, which is worth roughly 200 gas on every `transfer`, `withdraw` and `flushBatch`.
 
 The `evicted != newRoot` guard matters: if the same root value occupies two slots in the buffer, clearing on eviction would mark a still-live root unknown and invalidate proofs built against it.
 
@@ -435,11 +437,13 @@ Deposit fees use the asset's `depositBps` snapshotted at submit time and carried
 | `Escrow { refundTo, amount }` + `_cancelAndVerify` | The pool refunds the digest-bound payer — the satellite — so a cancel needs an on-satellite record of who funded it, and the refund has to be verified by delta before it is paid out. |
 | `ReentrancyGuardTransient` | Every delta above is sound only if nothing can move the balance between the two reads, so the guard is a property of being a satellite. Subclasses still apply `nonReentrant` at their own entry points. |
 
-**The pull window is an argument, not a convention.** The Permit2 allowance a satellite grants the pool is unbounded and covers its entire balance, while `DepositRequest` is unauthenticated calldata — so a caller who oversizes `publicIn` could escrow coin parked in the satellite for somebody else into a note of their own. Every satellite must therefore bound the measured pull, and `_escrowMeasured` takes that bound as two required parameters rather than documenting the obligation: `NativeAdapter` passes `[1, msg.value]`, `SwapWrapper` passes `[minOut, actualOut]`. A satellite that omits the bound does not compile, and one that genuinely wants no ceiling has to write `type(uint256).max` where a reviewer can see it. The floor doubles as the asset check — a deposit denominated in any other asset moves none of the measured token, so it lands as a zero pull and trips `PullBelowMin`.
+**The pull window is an argument, not a convention.** The Permit2 allowance a satellite grants the pool is unbounded and covers its entire balance, while `DepositRequest` is unauthenticated calldata — so a caller who oversizes `publicIn` could escrow coin parked in the satellite for somebody else into a note of their own. Every satellite must therefore bound the measured pull, and `_escrowMeasured` takes that bound as two required parameters rather than documenting the obligation: `NativeAdapter` passes `[1, msg.value]`, `SwapWrapper` passes `[minOut, actualOut]`. A satellite that omits the bound does not compile, and one that wants no ceiling has to write `type(uint256).max` where a reviewer can see it. The floor doubles as the asset check — a deposit denominated in any other asset moves none of the measured token, so it lands as a zero pull and trips `PullBelowMin`.
 
-The escrow record holds no token address: `NativeAdapter` has a single immutable token, and a third struct field would cost it an extra cold `SSTORE` on every deposit. A satellite that handles an open set of tokens keeps its own `depositId → token` mapping and returns it from `_consumeEscrowToken`, which the base calls once the cancel guards have passed and before any external call — so the per-satellite half of the record is cleared under the same CEI ordering as the base's half, and a rejected cancel never pays to clear a record it is about to keep.
+**The record is one storage slot.** `refundTo` is an address and `amount` is a `uint96`, so the pair fills a slot exactly and an escrow costs one cold `SSTORE` instead of two — around 22 000 gas on every `depositNative` and every `swap`, and about 18 000 more on each cancel. The pool bounds what can reach that width from far below it: `publicIn` and `feeIn` are each validated against `type(uint48).max`, so a pull cannot exceed roughly `2^48 · scale · 2.2`. At the registered scales (`1` and `1e10`) the worst case is about `6.2e24` against a ceiling of `7.92e28` — four orders of magnitude of headroom — and the width is only reachable by an asset registered with a `scale` above roughly `1.2e14`. `_escrowMeasured` enforces it regardless: a pull that would not fit reverts `EscrowAmountTooLarge` rather than truncating, which would under-record the escrow and strand the difference on cancel.
 
-Payout is deliberately **not** in the base: `_cancelAndVerify` returns `(token, refundTo, amount)` and stops. `NativeAdapter` unwraps and sends native coin; token satellites `safeTransfer`. See [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) for the full rationale on each piece.
+The record holds no token address. `NativeAdapter` has a single immutable token, and a third field would spill into a second slot and undo the packing above. A satellite that handles an open set of tokens keeps its own `depositId → token` mapping and returns it from `_consumeEscrowToken`, which the base calls once the cancel guards have passed and before any external call — so the per-satellite half of the record is cleared under the same CEI ordering as the base's half, and a rejected cancel never pays to clear a record it is about to keep.
+
+Payout is **not** in the base: `_cancelAndVerify` returns `(token, refundTo, amount)` and stops. `NativeAdapter` unwraps and sends native coin; token satellites `safeTransfer`. See [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) for the full rationale on each piece.
 
 ---
 
@@ -507,7 +511,7 @@ Adding a venue is additive: a new `ISwapAdapter`, `setAdapterAllowed`, and nothi
 
 Amounts are measured as **balance deltas across the pool call**, never recomputed: neither the deposit fee nor the withdraw fee is visible to the adapter, and mirroring MASP's fee math would drift the moment the asset's rate changed between quote and execution. On the deposit leg that also means callers may overshoot `msg.value` rather than reproduce the fee formula — the surplus is unwrapped and returned in the same transaction.
 
-Because the pool refunds the digest-bound `payer` — the adapter — a canceled escrow needs an on-adapter record of who funded it: `escrows(id)` holds `(refundTo, amount)`. Both that record and the cancel path around it come from [MaspEscrowSatellite](MaspEscrowSatellite.sol); only the wrapping and the native payout are adapter-specific.
+Because the pool refunds the digest-bound `payer` — the adapter — a canceled escrow needs an on-adapter record of who funded it: `escrows(id)` holds `(refundTo, amount)`, packed into one storage slot. Both that record and the cancel path around it come from [MaspEscrowSatellite](MaspEscrowSatellite.sol); only the wrapping and the native payout are adapter-specific.
 
 Attribution rests on the pool's contract-payer rule. Since only the adapter can cancel an adapter-owned deposit, every refund arrives during a `cancelNative` call, and the wrapped-balance delta across that call must equal the recorded amount. `POOL.escrowed(id) == 0` therefore means one thing — the deposit was flushed — and `cancelNative` rejects it with `DepositAlreadySettled` rather than guessing. There is no shared pot, so a record left behind by a flushed deposit is inert and cannot hold up anyone else's refund.
 
