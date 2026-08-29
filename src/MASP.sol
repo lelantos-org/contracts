@@ -114,7 +114,23 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
 
     /// Emitted on shield and unshield; skipped for pure transfers
     /// (`in == out == 0`).
-    event AssetMoved(uint64 indexed assetId, IERC20 indexed token, uint256 inAmount, uint256 outAmount);
+    ///
+    /// Carries both unit spaces because they stop agreeing. `inAmount` /
+    /// `outAmount` are ERC-20 base units — what actually moved — while
+    /// `publicIn` / `publicOut` are the circuit values the SNARK published.
+    /// Today they differ only by `scale`, so an indexer can divide; once a
+    /// pool-managed yield index is live the conversion also multiplies by that
+    /// index, and inverting it off-chain means re-deriving contract arithmetic
+    /// from a value that moves every block. Emitting the circuit value removes
+    /// that class of drift entirely.
+    event AssetMoved(
+        uint64 indexed assetId,
+        IERC20 indexed token,
+        uint256 inAmount,
+        uint256 outAmount,
+        uint64 publicIn,
+        uint64 publicOut
+    );
 
     /// Encrypted-note payload for spend flows (FMD clue, ephemeral pubkey,
     /// ciphertext, Pedersen value commitment). Emitted once per output leaf.
@@ -265,7 +281,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         _finalize(p, pi, tp, tpi, aux);
         uint256 outAmt = uint256(pi.publicOut) * a.scale;
         _unshieldLeg(a.token, pi.recipient, outAmt, a.withdrawBps);
-        emit AssetMoved(pi.publicAssetId, a.token, 0, outAmt);
+        emit AssetMoved(pi.publicAssetId, a.token, 0, outAmt, 0, pi.publicOut);
         _emitNotes(pi, aux);
     }
 
@@ -413,7 +429,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
             feeAux.ephPubY,
             feeAux.ciphertext
         );
-        emit AssetMoved(d.publicAssetId, a.token, inAmt, 0);
+        emit AssetMoved(d.publicAssetId, a.token, inAmt, 0, d.publicIn, 0);
     }
 
     /// Insert escrowed deposits under one batched SNARK. `tpi` and `meta`

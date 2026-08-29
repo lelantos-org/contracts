@@ -34,7 +34,7 @@ interface ISwapRouter02 {
 
 /// Uniswap V3 single-hop and multi-hop adapter. The wrapper transfers
 /// `amountIn` of `tokenIn` here; this contract approves the router, executes the
-/// swap, and resets the approval.
+/// swap, resets the approval, and pushes the output back to the wrapper.
 ///
 /// `swap` is restricted to the pinned `WRAPPER`. Without that restriction, any
 /// caller could drain donated tokens by routing the output to themselves.
@@ -54,6 +54,7 @@ contract UniV3Adapter is ISwapAdapter {
     error RouterZero();
     error WrapperZero();
     error UnauthorizedCaller();
+    error InsufficientOut(uint256 actualOut, uint256 minOut);
 
     constructor(address router, address wrapper) {
         if (router == address(0)) revert RouterZero();
@@ -65,6 +66,25 @@ contract UniV3Adapter is ISwapAdapter {
     /// Approve, swap, then reset. The trailing reset to zero keeps tokens that
     /// reject non-zero-to-non-zero approval changes, such as USDT, usable on
     /// the next swap.
+    ///
+    /// The output is taken to this adapter and measured as a balance delta
+    /// across the router call rather than read off the router's return value,
+    /// then pushed to the wrapper. `SwapWrapper` settles against this return
+    /// value and uses it as the ceiling on what MASP may pull out of its own
+    /// balance, so it has to be what the venue actually delivered; a router
+    /// that over-reports — which is what any `tokenOut` charging a fee on
+    /// transfer makes it do — would otherwise raise that ceiling above the
+    /// swap's real output.
+    ///
+    /// This is what `reentrancy-balance` reports. The snapshot cannot go stale
+    /// in a way that over-counts: the only permitted caller is the pinned
+    /// `WRAPPER`, whose `swap` holds `nonReentrant` across the whole call, and
+    /// `ROUTER` is immutable, so re-entering either contract is impossible. A
+    /// multi-hop `route` is unauthenticated calldata and may name a token that
+    /// runs its own code mid-swap, but the delta only ever credits `tokenOut`
+    /// that genuinely arrived here and is forwarded on, and nothing but
+    /// `ROUTER` — approved for `tokenIn` alone — can move it out.
+    // slither-disable-next-line reentrancy-balance
     function swap(
         address tokenIn,
         address tokenOut,
@@ -75,29 +95,38 @@ contract UniV3Adapter is ISwapAdapter {
     ) external returns (uint256 actualOut) {
         if (msg.sender != WRAPPER) revert UnauthorizedCaller();
         IERC20 inToken = IERC20(tokenIn);
+        IERC20 outToken = IERC20(tokenOut);
         inToken.forceApprove(address(ROUTER), amountIn);
 
+        uint256 outBefore = outToken.balanceOf(address(this));
         if (route.length == SINGLE_HOP_ROUTE_LEN) {
             (uint24 fee, uint160 sqrtPriceLimitX96) = abi.decode(route, (uint24, uint160));
-            actualOut = ROUTER.exactInputSingle(
+            ROUTER.exactInputSingle(
                 ISwapRouter02.ExactInputSingleParams({
                     tokenIn: tokenIn,
                     tokenOut: tokenOut,
                     fee: fee,
-                    recipient: msg.sender,
+                    recipient: address(this),
                     amountIn: amountIn,
                     amountOutMinimum: minOut,
                     sqrtPriceLimitX96: sqrtPriceLimitX96
                 })
             );
         } else {
-            actualOut = ROUTER.exactInput(
+            ROUTER.exactInput(
                 ISwapRouter02.ExactInputParams({
-                    path: route, recipient: msg.sender, amountIn: amountIn, amountOutMinimum: minOut
+                    path: route, recipient: address(this), amountIn: amountIn, amountOutMinimum: minOut
                 })
             );
         }
+        actualOut = outToken.balanceOf(address(this)) - outBefore;
 
         inToken.forceApprove(address(ROUTER), 0);
+
+        // Defense in depth: the router enforces `minOut` already, but the
+        // wrapper settles against the measured delta, so that is checked too.
+        if (actualOut < minOut) revert InsufficientOut(actualOut, minOut);
+
+        outToken.safeTransfer(msg.sender, actualOut);
     }
 }

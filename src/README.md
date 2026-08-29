@@ -23,6 +23,7 @@ For build instructions, gas figures, and deployed sizes, see the [repository REA
   - [Shield: deposit escrow and batch flush](#shield-deposit-escrow-and-batch-flush)
   - [Spend: transfer and withdraw](#spend-transfer-and-withdraw)
   - [Fee accounting](#fee-accounting)
+- [Escrow satellites](#escrow-satellites)
 - [Shielded Swap](#shielded-swap)
 - [Native coin](#native-coin)
 - [Constants](#constants)
@@ -158,8 +159,11 @@ classDiagram
 | [verifiers/VerifyingKeys.sol](verifiers/VerifyingKeys.sol) | The thirty verifying-key constants, lifted verbatim from the two codegen files, plus the `BATCH_DOMAIN` transcript separator. |
 | [verifiers/BatchedGroth16Verifier.sol](verifiers/BatchedGroth16Verifier.sol) | Hand-written assembly verifying both spend proofs in one pairing call. |
 | [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both adapters call, pinned to `MASP`'s selectors by `IMASPPool.t.sol`. |
+| [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) | Abstract base for peripherals that escrow as their own `payer`: Permit2 arming, balance-delta escrow measurement, escrow record, cancel-and-verify. |
 | [native/](native/) | `NativeAdapter`: wraps native coin into the deposit path and unwraps it out of the withdraw path. The pool itself is ERC-20 only. |
 | [swap/](swap/) | Atomic unshield → swap → re-shield wrapper, plus the Uniswap v3 and v4 adapters. |
+
+`NativeAdapter` and `SwapWrapper` both extend `MaspEscrowSatellite`; see [Escrow satellites](#escrow-satellites).
 
 `Verifier.sol` and `TreeUpdateBatchVerifier.sol` are generated output and carry `SPDX-License-Identifier: GPL-3.0` with their own upstream terms; everything else, `VerifyingKeys.sol` and `BatchedGroth16Verifier.sol` included, is MIT.
 
@@ -419,6 +423,26 @@ Deposit fees use the asset's `depositBps` snapshotted at submit time and carried
 
 ---
 
+## Escrow satellites
+
+`MASP` has no privileged peripheral position. A peripheral that wants to shield funds it is holding calls `depositAuthorized` with `d.payer = address(this)` and lets the pool pull against its own Permit2 allowance. Both current peripherals do this, and the pattern comes with a fixed set of consequences, so it lives once in [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) rather than per contract.
+
+| Piece | Why it is shared |
+| --- | --- |
+| `POOL` / `PERMIT2` immutables, zero-address checks | Identical wiring in every satellite. |
+| `_approveToken` | The ERC-20 → Permit2 → MASP approval pair, at infinite allowance and max expiry. |
+| `_escrowMeasured` | Neither the deposit fee nor the relayer note is visible to a satellite, so the pull is only knowable as a balance delta across `depositAuthorized`. It takes a mandatory `[minPull, maxPull]` window and enforces it — see below. |
+| `Escrow { refundTo, amount }` + `_cancelAndVerify` | The pool refunds the digest-bound payer — the satellite — so a cancel needs an on-satellite record of who funded it, and the refund has to be verified by delta before it is paid out. |
+| `ReentrancyGuardTransient` | Every delta above is sound only if nothing can move the balance between the two reads, so the guard is a property of being a satellite. Subclasses still apply `nonReentrant` at their own entry points. |
+
+**The pull window is an argument, not a convention.** The Permit2 allowance a satellite grants the pool is unbounded and covers its entire balance, while `DepositRequest` is unauthenticated calldata — so a caller who oversizes `publicIn` could escrow coin parked in the satellite for somebody else into a note of their own. Every satellite must therefore bound the measured pull, and `_escrowMeasured` takes that bound as two required parameters rather than documenting the obligation: `NativeAdapter` passes `[1, msg.value]`, `SwapWrapper` passes `[minOut, actualOut]`. A satellite that omits the bound does not compile, and one that genuinely wants no ceiling has to write `type(uint256).max` where a reviewer can see it. The floor doubles as the asset check — a deposit denominated in any other asset moves none of the measured token, so it lands as a zero pull and trips `PullBelowMin`.
+
+The escrow record holds no token address: `NativeAdapter` has a single immutable token, and a third struct field would cost it an extra cold `SSTORE` on every deposit. A satellite that handles an open set of tokens keeps its own `depositId → token` mapping and returns it from `_consumeEscrowToken`, which the base calls once the cancel guards have passed and before any external call — so the per-satellite half of the record is cleared under the same CEI ordering as the base's half, and a rejected cancel never pays to clear a record it is about to keep.
+
+Payout is deliberately **not** in the base: `_cancelAndVerify` returns `(token, refundTo, amount)` and stops. `NativeAdapter` unwraps and sends native coin; token satellites `safeTransfer`. See [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) for the full rationale on each piece.
+
+---
+
 ## Shielded Swap
 
 `SwapWrapper` composes an unshield, a venue swap, and a re-shield into one atomic transaction, so no intermediate balance is ever exposed to an observer as a user-held position.
@@ -461,9 +485,9 @@ Every amount is measured as a **balance delta across an external call**, because
 
 The `msg.sender == pi_w.payer` check is what stops a mempool replay: `swap` is permissionless and `deposit_d` — which names the output note's commitment and recipient — is unauthenticated calldata. `payer` is a public input of the withdraw proof carrying no other constraint on the spend path, so it serves as the name of the address permitted to drive the swap.
 
-An escrow the wrapper creates is owned by the wrapper: MASP refunds the digest-bound payer, and a contract payer may only cancel its own deposit. `swap` therefore records `escrows[depositId] = (refundTo, token, amount)` with `refundTo = pi_w.payer`, the address authorized to drive that swap, and `cancelEscrow` is what recovers a leg that never gets flushed. Anyone may call it, the destination is the recorded driver rather than the caller, and the refund is attributed by balance delta across the pool call — sound because the wrapper is necessarily the one making it. An already-settled deposit was flushed and is rejected with `DepositAlreadySettled` rather than paid out of another escrow's coin.
+An escrow the wrapper creates is owned by the wrapper: MASP refunds the digest-bound payer, and a contract payer may only cancel its own deposit. `swap` therefore records `refundTo = pi_w.payer` — the address authorized to drive that swap — alongside the escrowed token and amount, readable via `escrows(depositId)`, and `cancelEscrow` is what recovers a leg that never gets flushed. Anyone may call it, the destination is the recorded driver rather than the caller, and the refund is attributed by balance delta across the pool call — sound because the wrapper is necessarily the one making it. An already-settled deposit was flushed and is rejected with `DepositAlreadySettled` rather than paid out of another escrow's coin.
 
-`UniV3Adapter` is a thin pull-then-push adapter: the wrapper pre-transfers `amountIn`, the adapter approves the router, swaps, resets the approval to zero (keeping tokens such as USDT, which reject non-zero-to-non-zero approval changes, usable on the next call), and returns the output to `msg.sender`. A 64-byte `route` is decoded as `(uint24 fee, uint160 sqrtPriceLimitX96)` and routed single-hop; any other length is treated as a packed multi-hop path. `swap` is restricted to the pinned `WRAPPER`, without which any caller could drain donated tokens by routing output to themselves.
+`UniV3Adapter` is a thin pull-then-push adapter: the wrapper pre-transfers `amountIn`, the adapter approves the router, swaps to itself, resets the approval to zero (keeping tokens such as USDT, which reject non-zero-to-non-zero approval changes, usable on the next call), and pushes the output to `msg.sender`. Like `UniV4Adapter`, it reports the output as a balance delta across the router call rather than the router's own return value: the wrapper hands that number to `_escrowMeasured` as the pull ceiling, so it has to be what the venue actually delivered. A 64-byte `route` is decoded as `(uint24 fee, uint160 sqrtPriceLimitX96)` and routed single-hop; any other length is treated as a packed multi-hop path. `swap` is restricted to the pinned `WRAPPER`, without which any caller could drain donated tokens by routing output to themselves.
 
 `UniV4Adapter` is the same shape against the UniversalRouter's `V4_SWAP` command, with three differences worth naming. It needs **no approval at all**: it transfers `amountIn` to the router and settles with `CONTRACT_BALANCE` / `payerIsUser = false`, which pays out of the router's own balance and keeps the flow off Permit2. It **measures its own balance delta**, because `execute` returns nothing where `SwapRouter02.exactInputSingle` returns `amountOut`. And it **forwards `deadline`** to the router, which enforces it, where SwapRouter02 takes none. Its 64-byte `route` is `(uint24 fee, int24 tickSpacing)`; currency ordering is derived from the token addresses and `hooks` is pinned to `address(0)`, so neither can be named by the caller — `route` is unauthenticated calldata, and an attacker-chosen hook would otherwise be invoked by the PoolManager mid-swap.
 
@@ -483,9 +507,9 @@ Adding a venue is additive: a new `ISwapAdapter`, `setAdapterAllowed`, and nothi
 
 Amounts are measured as **balance deltas across the pool call**, never recomputed: neither the deposit fee nor the withdraw fee is visible to the adapter, and mirroring MASP's fee math would drift the moment the asset's rate changed between quote and execution. On the deposit leg that also means callers may overshoot `msg.value` rather than reproduce the fee formula — the surplus is unwrapped and returned in the same transaction.
 
-Because the pool refunds the digest-bound `payer` — the adapter — a canceled escrow needs an on-adapter record of who funded it: `escrows[id]` holds `(refundTo, amount)`.
+Because the pool refunds the digest-bound `payer` — the adapter — a canceled escrow needs an on-adapter record of who funded it: `escrows(id)` holds `(refundTo, amount)`. Both that record and the cancel path around it come from [MaspEscrowSatellite](MaspEscrowSatellite.sol); only the wrapping and the native payout are adapter-specific.
 
-Attribution rests on the pool's contract-payer rule. Since only the adapter can cancel an adapter-owned deposit, every refund arrives during a `cancelNative` call, and the wrapped-balance delta across that call must equal the recorded amount. `escrowed[id] == 0` therefore means one thing — the deposit was flushed — and `cancelNative` rejects it with `DepositAlreadySettled` rather than guessing. There is no shared pot, so a record left behind by a flushed deposit is inert and cannot hold up anyone else's refund.
+Attribution rests on the pool's contract-payer rule. Since only the adapter can cancel an adapter-owned deposit, every refund arrives during a `cancelNative` call, and the wrapped-balance delta across that call must equal the recorded amount. `POOL.escrowed(id) == 0` therefore means one thing — the deposit was flushed — and `cancelNative` rejects it with `DepositAlreadySettled` rather than guessing. There is no shared pot, so a record left behind by a flushed deposit is inert and cannot hold up anyone else's refund.
 
 On the spend side the destination is `pi.payer`, a public input of the withdraw proof that carries no other constraint. Binding the native recipient to the proof rather than to a calldata argument keeps `withdrawNative` permissionless for relayers while leaving no field a front-runner could repoint. A zero wrapped-balance delta reverts the whole spend, so an unshield of some other asset can never strand an ERC-20 on the adapter.
 

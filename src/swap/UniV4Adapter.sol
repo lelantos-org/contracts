@@ -91,6 +91,14 @@ contract UniV4Adapter is ISwapAdapter {
     ///
     /// `deadline` is forwarded to the router, which enforces it; the wrapper
     /// checks it too.
+    ///
+    /// The output is measured as a balance delta across `ROUTER.execute`, which
+    /// is what `reentrancy-balance` reports. The snapshot cannot go stale: the
+    /// only permitted caller is the pinned `WRAPPER`, whose `swap` holds
+    /// `nonReentrant` across the whole call, `ROUTER` is immutable, and only
+    /// vanilla pools are reachable (`hooks` is pinned to `address(0)`), so no
+    /// attacker-chosen code runs between the two balance reads.
+    // slither-disable-next-line reentrancy-balance
     function swap(
         address tokenIn,
         address tokenOut,

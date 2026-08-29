@@ -7,6 +7,7 @@ import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.so
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
+import { MaspEscrowSatellite } from "../../src/MaspEscrowSatellite.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
@@ -309,7 +310,7 @@ contract SwapWrapperTest is SwapTestBase {
             payer: address(wrapper)
         });
         vm.expectRevert(
-            abi.encodeWithSelector(SwapWrapper.MaspPullExceedsActualOut.selector, actualOut, minOut + expectedFeeOnB)
+            abi.encodeWithSelector(MaspEscrowSatellite.PullExceedsMax.selector, minOut + expectedFeeOnB, actualOut)
         );
         wrapper.swap(a);
     }
@@ -345,29 +346,29 @@ contract SwapWrapperTest is SwapTestBase {
     }
 
     function testConstructorRejectsZeroPool() public {
-        vm.expectRevert(SwapWrapper.ZeroAddress.selector);
+        vm.expectRevert(MaspEscrowSatellite.ZeroAddress.selector);
         new SwapWrapper(IMASPPool(address(0)), permit2, OWNER, TREASURY);
     }
 
     function testConstructorRejectsZeroPermit2() public {
-        vm.expectRevert(SwapWrapper.ZeroAddress.selector);
+        vm.expectRevert(MaspEscrowSatellite.ZeroAddress.selector);
         new SwapWrapper(pool, IAllowanceTransfer(address(0)), OWNER, TREASURY);
     }
 
     function testConstructorRejectsZeroTreasury() public {
-        vm.expectRevert(SwapWrapper.ZeroAddress.selector);
+        vm.expectRevert(MaspEscrowSatellite.ZeroAddress.selector);
         new SwapWrapper(pool, permit2, OWNER, address(0));
     }
 
     function testSetTreasuryRejectsZero() public {
         vm.prank(OWNER);
-        vm.expectRevert(SwapWrapper.ZeroAddress.selector);
+        vm.expectRevert(MaspEscrowSatellite.ZeroAddress.selector);
         wrapper.setTreasury(address(0));
     }
 
     function testSetAdapterAllowedRejectsZero() public {
         vm.prank(OWNER);
-        vm.expectRevert(SwapWrapper.ZeroAddress.selector);
+        vm.expectRevert(MaspEscrowSatellite.ZeroAddress.selector);
         wrapper.setAdapterAllowed(address(0), true);
     }
 
@@ -517,7 +518,7 @@ contract SwapWrapperTest is SwapTestBase {
     }
 
     function testRevertCancelEscrowWithoutRecord() public {
-        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.NoEscrowRecord.selector, uint256(42)));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.NoEscrowRecord.selector, uint256(42)));
         wrapper.cancelEscrow(
             42,
             0,
@@ -543,7 +544,7 @@ contract SwapWrapperTest is SwapTestBase {
             PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
 
-        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.NoEscrowRecord.selector, depositId));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.NoEscrowRecord.selector, depositId));
         wrapper.cancelEscrow(
             depositId,
             0,
@@ -562,7 +563,7 @@ contract SwapWrapperTest is SwapTestBase {
         (uint256 depositId,,) = _swapAndEscrow();
         pool.simulateFlush(depositId);
 
-        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.DepositAlreadySettled.selector, depositId));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.DepositAlreadySettled.selector, depositId));
         wrapper.cancelEscrow(
             depositId,
             0,
@@ -581,7 +582,7 @@ contract SwapWrapperTest is SwapTestBase {
         (uint256 depositId,,) = _swapAndEscrow();
         pool.setRefundShortfall(1);
 
-        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.RefundNotFunded.selector, depositId));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.RefundNotFunded.selector, depositId));
         wrapper.cancelEscrow(
             depositId,
             0,

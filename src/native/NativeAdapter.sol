@@ -2,8 +2,6 @@
 pragma solidity 0.8.30;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
@@ -12,6 +10,7 @@ import { PubInputs } from "../libs/PubInputs.sol";
 import { AuxValidation } from "../libs/AuxValidation.sol";
 
 import { IMASPPool } from "../interfaces/IMASPPool.sol";
+import { MaspEscrowSatellite } from "../MaspEscrowSatellite.sol";
 
 /// Native-coin bridge for an ERC-20-only MASP. The pool never sees native coin:
 /// this adapter wraps on the way in and unwraps on the way out, holding funds
@@ -26,56 +25,35 @@ import { IMASPPool } from "../interfaces/IMASPPool.sol";
 /// * `withdrawNative` — drive `MASP.withdraw` with the adapter as `recipient`,
 ///   then unwrap and forward the proceeds to `pi.payer`.
 ///
-/// Every amount is measured as a balance delta across the pool call. MASP's
-/// deposit and withdraw fees are not visible here, and a mirrored fee
-/// calculation would drift whenever the asset's fee rate changes.
+/// Every amount is measured as a balance delta across the pool call; see
+/// [MaspEscrowSatellite](../MaspEscrowSatellite.sol), which supplies the escrow
+/// record and the Permit2 and cancel plumbing. The withdraw leg measures
+/// inline, since the pool pushes on that path rather than pulling.
 ///
 /// Ownerless and permissionless. All authority comes from the SNARK public
 /// inputs (`pi.payer` names the native recipient on the spend side) or from the
 /// adapter's own escrow bookkeeping.
-contract NativeAdapter is ReentrancyGuardTransient {
-    using SafeERC20 for IERC20;
-
-    IMASPPool public immutable POOL;
+contract NativeAdapter is MaspEscrowSatellite {
     IWrappedNative public immutable WRAPPED_NATIVE;
-    IAllowanceTransfer public immutable PERMIT2;
-
-    /// Who funded an adapter-owned escrow, and how much the pool pulled.
-    /// `MASP.cancelDeposit` refunds the digest-bound payer, which is the
-    /// adapter, so this is the only record of where the coin came from.
-    struct Escrow {
-        address refundTo;
-        uint256 amount;
-    }
-
-    mapping(uint256 id => Escrow) public escrows;
 
     event NativeDeposited(uint256 indexed id, address indexed refundTo, uint256 escrowed, uint256 returned);
     event NativeRefunded(uint256 indexed id, address indexed refundTo, uint256 amount);
     event NativeWithdrawn(address indexed recipient, uint256 amount);
 
-    error ZeroAddress();
     error ZeroValue();
     error AdapterNotPayer();
     error AdapterNotRecipient();
     error AdapterNotRelayer();
-    error NothingEscrowed();
-    error PullExceedsValue(uint256 pulled, uint256 value);
     error NothingUnshielded();
-    error NoEscrowRecord(uint256 id);
-    error DepositAlreadySettled(uint256 id);
-    error RefundNotFunded(uint256 id);
     error NativeTransferFailed();
     error UnauthorizedNativeSender();
 
-    constructor(IMASPPool pool, IWrappedNative wrappedNative, IAllowanceTransfer permit2) {
-        if (address(pool) == address(0)) revert ZeroAddress();
+    constructor(IMASPPool pool, IWrappedNative wrappedNative, IAllowanceTransfer permit2)
+        MaspEscrowSatellite(pool, permit2)
+    {
         if (address(wrappedNative) == address(0)) revert ZeroAddress();
-        if (address(permit2) == address(0)) revert ZeroAddress();
-        POOL = pool;
         WRAPPED_NATIVE = wrappedNative;
-        PERMIT2 = permit2;
-        _arm();
+        _approveToken(WRAPPED_NATIVE);
     }
 
     /// Only the wrapped-native contract may push raw native coin; every other
@@ -84,17 +62,23 @@ contract NativeAdapter is ReentrancyGuardTransient {
         if (msg.sender != address(WRAPPED_NATIVE)) revert UnauthorizedNativeSender();
     }
 
-    /// Re-arm the escrow approvals (ERC-20 → Permit2 → MASP). Idempotent and
-    /// permissionless; the constructor already runs it. Both allowances are set
-    /// to their infinite sentinel, so this is needed only if a non-standard
-    /// wrapped-native token decays them.
-    function arm() external {
-        _arm();
+    /// The funder of an adapter-owned escrow and the amount the pool pulled.
+    /// The asset is always wrapped native, so no token is recorded.
+    function escrows(uint256 id) external view returns (address refundTo, uint256 amount) {
+        Escrow storage e = _escrows[id];
+        return (e.refundTo, e.amount);
     }
 
-    function _arm() private {
-        IERC20(address(WRAPPED_NATIVE)).forceApprove(address(PERMIT2), type(uint256).max);
-        PERMIT2.approve(address(WRAPPED_NATIVE), address(POOL), type(uint160).max, type(uint48).max);
+    /// The adapter holds one immutable token; there is no per-escrow record.
+    function _consumeEscrowToken(uint256) internal view override returns (IERC20) {
+        return WRAPPED_NATIVE;
+    }
+
+    /// Re-arm the wrapped-native approval. Idempotent and permissionless; the
+    /// constructor performs it. Required again only if a non-standard
+    /// wrapped-native token decays either allowance.
+    function arm() external {
+        _approveToken(WRAPPED_NATIVE);
     }
 
     // -------- deposit ---------------------------------------------------
@@ -118,28 +102,21 @@ contract NativeAdapter is ReentrancyGuardTransient {
         if (msg.value == 0) revert ZeroValue();
         if (d.payer != address(this)) revert AdapterNotPayer();
 
-        IERC20 weth = IERC20(address(WRAPPED_NATIVE));
-        uint256 balanceBefore = weth.balanceOf(address(this));
+        // The wrap credits `msg.value` to this contract before the pool pulls,
+        // so the pull is measured against the pre-wrap balance plus it.
+        uint256 baseline = WRAPPED_NATIVE.balanceOf(address(this)) + msg.value;
         WRAPPED_NATIVE.deposit{ value: msg.value }();
 
-        id = POOL.depositAuthorized(d, aux, feeAux);
+        // The pull is the escrowed total (amount plus fee at submit) and must
+        // land in `[1, msg.value]`. The floor rejects an empty pull, which is
+        // also how a non-wrapped-native asset id measures, the adapter holding
+        // and permitting no other token. The ceiling confines the pull to the
+        // coin this call supplied, leaving refunds parked here for other
+        // depositors out of reach of an oversized `d.publicIn`.
+        uint256 pulled;
+        (id, pulled) = _escrowMeasured(WRAPPED_NATIVE, baseline, 1, msg.value, d, aux, feeAux);
 
-        // What the pool took is the escrowed total (amount plus fee at submit).
-        // A non-wrapped-native asset id cannot reach here: the adapter holds no
-        // other token and permits none, so the pull would revert.
-        uint256 pulled = balanceBefore + msg.value - weth.balanceOf(address(this));
-        // Exact zero is a presence test on a measured delta, not arithmetic on
-        // an attacker-movable quantity. A partial pull is caught by the record
-        // and by the ceiling check below.
-        // slither-disable-next-line incorrect-equality
-        if (pulled == 0) revert NothingEscrowed();
-        // The Permit2 allowance to the pool is unbounded and covers this
-        // contract's whole balance, so without this bound a caller who oversizes
-        // `d.publicIn` could escrow refunds parked here for other depositors
-        // into a note of their own.
-        if (pulled > msg.value) revert PullExceedsValue(pulled, msg.value);
-
-        escrows[id] = Escrow({ refundTo: msg.sender, amount: pulled });
+        _escrows[id] = Escrow({ refundTo: msg.sender, amount: uint96(pulled) });
 
         uint256 returned = msg.value - pulled;
         if (returned != 0) {
@@ -170,21 +147,13 @@ contract NativeAdapter is ReentrancyGuardTransient {
         uint32 submittedAt,
         PubInputs.FeeNote calldata feeNote
     ) external nonReentrant {
-        Escrow memory e = escrows[id];
-        if (e.refundTo == address(0)) revert NoEscrowRecord(id);
-        if (POOL.escrowed(id) == bytes32(0)) revert DepositAlreadySettled(id);
+        (, address refundTo, uint256 amount) = _cancelAndVerify(
+            id, publicIn, cm, cvDep, publicAssetId, fbps, submittedAt, feeNote
+        );
 
-        // CEI: clear the record before any external call.
-        delete escrows[id];
-
-        IERC20 weth = IERC20(address(WRAPPED_NATIVE));
-        uint256 balanceBefore = weth.balanceOf(address(this));
-        POOL.cancelDeposit(id, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt, feeNote);
-        if (weth.balanceOf(address(this)) - balanceBefore != e.amount) revert RefundNotFunded(id);
-
-        WRAPPED_NATIVE.withdraw(e.amount);
-        _sendNative(e.refundTo, e.amount);
-        emit NativeRefunded(id, e.refundTo, e.amount);
+        WRAPPED_NATIVE.withdraw(amount);
+        _sendNative(refundTo, amount);
+        emit NativeRefunded(id, refundTo, amount);
     }
 
     // -------- withdraw --------------------------------------------------
@@ -210,10 +179,9 @@ contract NativeAdapter is ReentrancyGuardTransient {
         if (pi.recipient != address(this)) revert AdapterNotRecipient();
         if (pi.relayer != address(this)) revert AdapterNotRelayer();
 
-        IERC20 weth = IERC20(address(WRAPPED_NATIVE));
-        uint256 balanceBefore = weth.balanceOf(address(this));
+        uint256 balanceBefore = WRAPPED_NATIVE.balanceOf(address(this));
         POOL.withdraw(p, pi, tp, tpi, aux);
-        net = weth.balanceOf(address(this)) - balanceBefore;
+        net = WRAPPED_NATIVE.balanceOf(address(this)) - balanceBefore;
         // A zero delta means the spend was denominated in another asset, which
         // the pool has pushed here as a token this contract cannot return; the
         // revert undoes the unshield. Exact zero is a presence test on a

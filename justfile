@@ -113,6 +113,16 @@ fmt-check:
 
 # === CI ===
 
+# Mirrors the `slither` job in .github/workflows/ci.yml. Slither parses
+# `out/build-info` rather than compiling itself, so the build must come first
+# (and `ast = true` in foundry.toml must stay set — see the note there).
+# `--fail-medium` is what the action's `fail-on: medium` resolves to.
+[doc('Run Slither (mirrors the CI job)')]
+[group('ci')]
+slither:
+    forge build --build-info
+    slither . --config-file slither.config.json --ignore-compile --fail-medium
+
 [doc('Everything CI runs, in order')]
 [group('ci')]
 ci: version build test fmt-check size

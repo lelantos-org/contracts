@@ -3,7 +3,6 @@ pragma solidity 0.8.30;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
@@ -12,6 +11,7 @@ import { PubInputs } from "../libs/PubInputs.sol";
 import { AuxValidation } from "../libs/AuxValidation.sol";
 
 import { IMASPPool } from "../interfaces/IMASPPool.sol";
+import { MaspEscrowSatellite } from "../MaspEscrowSatellite.sol";
 import { ISwapAdapter } from "./ISwapAdapter.sol";
 
 /// Atomic shielded-swap wrapper. Three legs:
@@ -24,26 +24,21 @@ import { ISwapAdapter } from "./ISwapAdapter.sol";
 /// re-checked and bounds the measured MASP pull, tying the escrowed leg to the
 /// venue output. The adapter must be allowlisted, and `tokenOut` must have been
 /// passed to `prepareToken`.
-contract SwapWrapper is ReentrancyGuardTransient, Ownable {
+///
+/// The escrow record and the Permit2 and cancel plumbing come from
+/// [MaspEscrowSatellite](../MaspEscrowSatellite.sol); the swap legs, the
+/// treasury dust sweep and the per-escrow token record are defined here.
+contract SwapWrapper is MaspEscrowSatellite, Ownable {
     using SafeERC20 for IERC20;
 
-    IMASPPool public immutable POOL;
-    IAllowanceTransfer public immutable PERMIT2;
     address public treasury;
 
     mapping(address adapter => bool allowed) public adapterAllowed;
 
-    /// Who a canceled escrow refunds to, and what the pool pulled for it.
-    /// `MASP.cancelDeposit` returns the coin to the digest-bound payer — this
-    /// wrapper — so without a record the refund would have no owner. Written by
-    /// `swap`, consumed by `cancelEscrow`.
-    struct Escrow {
-        address refundTo;
-        address token;
-        uint256 amount;
-    }
-
-    mapping(uint256 depositId => Escrow) public escrows;
+    /// The escrowed token, alongside the base `refundTo`/`amount` record. The
+    /// wrapper handles an open set of tokens, so the asset cannot be recovered
+    /// from an immutable. Written by `swap`, consumed by `cancelEscrow`.
+    mapping(uint256 depositId => address token) internal _escrowToken;
 
     event AdapterAllowedSet(address indexed adapter, bool allowed);
     event TreasurySet(address indexed treasury);
@@ -62,8 +57,6 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     error AdapterNotAllowed();
     error InsufficientOut(uint256 actualOut, uint256 minOut);
     error LeftoverBalance(address token, uint256 amount);
-    error MaspPullExceedsActualOut(uint256 actualOut, uint256 pulled);
-    error MaspPullBelowMinOut(uint256 pulled, uint256 minOut);
     error InsufficientWithdraw(uint256 received, uint256 amountIn);
     error UnauthorizedSwapCaller(address caller, address authorized);
     error WrapperNotPayer();
@@ -72,11 +65,7 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     error AmountInZero();
     error MinOutZero();
     error SameToken();
-    error ZeroAddress();
     error SwapExpired();
-    error NoEscrowRecord(uint256 depositId);
-    error DepositAlreadySettled(uint256 depositId);
-    error RefundNotFunded(uint256 depositId);
 
     /// Proofs and public inputs for the two MASP entry points, plus the adapter
     /// and token addresses, packed into one struct to stay within stack limits.
@@ -121,14 +110,28 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         AuxValidation.Output fee_aux_d;
     }
 
-    constructor(IMASPPool pool, IAllowanceTransfer permit2, address owner_, address treasury_) Ownable(owner_) {
-        if (address(pool) == address(0)) revert ZeroAddress();
-        if (address(permit2) == address(0)) revert ZeroAddress();
+    constructor(IMASPPool pool, IAllowanceTransfer permit2, address owner_, address treasury_)
+        MaspEscrowSatellite(pool, permit2)
+        Ownable(owner_)
+    {
         if (treasury_ == address(0)) revert ZeroAddress();
-        POOL = pool;
-        PERMIT2 = permit2;
         treasury = treasury_;
         emit TreasurySet(treasury_);
+    }
+
+    /// Who a canceled escrow refunds to, in which token, and what the pool
+    /// pulled for it. `MASP.cancelDeposit` returns the coin to the digest-bound
+    /// payer — this wrapper — so without a record the refund would have no
+    /// owner.
+    function escrows(uint256 depositId) external view returns (address refundTo, address token, uint256 amount) {
+        Escrow storage e = _escrows[depositId];
+        return (e.refundTo, _escrowToken[depositId], e.amount);
+    }
+
+    /// @inheritdoc MaspEscrowSatellite
+    function _consumeEscrowToken(uint256 depositId) internal override returns (IERC20 token) {
+        token = IERC20(_escrowToken[depositId]);
+        delete _escrowToken[depositId];
     }
 
     // -------- admin -----------------------------------------------------
@@ -147,11 +150,10 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         emit TreasurySet(t);
     }
 
-    /// Per-token approval bootstrap, idempotent: ERC-20 → Permit2, then
-    /// Permit2 → MASP at max cap and max expiry.
+    /// Arm a token for use as a swap output. Required once per `tokenOut`
+    /// before any swap escrows into it; idempotent thereafter.
     function prepareToken(IERC20 token) external {
-        token.forceApprove(address(PERMIT2), type(uint256).max);
-        PERMIT2.approve(address(token), address(POOL), type(uint160).max, type(uint48).max);
+        _approveToken(token);
         emit TokenPrepared(address(token));
     }
 
@@ -161,9 +163,8 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     /// @return actualOut Adapter-reported output (≥ minOut, asserted).
     /// @return depositId  MASP-assigned id for the deposit.
     ///
-    /// Every amount here is measured as a balance delta across an external call,
-    /// because neither MASP's withdraw fee nor its escrow pull is visible to the
-    /// wrapper; this is what `reentrancy-balance` reports. Re-entry is blocked
+    /// Every amount here is measured as a balance delta across an external call;
+    /// this is what `reentrancy-balance` reports. Re-entry is blocked
     /// on both sides (`nonReentrant` here and on the MASP entry points), the
     /// adapter is owner-allowlisted, and the closing leftover invariant reverts
     /// on any net drift in either token, so a stale snapshot cannot settle
@@ -251,20 +252,22 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
     {
         IERC20 outToken = IERC20(a.tokenOut);
 
+        // The pull must land in `[minOut, actualOut]`. The floor constrains
+        // `deposit_d`: the escrowed leg must be denominated in `tokenOut`, as
+        // any other asset yields a zero delta, and must carry at least the
+        // requested output rather than routing it to the treasury as dust. The
+        // ceiling is `actualOut` rather than `minOut`, leaving the relayer note
+        // fundable out of the slippage cushion.
         uint256 balanceBefore = outToken.balanceOf(address(this));
-        depositId = POOL.depositAuthorized(a.deposit_d, a.aux_d, a.fee_aux_d);
-        uint256 pulled = balanceBefore - outToken.balanceOf(address(this));
-        if (pulled > actualOut) revert MaspPullExceedsActualOut(actualOut, pulled);
-        // Bounding the pull below by `minOut` constrains `deposit_d`: the
-        // escrowed leg must be denominated in `tokenOut`, since any other asset
-        // yields a zero delta, and must carry at least the requested output
-        // rather than routing it to the treasury as dust.
-        if (pulled < a.minOut) revert MaspPullBelowMinOut(pulled, a.minOut);
+        uint256 pulled;
+        (depositId, pulled) =
+            _escrowMeasured(outToken, balanceBefore, a.minOut, actualOut, a.deposit_d, a.aux_d, a.fee_aux_d);
 
         // The pool refunds this wrapper, not the swap's driver, so a cancel
         // needs a record of who the escrow belongs to. `pi_w.payer` is the
         // address authorized to drive this swap (see `_validate`).
-        escrows[depositId] = Escrow({ refundTo: a.pi_w.payer, token: a.tokenOut, amount: pulled });
+        _escrows[depositId] = Escrow({ refundTo: a.pi_w.payer, amount: uint96(pulled) });
+        _escrowToken[depositId] = a.tokenOut;
 
         // Forward venue output above what MASP pulled (slippage cushion).
         dust = actualOut - pulled;
@@ -301,19 +304,11 @@ contract SwapWrapper is ReentrancyGuardTransient, Ownable {
         uint32 submittedAt,
         PubInputs.FeeNote calldata feeNote
     ) external nonReentrant {
-        Escrow memory e = escrows[depositId];
-        if (e.refundTo == address(0)) revert NoEscrowRecord(depositId);
-        if (POOL.escrowed(depositId) == bytes32(0)) revert DepositAlreadySettled(depositId);
+        (IERC20 token, address refundTo, uint256 amount) = _cancelAndVerify(
+            depositId, publicIn, cm, cvDep, publicAssetId, fbps, submittedAt, feeNote
+        );
 
-        // CEI: clear the record before any external call.
-        delete escrows[depositId];
-
-        IERC20 token = IERC20(e.token);
-        uint256 balanceBefore = token.balanceOf(address(this));
-        POOL.cancelDeposit(depositId, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt, feeNote);
-        if (token.balanceOf(address(this)) - balanceBefore != e.amount) revert RefundNotFunded(depositId);
-
-        token.safeTransfer(e.refundTo, e.amount);
-        emit EscrowRefunded(depositId, e.refundTo, e.token, e.amount);
+        token.safeTransfer(refundTo, amount);
+        emit EscrowRefunded(depositId, refundTo, address(token), amount);
     }
 }

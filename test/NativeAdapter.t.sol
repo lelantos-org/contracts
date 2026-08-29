@@ -10,6 +10,7 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { NativeAdapter } from "../src/native/NativeAdapter.sol";
+import { MaspEscrowSatellite } from "../src/MaspEscrowSatellite.sol";
 import { IMASPPool } from "../src/interfaces/IMASPPool.sol";
 import { IVerifier } from "../src/interfaces/IVerifier.sol";
 import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
@@ -271,7 +272,7 @@ contract NativeAdapterTest is Test {
     }
 
     function test_cancelNative_revert_NoEscrowRecord() public {
-        vm.expectRevert(abi.encodeWithSelector(NativeAdapter.NoEscrowRecord.selector, uint256(7)));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.NoEscrowRecord.selector, uint256(7)));
         adapter.cancelNative(
             7,
             1,
@@ -324,7 +325,7 @@ contract NativeAdapterTest is Test {
 
         _flush(flushedId, publicIn, masp.committedCount());
 
-        vm.expectRevert(abi.encodeWithSelector(NativeAdapter.DepositAlreadySettled.selector, flushedId));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.DepositAlreadySettled.selector, flushedId));
         adapter.cancelNative(
             flushedId,
             uint48(publicIn),

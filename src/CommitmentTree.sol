@@ -38,7 +38,12 @@ abstract contract CommitmentTree {
     /// Push `newRoot` and advance the leaf count. The caller must have verified
     /// the tree-update SNARK and that `oldRoot == currentRoot()` beforehand.
     function _advanceRoot(bytes32 newRoot, uint64 inserted, bytes32 oldRoot) internal {
+        // `rootIndex` and `committedCount` share a slot: both are read here and
+        // written together at the end, so the pair costs one SLOAD and one
+        // SSTORE rather than two of each.
         uint32 newIdx = uint32((uint256(rootIndex) + 1) & (ROOT_HISTORY - 1));
+        uint64 startIndex = committedCount;
+
         bytes32 evicted = roots[newIdx];
         // Clearing the evicted entry when it equals `newRoot` would mark a root
         // that remains live in the buffer as unknown.
@@ -46,9 +51,9 @@ abstract contract CommitmentTree {
             isKnownRoot[evicted] = false;
         }
         roots[newIdx] = newRoot;
-        rootIndex = newIdx;
         isKnownRoot[newRoot] = true;
-        uint64 startIndex = committedCount;
+
+        rootIndex = newIdx;
         committedCount = startIndex + inserted;
         emit RootAdvanced(startIndex, inserted, oldRoot, newRoot);
     }

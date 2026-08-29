@@ -7,6 +7,7 @@ import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.so
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { NativeAdapter } from "../src/native/NativeAdapter.sol";
+import { MaspEscrowSatellite } from "../src/MaspEscrowSatellite.sol";
 import { IMASPPool } from "../src/interfaces/IMASPPool.sol";
 import { IWrappedNative } from "../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../src/libs/PubInputs.sol";
@@ -67,17 +68,17 @@ contract NativeAdapterGuardsTest is Test {
     // --- constructor -------------------------------------------------------
 
     function test_revert_ZeroPool() public {
-        vm.expectRevert(NativeAdapter.ZeroAddress.selector);
+        vm.expectRevert(MaspEscrowSatellite.ZeroAddress.selector);
         new NativeAdapter(IMASPPool(address(0)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
     }
 
     function test_revert_ZeroWrappedNative() public {
-        vm.expectRevert(NativeAdapter.ZeroAddress.selector);
+        vm.expectRevert(MaspEscrowSatellite.ZeroAddress.selector);
         new NativeAdapter(IMASPPool(address(pool)), IWrappedNative(address(0)), IAllowanceTransfer(permit2));
     }
 
     function test_revert_ZeroPermit2() public {
-        vm.expectRevert(NativeAdapter.ZeroAddress.selector);
+        vm.expectRevert(MaspEscrowSatellite.ZeroAddress.selector);
         new NativeAdapter(IMASPPool(address(pool)), IWrappedNative(address(weth)), IAllowanceTransfer(address(0)));
     }
 
@@ -89,7 +90,7 @@ contract NativeAdapterGuardsTest is Test {
         pool.setPullAmount(0);
         vm.deal(DEPOSITOR, AMOUNT);
         vm.prank(DEPOSITOR);
-        vm.expectRevert(NativeAdapter.NothingEscrowed.selector);
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.PullBelowMin.selector, uint256(0), uint256(1)));
         adapter.depositNative{ value: AMOUNT }(_request(), _aux(), _aux());
     }
 
@@ -107,10 +108,35 @@ contract NativeAdapterGuardsTest is Test {
         pool.setPullAmount(uint160(AMOUNT + parked));
         vm.deal(DEPOSITOR, AMOUNT);
         vm.prank(DEPOSITOR);
-        vm.expectRevert(abi.encodeWithSelector(NativeAdapter.PullExceedsValue.selector, AMOUNT + parked, AMOUNT));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.PullExceedsMax.selector, AMOUNT + parked, AMOUNT));
         adapter.depositNative{ value: AMOUNT }(_request(), _aux(), _aux());
 
         assertEq(weth.balanceOf(address(adapter)), parked, "parked coin untouched");
+    }
+
+    /// The escrow record stores `amount` in 96 bits so the pair shares one
+    /// slot. A pull that would not fit reverts rather than truncating, which
+    /// would under-record the escrow and strand the difference on cancel.
+    function test_revert_EscrowAmountTooLarge() public {
+        uint256 tooLarge = uint256(type(uint96).max) + 1;
+        pool.setPullAmount(uint160(tooLarge));
+        vm.deal(DEPOSITOR, tooLarge);
+        vm.prank(DEPOSITOR);
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.EscrowAmountTooLarge.selector, tooLarge));
+        adapter.depositNative{ value: tooLarge }(_request(), _aux(), _aux());
+    }
+
+    /// The largest pull the record can hold is accepted, and reads back intact.
+    function test_escrowAmountAtWidthBoundary() public {
+        uint256 atMax = uint256(type(uint96).max);
+        pool.setPullAmount(uint160(atMax));
+        vm.deal(DEPOSITOR, atMax);
+        vm.prank(DEPOSITOR);
+        uint256 id = adapter.depositNative{ value: atMax }(_request(), _aux(), _aux());
+
+        (address refundTo, uint256 amount) = adapter.escrows(id);
+        assertEq(refundTo, DEPOSITOR, "funder recorded");
+        assertEq(amount, atMax, "amount recorded without truncation");
     }
 
     // --- cancel ------------------------------------------------------------
@@ -121,7 +147,7 @@ contract NativeAdapterGuardsTest is Test {
         uint256 id = _deposit();
         pool.setRefundAmount(AMOUNT - 1);
 
-        vm.expectRevert(abi.encodeWithSelector(NativeAdapter.RefundNotFunded.selector, id));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.RefundNotFunded.selector, id));
         adapter.cancelNative(
             id,
             1,
@@ -144,7 +170,7 @@ contract NativeAdapterGuardsTest is Test {
         weth.transfer(address(pool), AMOUNT);
         pool.setRefundAmount(AMOUNT + 1);
 
-        vm.expectRevert(abi.encodeWithSelector(NativeAdapter.RefundNotFunded.selector, id));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.RefundNotFunded.selector, id));
         adapter.cancelNative(
             id,
             1,

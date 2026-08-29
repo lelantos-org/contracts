@@ -9,6 +9,14 @@ optimizer = true
 optimizer_runs = 1_000_000
 via_ir = true
 evm_version = "cancun"
+# Slither reads the AST out of `out/build-info`. Without this, `forge build
+# --build-info` emits `"ast": {}` for every .sol file that declares no
+# contract/library/interface — src/verifiers/VerifyingKeys.sol and
+# test/utils/FeeArrays.sol are constants-only — so their top-level constants
+# never reach Slither. Referencing one from inline assembly (SNARK_R in
+# BatchedGroth16Verifier) then aborts the entire run with "unresolved reference
+# to identifier SNARK_R". Output selection only; bytecode is unaffected.
+ast = true
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",

@@ -7,6 +7,7 @@ import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.so
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
+import { MaspEscrowSatellite } from "../../src/MaspEscrowSatellite.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
@@ -133,7 +134,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
         a.deposit_d.recipient = ATTACKER_NOTE;
 
         vm.prank(SWAP_DRIVER);
-        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.MaspPullBelowMinOut.selector, 0, minOut));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.PullBelowMin.selector, 0, minOut));
         wrapper.swap(a);
 
         assertEq(tokenC.balanceOf(address(wrapper)), 5_000 * SCALE, "donated token C must stay put");
@@ -159,7 +160,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
         pulled += (pulled * FEE_BPS) / 10_000;
 
         vm.prank(SWAP_DRIVER);
-        vm.expectRevert(abi.encodeWithSelector(SwapWrapper.MaspPullBelowMinOut.selector, pulled, minOut));
+        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.PullBelowMin.selector, pulled, minOut));
         wrapper.swap(a);
     }
 }

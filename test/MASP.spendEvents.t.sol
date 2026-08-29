@@ -37,7 +37,14 @@ contract MASPSpendEventsTest is Test {
     MockBatchVerifier batchVerifier;
     MASP masp;
 
-    event AssetMoved(uint64 indexed assetId, IERC20 indexed token, uint256 inAmount, uint256 outAmount);
+    event AssetMoved(
+        uint64 indexed assetId,
+        IERC20 indexed token,
+        uint256 inAmount,
+        uint256 outAmount,
+        uint64 publicIn,
+        uint64 publicOut
+    );
     event NotePayload(
         bytes32 indexed cm,
         uint256 clueRx,
@@ -116,13 +123,15 @@ contract MASPSpendEventsTest is Test {
     }
 
     /// `withdraw` reports the gross unshielded amount, before the pool fee, as
-    /// `outAmount`, and zero on the shield side.
+    /// `outAmount`, and zero on the shield side. `publicOut` carries the same
+    /// value in circuit units, which is what an indexer needs once a yield
+    /// index makes `outAmount / scale` no longer recover it.
     function test_withdraw_emitsAssetMovedGrossOut() public {
         (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(7);
         uint256 gross = 7 * SCALE;
 
         vm.expectEmit(true, true, true, true, address(masp));
-        emit AssetMoved(ASSET_ID, IERC20(address(token)), 0, gross);
+        emit AssetMoved(ASSET_ID, IERC20(address(token)), 0, gross, 0, 7);
 
         vm.prank(RELAYER);
         masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
@@ -143,7 +152,9 @@ contract MASPSpendEventsTest is Test {
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux());
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 assetMovedSig = keccak256("AssetMoved(uint64,address,uint256,uint256)");
+        // Must track the event's real signature: pinned against a stale one this
+        // assertion passes vacuously, since the stale topic is never emitted.
+        bytes32 assetMovedSig = keccak256("AssetMoved(uint64,address,uint256,uint256,uint64,uint64)");
         bytes32 notePayloadSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
         uint256 notePayloads;
         for (uint256 i = 0; i < logs.length; i++) {
