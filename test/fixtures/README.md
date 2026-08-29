@@ -31,31 +31,30 @@ at the same index in all five. Two constraints are not obvious from the file:
   `1e10`, leaving 8 fractional digits and putting 1 ETH at 1e8 circuit units.
   `mWBTC` is 8-decimal and uses `scale = 1`.
 
-### `transact_4x4_vector.json`
+### `transact_4x6_vector.json`
 
-The `transact-4x4` witness vector published by the circuits package, copied
+The `transact-4x6` witness vector published by the circuits package, copied
 verbatim. Its SHA-256 matches the `vectors/index.json` manifest entry, so the
 copy is verifiable against the release.
 
-Read by [PubInputs.vector4x4.t.sol](../PubInputs.vector4x4.t.sol), which drives
+Read by [PubInputs.vector4x6.t.sol](../PubInputs.vector4x6.t.sol), which drives
 `PubInputs.Transact` from the circuit's own witness and compares against the
-`(y, z)` the compiled circuit produced. This pins all 53 coefficient slots
+`(y, z)` the compiled circuit produced. This pins all 69 coefficient slots
 against an artifact generated outside this repo — the other layout tests only
 compare the contract to reference code written alongside it.
 
-Refresh by re-copying from `../../circuits/vectors/transact-4x4.json` and
+Refresh by re-copying from `../../circuits/vectors/transact-4x6.json` and
 re-checking the manifest SHA-256.
 
 ### `tree_update_batch_vector.json`
 
-The `tree-update-batch-4` witness vector published by the circuits package,
-copied verbatim. SHA-256 `97c441353d720893f6d02d5bdbfe299103bae4a69230bd1baa85
-4091416b79e0`, matching the `vectors/index.json` manifest entry for
-`@lelantos-org/circuits@0.11.2`.
+The `tree-update-batch-8` witness vector published by the circuits package,
+copied verbatim. Its SHA-256 matches the `vectors/index.json` manifest entry, so
+the copy is verifiable against the release.
 
 Read by [PubInputs.vectorTub.t.sol](../PubInputs.vectorTub.t.sol), the batch
-counterpart to the 4x4 layout test: it drives `PubInputs.TreeUpdateBatch` from
-the circuit's own witness and pins all 28 coefficient slots against the
+counterpart to the 4x6 layout test: it drives `PubInputs.TreeUpdateBatch` from
+the circuit's own witness and pins all 52 coefficient slots against the
 `(y, z)` the compiled circuit produced. Unlike the transact vector there is no
 substituted slot — the batch circuit takes every coefficient as a public input,
 so the published `(y, z)` is asserted directly.
@@ -64,7 +63,7 @@ Also read by
 [TreeUpdateBatchVerifier.vector.t.sol](../TreeUpdateBatchVerifier.vector.t.sol)
 to rebuild the struct behind each proof.
 
-Refresh by re-copying from `../../circuits/vectors/tree-update-batch-4.json`
+Refresh by re-copying from `../../circuits/vectors/tree-update-batch-8.json`
 and re-checking the manifest SHA-256.
 
 ### `tree_update_batch_proof.json`
@@ -85,20 +84,20 @@ than from `proof.json`, which stores them the other way round.
 Regenerate with `script/fixtures/gen_proof_fixture.sh tree_update_batch` — see
 **Generating proof fixtures** below.
 
-### `transact_4x4_proof.json`
+### `transact_4x6_proof.json`
 
-Three real Groth16 proofs, one per vector in `transact_4x4_vector.json`, against
+Three real Groth16 proofs, one per vector in `transact_4x6_vector.json`, against
 [Verifier.sol](../../src/verifiers/Verifier.sol). Read by
 [BatchedGroth16Verifier.t.sol](../BatchedGroth16Verifier.t.sol), which pairs each
 of them with each tree-update proof and asserts the batched verifier agrees with
 the two codegen verifiers.
 
-Regenerate with `script/fixtures/gen_proof_fixture.sh transact_4x4`.
+Regenerate with `script/fixtures/gen_proof_fixture.sh transact_4x6`.
 
-### `verification_key_4x4.json`, `verification_key_tree_update_batch.json`
+### `verification_key_4x6.json`, `verification_key_tree_update_batch.json`
 
-The two published verification keys, copied verbatim from the v0.11.2 release
-(SHA-256 `6a73d3b3…9388ef` and `9c80109d…42aab9`). Read by
+The two published verification keys, copied verbatim from the v0.12.1 release
+(SHA-256 `01be83fc…68f69a` and `de18f5fd…def3d0`). Read by
 [VerifyingKeys.t.sol](../VerifyingKeys.t.sol), which pins every constant in
 `src/verifiers/VerifyingKeys.sol` against them. The codegen verifiers' own
 constants are contract-scoped and non-public, so Solidity cannot compare against
@@ -106,7 +105,7 @@ those directly — this JSON is the only readable form.
 
 ## Generating proof fixtures
 
-`script/fixtures/gen_proof_fixture.sh {tree_update_batch|transact_4x4}` proves
+`script/fixtures/gen_proof_fixture.sh {tree_update_batch|transact_4x6}` proves
 every vector in the corresponding witness file and writes the calldata triples.
 
 **Artifacts must come from the GitHub release, never from a local
@@ -124,10 +123,10 @@ verifier before proving anything, so a mismatched artifact set fails there
 rather than as an unexplained rejection in a test.
 
 ```
-gh release download v0.11.2 --repo lelantos-org/circuits -D /tmp/rel0112 \
+gh release download v0.12.1 --repo lelantos-org/circuits -D /tmp/rel0121 \
   -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
-RELEASE=/tmp/rel0112 CIRCUITS=../circuits \
-  script/fixtures/gen_proof_fixture.sh transact_4x4
+RELEASE=/tmp/rel0121 CIRCUITS=../circuits \
+  script/fixtures/gen_proof_fixture.sh transact_4x6
 ```
 
 Groth16 proving is randomized, so a refresh produces different — equally valid —
@@ -136,7 +135,7 @@ proof triples over identical public signals.
 ## Remaining coverage gap
 
 The transact path has real-proof coverage at the **verifier** level
-(`transact_4x4_proof.json`, above) but not at the **MASP** level. Four tests are
+(`transact_4x6_proof.json`, above) but not at the **MASP** level. Four tests are
 still skipped for want of a MASP-level witness:
 
 - `MASP.transferSnark.t.sol :: test_transferRealSnark_succeeds`
@@ -144,8 +143,8 @@ still skipped for want of a MASP-level witness:
 - `MASP.chainId.t.sol :: test_revert_BadChainId_spend`
 - `MASP.flushBatchSnark.t.sol :: test_realSnark_n1_flushBatchSucceeds`
 
-The prover artifacts are published by the release (`4x4_final.zkey`,
-`4x4.wasm`). The blocker is that the circuit takes `out_aux_digest` as an
+The prover artifacts are published by the release (`4x6_final.zkey`,
+`4x6.wasm`). The blocker is that the circuit takes `out_aux_digest` as an
 *input* while `PubInputs.compress` recomputes it from aux calldata, so the aux
 payload, the tree roots and the cross-bound `cms`/`cvDeps` must all be chosen
 before proving. Spend tests therefore use `vm.mockCall`.

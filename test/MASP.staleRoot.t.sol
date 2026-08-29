@@ -54,7 +54,7 @@ contract MASPStaleRootTest is Test {
         );
     }
 
-    function _validAux() internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _validAux() internal pure returns (AuxValidation.Output[6] memory aux) {
         return SpendFixture.validAux();
     }
 

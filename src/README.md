@@ -154,7 +154,7 @@ classDiagram
 | [libs/AuxValidation.sol](libs/AuxValidation.sol) | Bounds and curve checks on per-output FMD payloads. |
 | [SnarkCompression.sol](SnarkCompression.sol) | Horner evaluation over the coefficient vector, mod the BN254 scalar field. |
 | [BabyJubJub.sol](BabyJubJub.sol) | On-curve and prime-order-subgroup checks on the twisted Edwards curve. |
-| [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `transact_4x4` (`Groth16Verifier`). **Not deployed** — provenance for the `VK1_*` constants and the differential-test oracle. |
+| [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `4x6` (`Groth16Verifier`). **Not deployed** — provenance for the `VK1_*` constants and the differential-test oracle. |
 | [verifiers/TreeUpdateBatchVerifier.sol](verifiers/TreeUpdateBatchVerifier.sol) | snarkJS codegen for `tree_update_batch` (`TreeUpdateBatchGroth16Verifier`). |
 | [verifiers/VerifyingKeys.sol](verifiers/VerifyingKeys.sol) | The thirty verifying-key constants, lifted verbatim from the two codegen files, plus the `BATCH_DOMAIN` transcript separator. |
 | [verifiers/BatchedGroth16Verifier.sol](verifiers/BatchedGroth16Verifier.sol) | Hand-written assembly verifying both spend proofs in one pairing call. |
@@ -173,7 +173,7 @@ classDiagram
 
 ### CommitmentTree
 
-A depth-10, arity-4 tree holding up to `4^10 = 1_048_576` leaves. The contract stores no internal nodes — only a ring buffer of the last 64 roots, a membership map, and the number of leaves baked into the latest root.
+A depth-11, arity-4 tree holding up to `4^11 = 4_194_304` leaves. The contract stores no internal nodes — only a ring buffer of the last 64 roots, a membership map, and the number of leaves baked into the latest root.
 
 `_advanceRoot` is the sole mutator, and its callers must already have verified a tree-update proof and that `oldRoot == currentRoot()`.
 
@@ -247,8 +247,8 @@ Defines the three public-input structs and the compression that turns each into 
 
 | Struct | Circuit | Coefficients |
 | --- | --- | --- |
-| `Transact` | `transact_4x4` | 53 = 40 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest |
-| `TreeUpdateBatch` | `tree_update_batch` | 28 = `4 + 6 × MAX_L_BATCH` |
+| `Transact` | `4x6` | 69 = 50 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest |
+| `TreeUpdateBatch` | `tree_update_batch` | 52 = `4 + 6 × MAX_L_BATCH` |
 | `DepositRequest` | — (Permit2 witness only) | n/a |
 
 ```mermaid
@@ -525,12 +525,12 @@ On the spend side the destination is `pi.payer`, a public input of the withdraw 
 | --- | --- | --- |
 | `DEPTH` | 10 | `CommitmentTree` |
 | `ARITY` | 4 | `CommitmentTree` |
-| `MAX_LEAVES` | 1 048 576 (`4^10`) | `CommitmentTree` |
+| `MAX_LEAVES` | 4 194 304 (`4^11`) | `CommitmentTree` |
 | `ROOT_HISTORY` | 64 | `CommitmentTree` |
 | `TRANSACT_IN` / `TRANSACT_OUT` | 3 / 3 | `PubInputs` |
-| `MAX_L_BATCH` | 4 | `PubInputs` |
+| `MAX_L_BATCH` | 8 | `PubInputs` |
 | `TRANSACT_COEFFS` | 42 | `PubInputs` |
-| batch coefficients | 28 (`4 + 6 × 4`) | `PubInputs` |
+| batch coefficients | 52 (`4 + 6 × 8`) | `PubInputs` |
 | `MAX_FEE_BPS` | 2 000 (20%) | `FeeConfig` |
 | `BPS_DENOMINATOR` | 10 000 | `FeeConfig` |
 | `CANCEL_DELAY_DEFAULT` | 7 200 blocks (~24 h at 12 s) | `MASP` |

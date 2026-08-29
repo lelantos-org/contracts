@@ -4,7 +4,7 @@
 # witness vector from @lelantos-org/circuits.
 #
 #   script/fixtures/gen_proof_fixture.sh tree_update_batch
-#   script/fixtures/gen_proof_fixture.sh transact_4x4
+#   script/fixtures/gen_proof_fixture.sh transact_4x6
 #
 # Artifacts must come from the GitHub release, not from a local
 # `circuits/build/`:
@@ -18,7 +18,7 @@
 #
 # Fetch them first (they are not in the npm tarball):
 #
-#   gh release download v0.11.2 --repo lelantos-org/circuits -D <dir> \
+#   gh release download v0.12.1 --repo lelantos-org/circuits -D <dir> \
 #     -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
 #
 # then point RELEASE at <dir> and CIRCUITS at a circuits checkout (for the
@@ -37,30 +37,30 @@ set -euo pipefail
 CIRCUIT="${1:-}"
 case "$CIRCUIT" in
     tree_update_batch)
-        VECTOR_NAME="tree-update-batch-4.json"
+        VECTOR_NAME="tree-update-batch-8.json"
         ZKEY_NAME="tree_update_batch_final.zkey"
         WASM_NAME="tree_update_batch.wasm"
         VKEY_NAME="tree_update_batch_verification_key.json"
         VERIFIER_SOL="src/verifiers/TreeUpdateBatchVerifier.sol"
         OUT_NAME="tree_update_batch_proof.json"
         ;;
-    transact_4x4)
-        VECTOR_NAME="transact-4x4.json"
-        ZKEY_NAME="4x4_final.zkey"
-        WASM_NAME="4x4.wasm"
-        VKEY_NAME="4x4_verification_key.json"
+    transact_4x6)
+        VECTOR_NAME="transact-4x6.json"
+        ZKEY_NAME="4x6_final.zkey"
+        WASM_NAME="4x6.wasm"
+        VKEY_NAME="4x6_verification_key.json"
         VERIFIER_SOL="src/verifiers/Verifier.sol"
-        OUT_NAME="transact_4x4_proof.json"
+        OUT_NAME="transact_4x6_proof.json"
         ;;
     *)
-        echo "usage: $0 {tree_update_batch|transact_4x4}" >&2
+        echo "usage: $0 {tree_update_batch|transact_4x6}" >&2
         exit 2
         ;;
 esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CIRCUITS="$(cd "${CIRCUITS:-$HERE/../circuits}" && pwd)"
-RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of v0.11.2 release assets}" && pwd)"
+RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of v0.12.1 release assets}" && pwd)"
 
 VECTOR="$CIRCUITS/vectors/$VECTOR_NAME"
 SNARKJS="$CIRCUITS/node_modules/.bin/snarkjs"

@@ -80,7 +80,7 @@ contract MASPDepositTest is Test {
         d.feeCm = bytes32(uint256(0xfee));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
         // Baby-Jubjub prime-order generator in both point slots — passes the
         // low-order / identity rejection added to `AuxValidation`.
         return SpendFixture.validAux();
@@ -106,7 +106,7 @@ contract MASPDepositTest is Test {
         uint256 total = inAmt + fee;
 
         PubInputs.DepositRequest memory d = _request(publicIn);
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
 
         uint256 poolBefore = token.balanceOf(address(masp));
         uint256 payerBefore = token.balanceOf(payer);
@@ -148,7 +148,7 @@ contract MASPDepositTest is Test {
         _fund(publicIn);
         _fund(publicIn); // second deposit's funds
         PubInputs.DepositRequest memory d = _request(publicIn);
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
         MASP.Permit2Sig memory s1 =
             MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
         MASP.Permit2Sig memory s2 =
@@ -264,7 +264,7 @@ contract MASPDepositTest is Test {
 
         PubInputs.DepositRequest memory d = _request(publicIn);
         d.feeIn = feeIn;
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
 
         uint256 payerBefore = token.balanceOf(payer);
         uint256 poolBefore = token.balanceOf(address(masp));

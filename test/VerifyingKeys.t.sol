@@ -52,7 +52,7 @@ import {
 /// else at all: both sides of a batch derive the challenge from the same
 /// domain, so an incorrect one still agrees with itself.
 contract VerifyingKeysTest is Test {
-    string internal constant VK1 = "test/fixtures/verification_key_4x4.json";
+    string internal constant VK1 = "test/fixtures/verification_key_4x6.json";
     string internal constant VK2 = "test/fixtures/verification_key_tree_update_batch.json";
 
     string internal vk1;

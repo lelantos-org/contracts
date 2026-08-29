@@ -78,7 +78,7 @@ contract MASPFlushBatchTest is Test {
 
     // --- helpers -----------------------------------------------------------
 
-    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
         return SpendFixture.validAux();
     }
 
@@ -246,31 +246,24 @@ contract MASPFlushBatchTest is Test {
         assertEq(masp.accruedFee(IERC20(address(token))), 2 * feePer, "both treasury fees accrued");
     }
 
-    /// The batch ceiling is now three deposits, not five: two leaves each
-    /// against `MAX_L_BATCH = 4`.
-    function test_revert_BadBatchSize_threeDeposits() public {
-        _fund(token, 100);
-        _fund(token, 100);
-        _fund(token, 100);
+    /// The batch ceiling is four deposits: two leaves each against
+    /// `MAX_L_BATCH = 8`. A fifth overshoots it.
+    function test_revert_BadBatchSize_fiveDeposits() public {
+        uint256 n = PubInputs.MAX_L_BATCH / PubInputs.LEAVES_PER_DEPOSIT + 1;
 
-        uint256 id0 = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
-        uint256 id1 = _submit(100, ASSET_ID, bytes32(uint256(3)), 1);
-        uint256 id2 = _submit(100, ASSET_ID, bytes32(uint256(5)), 2);
-
-        bytes32[] memory cms = new bytes32[](3);
-        cms[0] = bytes32(uint256(1));
-        cms[1] = bytes32(uint256(3));
-        cms[2] = bytes32(uint256(5));
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(3, cms);
-
-        uint256[] memory ids = new uint256[](3);
-        ids[0] = id0;
-        ids[1] = id1;
-        ids[2] = id2;
+        bytes32[] memory cms = new bytes32[](n);
+        uint256[] memory ids = new uint256[](n);
+        for (uint256 i = 0; i < n; i++) {
+            _fund(token, 100);
+            bytes32 cm = bytes32(2 * i + 1);
+            ids[i] = _submit(100, ASSET_ID, cm, i);
+            cms[i] = cm;
+        }
+        PubInputs.TreeUpdateBatch memory tpi = _tpi(n, cms);
 
         _mockSnark(true);
         vm.expectRevert(MASP.BadBatchSize.selector);
-        masp.flushBatch(ids, _meta(3), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(n), _emptyProof(), tpi);
     }
 
     // --- reverts -----------------------------------------------------------

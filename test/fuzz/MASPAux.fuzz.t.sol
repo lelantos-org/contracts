@@ -65,7 +65,7 @@ contract MASPAuxFuzzTest is Test {
         return SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdeadbeef)), masp.committedCount());
     }
 
-    function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[6] memory aux) {
         // Slot 0 carries the fuzzed payload under test; the rest carry `c1` so
         // only one slot varies per run.
         aux = SpendFixture.uniformAux(c1);

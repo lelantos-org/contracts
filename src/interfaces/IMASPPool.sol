@@ -24,7 +24,7 @@ interface IMASPPool {
         PubInputs.Transact calldata pi,
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[4] calldata aux
+        AuxValidation.Output[6] calldata aux
     ) external;
 
     /// A deposit occupies two leaves — the depositor's note and the note paying

@@ -64,7 +64,7 @@ contract MASPBoundariesTest is Test {
         return FixtureLoader.emptyProof();
     }
 
-    function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[4] memory a) {
+    function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[6] memory a) {
         // Slots past the two under test keep a valid minimal ciphertext, so the
         // bound being probed is the one that reverts.
         a = SpendFixture.uniformAux(hex"0000");
@@ -82,7 +82,7 @@ contract MASPBoundariesTest is Test {
     function _expectAuxAccepted(bytes memory c0, bytes memory c1) internal {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        AuxValidation.Output[4] memory aux = _aux(c0, c1);
+        AuxValidation.Output[6] memory aux = _aux(c0, c1);
         vm.prank(relayer);
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(0)));
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, aux);
@@ -91,7 +91,7 @@ contract MASPBoundariesTest is Test {
     function _expectCtLenRevert(bytes memory c0, bytes memory c1, bytes4 expected) internal {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        AuxValidation.Output[4] memory aux = _aux(c0, c1);
+        AuxValidation.Output[6] memory aux = _aux(c0, c1);
         vm.prank(relayer);
         vm.expectRevert(expected);
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, aux);
@@ -108,7 +108,7 @@ contract MASPBoundariesTest is Test {
     function _expectBadClueBits(bytes memory c0, bytes memory c1) internal {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        AuxValidation.Output[4] memory aux = _aux(c0, c1);
+        AuxValidation.Output[6] memory aux = _aux(c0, c1);
         vm.prank(relayer);
         vm.expectRevert(AuxValidation.BadClueBits.selector);
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, aux);
@@ -178,7 +178,7 @@ contract MASPBoundariesTest is Test {
 
     // --- on-curve boundaries -------------------------------------------------
 
-    function _expectOffCurve(AuxValidation.Output[4] memory aux) internal {
+    function _expectOffCurve(AuxValidation.Output[6] memory aux) internal {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
         vm.prank(relayer);
@@ -188,21 +188,21 @@ contract MASPBoundariesTest is Test {
 
     /// (0, 0) is off-curve (a*0 + 0 != 1) — clue R rejected.
     function testClueRZeroZeroRejected() public {
-        AuxValidation.Output[4] memory aux = _aux(_validCt(2), _validCt(2));
+        AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
         aux[0].clueRy = 0;
         _expectOffCurve(aux);
     }
 
     /// Eph pub off-curve — rejected.
     function testEphPubZeroZeroRejected() public {
-        AuxValidation.Output[4] memory aux = _aux(_validCt(2), _validCt(2));
+        AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
         aux[0].ephPubY = 0;
         _expectOffCurve(aux);
     }
 
     /// Coordinate >= P — rejected via BabyJubJub.isOnCurve guard.
     function testClueRCoordOverPRejected() public {
-        AuxValidation.Output[4] memory aux = _aux(_validCt(2), _validCt(2));
+        AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
         aux[1].clueRx = type(uint256).max;
         aux[2].clueRx = type(uint256).max;
         aux[3].clueRx = type(uint256).max;
@@ -211,7 +211,7 @@ contract MASPBoundariesTest is Test {
 
     /// Slot 1 eph pub off-curve — rejected.
     function testEphPubSlot1OffCurveRejected() public {
-        AuxValidation.Output[4] memory aux = _aux(_validCt(2), _validCt(2));
+        AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
         aux[1].ephPubX = 1;
         aux[1].ephPubY = 1;
         aux[2].ephPubX = 1;

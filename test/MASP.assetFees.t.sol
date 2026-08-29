@@ -114,7 +114,7 @@ contract MASPAssetFeesTest is Test {
         token.approve(permit2, type(uint256).max);
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[4] memory) {
+    function _aux() internal pure returns (AuxValidation.Output[6] memory) {
         return SpendFixture.validAux();
     }
 

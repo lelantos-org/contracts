@@ -69,7 +69,7 @@ contract MASPTransferSnarkTest is Test {
     function test_transferRealSnark_succeeds() public {
         // Fixture `proof_transfer.json` is a 2x2 artifact: 30-slot
         // `txPublicSignals` and two aux blobs. The pool now verifies
-        // `transact_4x4` (53 slots, four outputs), so the fixture cannot
+        // `4x6` (69 slots, six outputs), so the fixture cannot
         // satisfy it.
         //
         // Regenerating requires a 4x4 `flatten` off-chain. The SDK's
@@ -82,7 +82,7 @@ contract MASPTransferSnarkTest is Test {
         // it from aux calldata, so the aux payload, the tree roots and the
         // cross-bound cms/cvDeps must all be fixed before proving.
         //
-        // Verifier-level coverage: `test/fixtures/transact_4x4_proof.json`,
+        // Verifier-level coverage: `test/fixtures/transact_4x6_proof.json`,
         // exercised by `BatchedGroth16Verifier.t.sol`. Layout coverage:
         // `PubInputs.vector4x4.t.sol`, which pins all 53 slots against the
         // circuit's published witness vector.
@@ -151,7 +151,7 @@ contract MASPTransferSnarkTest is Test {
             tpi.isDeposit[i] = uint8(vm.parseJsonUint(j, string.concat(".transfer.isDeposit[", vm.toString(i), "]")));
         }
 
-        AuxValidation.Output[4] memory aux;
+        AuxValidation.Output[6] memory aux;
         aux[0].clueRx = vm.parseJsonUint(j, ".transfer.aux[0].clueRx");
         aux[0].clueRy = vm.parseJsonUint(j, ".transfer.aux[0].clueRy");
         aux[0].ephPubX = vm.parseJsonUint(j, ".transfer.aux[0].ephPubX");

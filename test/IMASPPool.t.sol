@@ -78,7 +78,7 @@ contract IMASPPoolTest is MASPTestBase {
     function test_dispatch_depositAuthorized() public {
         PubInputs.DepositRequest memory d;
         d.chainId = block.chainid + 1; // first check in `_validateDeposit`
-        AuxValidation.Output[4] memory aux = SpendFixture.validAux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
 
         vm.expectRevert(MASP.BadChainId.selector);
         _pool().depositAuthorized(d, aux[0], aux[1]);

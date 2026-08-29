@@ -75,7 +75,7 @@ contract MASPCancelDepositTest is Test {
         return cv;
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
         return SpendFixture.validAux();
     }
 

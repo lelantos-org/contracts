@@ -80,7 +80,7 @@ abstract contract SwapTestBase is Test {
     /// Default-zero `AuxValidation.Output`s; `ciphertext` defaults to empty.
     /// The wrapper never validates aux, so these suites do not populate it —
     /// see `AuxValidation` coverage in the MASP tests instead.
-    function _emptyAux() internal pure returns (AuxValidation.Output[4] memory aux) { }
+    function _emptyAux() internal pure returns (AuxValidation.Output[6] memory aux) { }
 
     function _piWithdraw(uint64 publicOut, address recipient) internal view returns (PubInputs.Transact memory pi) {
         pi.publicAssetId = ASSET_A;

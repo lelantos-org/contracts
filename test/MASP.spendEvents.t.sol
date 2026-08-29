@@ -90,7 +90,7 @@ contract MASPSpendEventsTest is Test {
         vm.mockCall(address(tubVerifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
         for (uint256 j = 0; j < aux.length; j++) {
             aux[j].clueRx = BabyJubJub.BASE8_X;
             aux[j].clueRy = BabyJubJub.BASE8_Y;
@@ -190,7 +190,7 @@ contract MASPSpendEventsTest is Test {
     /// with the per-leaf `NotePayload` events: leaf `k` sits at
     /// `startIndex + k`. Nothing in the events states the index directly, so
     /// the mapping rests entirely on emission order and count. A wrong index
-    /// yields a bad Merkle path and an unspendable note, and at the 4x4 shape
+    /// yields a bad Merkle path and an unspendable note, and at the 4x6 shape
     /// a mis-mapping misplaces three leaves rather than two.
     ///
     /// This pins the whole indexer contract for a spend: how many events of

@@ -83,7 +83,7 @@ contract MASPDepositAuthorizedTest is Test {
         d.feeCm = bytes32(uint256(0xfee));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
         return SpendFixture.validAux();
     }
 
@@ -107,7 +107,7 @@ contract MASPDepositAuthorizedTest is Test {
         uint256 poolBefore = token.balanceOf(address(masp));
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
 
         vm.prank(payer);
         uint256 id = masp.depositAuthorized(d, aux[0], aux[1]);
@@ -124,7 +124,7 @@ contract MASPDepositAuthorizedTest is Test {
         token.mint(payer, total * 4);
         _setupAllowance(uint160(total * 3), uint48(block.timestamp + 1 days));
 
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
         for (uint256 i; i < 3; i++) {
             PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(i + 1));
             vm.prank(payer);
@@ -147,7 +147,7 @@ contract MASPDepositAuthorizedTest is Test {
         vm.warp(uint256(exp) + 1);
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(exp)));
@@ -161,7 +161,7 @@ contract MASPDepositAuthorizedTest is Test {
         _setupAllowance(uint160(total), uint48(block.timestamp + 1 days));
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
 
         address other = address(0xdead);
         vm.prank(other);
@@ -175,7 +175,7 @@ contract MASPDepositAuthorizedTest is Test {
         // No allowance set up.
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(0)));

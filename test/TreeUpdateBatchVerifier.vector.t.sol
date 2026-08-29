@@ -71,13 +71,13 @@ contract TreeUpdateBatchVerifierVectorTest is Test {
     /// The proof fixture must have been generated from the vector this repo
     /// also pins the layout against, and at the deployed shape.
     function test_fixtureProvenance() public view {
-        assertEq(vm.parseJsonString(proofs, ".source.template"), "TreeUpdateBatch(10, 4)", "template");
+        assertEq(vm.parseJsonString(proofs, ".source.template"), "TreeUpdateBatch(11, 8)", "template");
         assertEq(
             vm.parseJsonString(proofs, ".source.layoutDigest"),
             vm.parseJsonString(vector, ".circuit.layoutDigest"),
             "layout digest must match the witness vector"
         );
-        assertEq(vm.parseJsonString(proofs, ".source.vector"), "tree-update-batch-4.json", "vector name");
+        assertEq(vm.parseJsonString(proofs, ".source.vector"), "tree-update-batch-8.json", "vector name");
     }
 
     function _accepts(uint256 i) internal view {

@@ -8,13 +8,14 @@ pragma solidity 0.8.30;
 /// inserted off-chain; a relayer submits the tree-update SNARK that proves the
 /// transition, and the verifying caller advances the root.
 abstract contract CommitmentTree {
-    /// Capacity of the arity-4, depth-10 tree the circuits are built for.
-    uint256 internal constant MAX_LEAVES = 1_048_576; // 4^10
+    /// Capacity of the arity-4, depth-11 tree the circuits are built for.
+    uint256 internal constant MAX_LEAVES = 4_194_304; // 4^11
     uint256 internal constant ROOT_HISTORY = 64;
 
     /// Genesis empty-tree root: iterate `z = Poseidon([5, z, z, z, z])`, with 5
-    /// the Merkle domain tag, ten times from `z = 0`.
-    bytes32 internal constant EMPTY_ROOT = 0x1308eb79d37ed29a9a2d34861692ea8c3e4fed3f555f53a8776c1256738e40a7;
+    /// the Merkle domain tag, eleven times from `z = 0`. Pinned by
+    /// `emptySubtree[11]` in the circuits' golden vectors.
+    bytes32 internal constant EMPTY_ROOT = 0x1cf92e62b512433b35f0064d537576b0184cad5fa7ab64201cd8084ee2dc171f;
 
     bytes32[ROOT_HISTORY] public roots;
     /// Shares a storage slot with `committedCount`.

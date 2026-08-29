@@ -34,7 +34,11 @@ library AuxValidation {
     /// Validates every aux payload: length bounds, clue-bits prefix, and that
     /// clue R and ephemeral E are on-curve and in the prime-order subgroup. The
     /// loop bound is `aux.length`, so it follows the transact shape.
-    function validate(Output[4] calldata aux) internal pure {
+    ///
+    /// The arity is a literal because `PubInputs` imports this file and the
+    /// dependency cannot be reversed. It must equal `PubInputs.TRANSACT_OUT`;
+    /// if it drifts, every call site fails to compile on the argument type.
+    function validate(Output[6] calldata aux) internal pure {
         for (uint256 j; j < aux.length;) {
             validate(aux[j]);
             unchecked {

@@ -106,11 +106,10 @@ contract NativeAdapterTest is Test {
         a.ciphertext = hex"0001";
     }
 
-    function _aux3() internal pure returns (AuxValidation.Output[4] memory aux) {
-        aux[0] = _aux1();
-        aux[1] = _aux1();
-        aux[2] = _aux1();
-        aux[3] = _aux1();
+    function _aux3() internal pure returns (AuxValidation.Output[6] memory aux) {
+        for (uint256 k; k < aux.length; ++k) {
+            aux[k] = _aux1();
+        }
     }
 
     function _request(uint64 assetId, uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {

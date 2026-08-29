@@ -91,7 +91,7 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
         PubInputs.Transact pi_w;
         IMASPPool.Proof tp_w;
         PubInputs.TreeUpdateBatch tpi_w;
-        AuxValidation.Output[4] aux_w;
+        AuxValidation.Output[6] aux_w;
         // --- leg 2: escrow B into MASP via Permit2 AllowanceTransfer ---
         PubInputs.DepositRequest deposit_d;
         // The depositor's payload for the B note. A deposit carries one payload

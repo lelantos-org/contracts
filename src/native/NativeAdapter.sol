@@ -174,7 +174,7 @@ contract NativeAdapter is MaspEscrowSatellite {
         PubInputs.Transact calldata pi,
         IMASPPool.Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[4] calldata aux
+        AuxValidation.Output[6] calldata aux
     ) external nonReentrant returns (uint256 net) {
         if (pi.recipient != address(this)) revert AdapterNotRecipient();
         if (pi.relayer != address(this)) revert AdapterNotRelayer();

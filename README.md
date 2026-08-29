@@ -14,7 +14,7 @@ Solidity implementation of a Multi-Asset Shielded Pool (MASP): private, pooled t
 
 Notes are commitments in a quaternary Merkle tree. Deposits are escrowed on submission and inserted into the tree in batches under a single tree-update proof. Spends consume notes by nullifier and produce new commitments, verified against a recent known root. Leaf insertion is proven rather than computed on-chain, keeping per-transaction cost flat in tree depth.
 
-Every spend carries two Groth16 proofs: a transaction proof (`transact_3x3`) and a tree-update proof that advances the Merkle root. Public inputs are compressed to a single pair `(y, z)` by Fiat-Shamir before pairing, so verification cost is independent of the logical public-input count.
+Every spend carries two Groth16 proofs: a transaction proof (`4x6`) and a tree-update proof that advances the Merkle root. Public inputs are compressed to a single pair `(y, z)` by Fiat-Shamir before pairing, so verification cost is independent of the logical public-input count.
 
 The two proofs are checked together in one BN254 pairing call. Both circuits come from the same trusted setup and so share `alpha`, `beta` and `gamma`, which lets the residuals fold into six pairing terms instead of two independent four-term checks. `flushBatch` carries only a tree-update proof and uses the single-proof verifier directly.
 
@@ -64,9 +64,9 @@ No peripheral holds a privileged position. None is registered with the pool, non
 | `swap/UniV3Adapter.sol` | Uniswap SwapRouter02 adapter for `SwapWrapper`. |
 | `swap/UniV4Adapter.sol` | Uniswap v4 UniversalRouter adapter for `SwapWrapper`. |
 | `swap/ISwapAdapter.sol` | Venue-adapter interface `SwapWrapper` calls. |
-| `verifiers/BatchedGroth16Verifier.sol` | Checks a spend's `(transact_3x3, tree_update_batch)` proof pair in one pairing call. |
+| `verifiers/BatchedGroth16Verifier.sol` | Checks a spend's `(4x6, tree_update_batch)` proof pair in one pairing call. |
 | `verifiers/TreeUpdateBatchVerifier.sol` | snarkJS codegen for `tree_update_batch`. Used by `flushBatch`. |
-| `verifiers/Verifier.sol` | snarkJS codegen for `transact_3x3`. Not deployed; provenance for the `VK1_*` constants and the differential-test oracle. |
+| `verifiers/Verifier.sol` | snarkJS codegen for `4x6`. Not deployed; provenance for the `VK1_*` constants and the differential-test oracle. |
 | `verifiers/VerifyingKeys.sol` | The thirty verifying-key constants and the `BATCH_DOMAIN` transcript separator. |
 | `interfaces/` | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both peripherals call. |
 
@@ -86,34 +86,34 @@ Per-function aggregates from `forge test --gas-report`, with verification mocked
 
 | Function | Min | Avg | Max |
 | --- | --- | --- | --- |
-| `deposit` | 30 906 | 118 833 | 170 834 |
-| `depositAuthorized` | 29 435 | 90 862 | 144 207 |
-| `flushBatch` | 28 066 | 119 192 | 176 692 |
-| `cancelDeposit` | 26 270 | 41 262 | 68 351 |
-| `transfer` | 44 215 | 64 229 | 209 947 |
-| `withdraw` | 43 571 | 197 510 | 293 965 |
-| `sweep` | 24 229 | 27 234 | 56 901 |
-| `NativeAdapter.depositNative` | 28 961 | 154 470 | 221 136 |
-| `NativeAdapter.cancelNative` | 25 526 | 68 517 | 89 799 |
-| `NativeAdapter.withdrawNative` | 44 523 | 220 334 | 316 733 |
-| `SwapWrapper.swap` | 43 618 | 63 423 | 424 699 |
+| `deposit` | 30 925 | 118 763 | 170 823 |
+| `depositAuthorized` | 29 454 | 90 864 | 144 196 |
+| `flushBatch` | 30 638 | 124 535 | 182 115 |
+| `cancelDeposit` | 26 270 | 41 237 | 68 318 |
+| `transfer` | 53 877 | 80 106 | 246 763 |
+| `withdraw` | 52 921 | 229 665 | 352 049 |
+| `sweep` | 24 226 | 27 197 | 56 898 |
+| `NativeAdapter.depositNative` | 28 939 | 154 443 | 221 103 |
+| `NativeAdapter.cancelNative` | 25 526 | 68 515 | 89 788 |
+| `NativeAdapter.withdrawNative` | 54 287 | 250 708 | 357 412 |
+| `SwapWrapper.swap` | 49 966 | 70 004 | 434 517 |
 | `SwapWrapper.cancelEscrow` | 25 508 | 61 265 | 88 040 |
 
 The three `NativeAdapter` rows include the MASP call they wrap (escrow pull, refund, or unshield) plus the wrap/unwrap legs.
 
-A shielded transfer therefore costs roughly 519 000 gas end to end: the `transfer` maximum above plus one batched pair check.
+A shielded transfer therefore costs roughly 556 000 gas end to end: the `transfer` maximum above plus one batched pair check.
 
 Both peripherals hold their escrow record in a single storage slot (`refundTo` as an address, `amount` as a `uint96`), which is worth about 22 000 gas per escrow; see [src/README.md](src/README.md#escrow-satellites) for the width bound that makes it safe.
 
-`flushBatch` amortizes one tree-update proof and the root advance across up to `PubInputs.MAX_L_BATCH` (4) deposits, with fees accrued once per unique token in the batch.
+`flushBatch` amortizes one tree-update proof and the root advance across up to `PubInputs.MAX_L_BATCH` (8) leaves — four deposits at two leaves each, with fees accrued once per unique token in the batch.
 
 Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 
 | Contract | Runtime (B) | Margin (B) |
 | --- | --- | --- |
-| `MASP` | 19 142 | 5 434 |
-| `SwapWrapper` | 8 753 | 15 823 |
-| `NativeAdapter` | 7 071 | 17 505 |
+| `MASP` | 18 753 | 5 823 |
+| `SwapWrapper` | 8 811 | 15 765 |
+| `NativeAdapter` | 7 072 | 17 504 |
 | `UniV4Adapter` | 2 820 | 21 756 |
 | `UniV3Adapter` | 2 596 | 21 980 |
 | `BatchedGroth16Verifier` | 2 229 | 22 347 |

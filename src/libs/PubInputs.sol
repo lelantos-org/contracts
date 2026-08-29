@@ -7,12 +7,13 @@ import { AuxValidation } from "./AuxValidation.sol";
 /// Public-input structs and Fiat-Shamir compression. Layouts must match the
 /// circuit-side PolyEval coefficient orders word-for-word.
 library PubInputs {
-    /// Shielded inputs and outputs of `transact_4x4.circom`. Changing either
-    /// requires a new circuit, a new ceremony, and a new verifier.
+    /// Shielded inputs and outputs of `4x6.circom` — `Transact(11, 4, 6)`.
+    /// Changing either requires a new circuit, a new ceremony, and a new
+    /// verifier.
     uint256 internal constant TRANSACT_IN = 4;
-    uint256 internal constant TRANSACT_OUT = 4;
+    uint256 internal constant TRANSACT_OUT = 6;
 
-    /// `transact_4x4.circom` public signals: 40 struct words, then
+    /// `4x6.circom` public signals: 50 struct words, then
     /// `3 * TRANSACT_OUT` clue coefficients and the aux digest, all derived in
     /// `compress`. `outCvDep` is the per-output Pedersen value commitment
     /// anchoring (asset, value) into the leaf; it is forwarded into
@@ -34,13 +35,13 @@ library PubInputs {
     }
 
     /// MAX_L of `tree_update_batch.circom`. The coefficient vector is
-    /// `4 + 6*MAX_L_BATCH = 28`; drift breaks the circuit-to-contract binding.
+    /// `4 + 6*MAX_L_BATCH = 52`; drift breaks the circuit-to-contract binding.
     ///
-    /// 4 is the circuit's floor and an exact fit at the 4x4 transact shape:
-    /// `COUNT_BITS` requires a power of two, and a spend emits `TRANSACT_OUT`
-    /// = 4 leaves that must fit one batch. A wider transact shape requires a
-    /// new `tree_update_batch` ceremony.
-    uint256 internal constant MAX_L_BATCH = 4;
+    /// 8 is the smallest fit at the 4x6 transact shape: `COUNT_BITS` requires a
+    /// power of two, and a spend emits `TRANSACT_OUT` = 6 leaves that must fit
+    /// one batch. A wider transact shape requires a new `tree_update_batch`
+    /// ceremony.
+    uint256 internal constant MAX_L_BATCH = 8;
 
     /// `tree_update_batch.circom` public inputs. Layout:
     ///   oldRoot, newRoot, startIndex, actualCount,
@@ -116,15 +117,27 @@ library PubInputs {
         uint256[2] feeCvDep;
     }
 
+    /// A walk of the `Transact` calldata block, in struct order, naming the word
+    /// index of each sub-word member that `compress` must re-clean: `merkleRoot`,
+    /// the nullifiers and the output commitments precede the three `uint64`
+    /// publics; those plus both `cv` arrays precede `recipient`, which is
+    /// followed by `chainId`, then `payer` and `relayer`. `outCvDep` closes the
+    /// block, which is what `TRANSACT_CALLDATA_WORDS` adds back.
+    uint256 private constant W_PUBLIC_ASSET_ID = 1 + TRANSACT_IN + TRANSACT_OUT;
+    uint256 private constant W_RECIPIENT = W_PUBLIC_ASSET_ID + 3 + 2 * TRANSACT_IN + 2 * TRANSACT_OUT;
+    uint256 private constant W_PAYER = W_RECIPIENT + 2;
+
     /// Coefficient-vector lengths. Both structs are fully static, so their ABI
     /// calldata block is word-for-word identical to the coefficient vector, on
     /// which the calldata `compress` overloads rely. `PubInputs.t.sol` pins that
     /// equivalence against the `memory` reference paths.
-    /// `1 + TRANSACT_IN + TRANSACT_OUT + 3 + 2*TRANSACT_IN + 2*TRANSACT_OUT
-    /// + 4 + 2*TRANSACT_OUT = 40` at the 4x4 shape.
-    uint256 private constant TRANSACT_CALLDATA_WORDS = 40;
+    /// Derived from the shape rather than written out, so every offset built on
+    /// it follows `TRANSACT_OUT` instead of being restated per shape: `50` at
+    /// the 4x6 shape. Expressed as the tail of the walk in `W_*` below, so the
+    /// struct layout is stated once.
+    uint256 private constant TRANSACT_CALLDATA_WORDS = W_RECIPIENT + 4 + 2 * TRANSACT_OUT;
     /// Struct words, then `(clueRx, clueRy, clueBits)` per output, then the
-    /// aux digest: `9 + 3*TRANSACT_IN + 8*TRANSACT_OUT = 53`.
+    /// aux digest: `9 + 3*TRANSACT_IN + 8*TRANSACT_OUT = 69`.
     uint256 internal constant TRANSACT_COEFFS = TRANSACT_CALLDATA_WORDS + 3 * TRANSACT_OUT + 1;
     uint256 private constant BATCH_COEFFS = 4 + 6 * MAX_L_BATCH;
 
@@ -137,8 +150,9 @@ library PubInputs {
 
     // ================= calldata fast paths ===================================
 
-    /// `compress(Transact)` read directly from calldata. Words [0..39] are
-    /// copied verbatim; [40..52] are derived from `aux`. Avoids the
+    /// `compress(Transact)` read directly from calldata. The struct's words are
+    /// copied verbatim; the trailing clue triples and aux digest are derived
+    /// from `aux`. Avoids the
     /// calldata-to-memory ABI decode of the struct and the `abi.encode` copy
     /// performed by `_finalize`.
     function compress(Transact calldata pi, AuxValidation.Output[TRANSACT_OUT] calldata aux)
@@ -162,19 +176,24 @@ library PubInputs {
         uint256 d = head + 0x40;
 
         // Re-clean sub-word members: raw calldata may carry dirty high bits that
-        // a typed member read would have masked off. Word indices follow the
-        // 4x4 layout: [9..11] the three uint64 publics, [28] recipient,
-        // [30] payer, [31] relayer.
+        // a typed member read would have masked off. The word indices are the
+        // shape-derived constants above, so they follow `TRANSACT_OUT`.
+        // Folded at compile time. Computed here rather than inside the block
+        // because inline assembly accepts only literal constants, not the
+        // derived ones above.
+        uint256 pAsset = d + W_PUBLIC_ASSET_ID * 0x20;
+        uint256 pRecipient = d + W_RECIPIENT * 0x20;
+        uint256 pPayer = d + W_PAYER * 0x20;
         assembly ("memory-safe") {
-            let p := add(d, 0x120) // [9] publicAssetId, [10] publicIn, [11] publicOut
+            // publicAssetId, publicIn, publicOut
+            let p := pAsset
             mstore(p, and(mload(p), MASK_U64))
             p := add(p, 0x20)
             mstore(p, and(mload(p), MASK_U64))
             p := add(p, 0x20)
             mstore(p, and(mload(p), MASK_U64))
-            p := add(d, 0x380) // [28] recipient
-            mstore(p, and(mload(p), MASK_U160))
-            p := add(d, 0x3c0) // [30] payer, [31] relayer
+            mstore(pRecipient, and(mload(pRecipient), MASK_U160))
+            p := pPayer // payer, then relayer
             mstore(p, and(mload(p), MASK_U160))
             p := add(p, 0x20)
             mstore(p, and(mload(p), MASK_U160))
@@ -273,9 +292,9 @@ library PubInputs {
     // independently of the calldata fast paths above. Not used on-chain;
     // `PubInputs.t.sol` fuzzes `compressRef == compress` to detect drift.
 
-    /// Packs `Transact` into `TRANSACT_COEFFS = 53` coefficients and derives
+    /// Packs `Transact` into `TRANSACT_COEFFS = 69` coefficients and derives
     /// `(y, z)`. A cursor walk, so the layout itself is what the reference
-    /// asserts. Order matches the `transact_4x4.circom` PolyEval.
+    /// asserts. Order matches the `4x6.circom` PolyEval.
     function compressRef(Transact memory pi, AuxValidation.Output[TRANSACT_OUT] calldata aux)
         internal
         pure

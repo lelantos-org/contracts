@@ -69,7 +69,7 @@ contract MASPFlushBatchSnarkTest is Test {
         vm.etch(payer, address(stub).code);
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
         return SpendFixture.validAux();
     }
 

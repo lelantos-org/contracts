@@ -23,7 +23,7 @@ import { AuxValidation } from "./libs/AuxValidation.sol";
 ///   escrowed deposits under one `tree_update_batch` SNARK.
 /// * `cancelDeposit` — refund the digest-bound payer after `cancelDelay`.
 /// * `transfer` / `withdraw` — spend operations; verify
-///   `(transact_4x4, tree_update_batch)`.
+///   `(4x6, tree_update_batch)`.
 ///
 /// Token movement binds to `payer` (signature- or SNARK-bound), not
 /// `msg.sender`, so any relayer may submit for a user. ERC-20 only; native-coin
@@ -41,13 +41,13 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     /// `SPEND_VERIFIER` performs.
     IVerifier public immutable TREE_UPDATE_BATCH_VERIFIER;
 
-    /// Checks the `(transact_4x4, tree_update_batch)` proof pair a spend
-    /// carries, in one BN254 pairing call. Argument order is significant:
-    /// transact first, tree-update second.
+    /// Checks the `(4x6, tree_update_batch)` proof pair a spend carries, in one
+    /// BN254 pairing call. Argument order is significant: transact first,
+    /// tree-update second.
     ///
     /// This is the entirety of a spend's proof check; the pool holds no
-    /// standalone `transact_4x4` verifier. Attributing a rejection to one of
-    /// the two proofs is done off-chain.
+    /// standalone `4x6` verifier. Attributing a rejection to one of the two
+    /// proofs is done off-chain.
     IBatchVerifier public immutable SPEND_VERIFIER;
 
     /// Width of the per-token fee accumulators in `flushBatch`. Solidity does
@@ -57,10 +57,16 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     /// One slot per deposit, not per leaf: a batch drains at most
     /// `MAX_L_BATCH / LEAVES_PER_DEPOSIT` deposits, so it cannot touch more
     /// distinct tokens than that.
-    uint256 private constant FEE_ACC_SLOTS = 2;
+    uint256 private constant FEE_ACC_SLOTS = 4;
 
     /// Output leaves per spend, i.e. `N_OUT` of the deployed transact shape.
     /// `tpi.actualCount` counts leaves, so the spend path pins it to this.
+    ///
+    /// The spend entry points spell their aux array `Output[6]` rather than
+    /// `Output[PubInputs.TRANSACT_OUT]`, because Solidity rejects a
+    /// library-qualified constant as an array length. Drift between the two
+    /// stops `PubInputs.compress` and `AuxValidation.validate` compiling on
+    /// their argument type.
     uint64 private constant TRANSACT_OUT_LEAVES = uint64(PubInputs.TRANSACT_OUT);
     /// Uniswap Permit2. Constructor reverts if the address holds no code.
     ISignatureTransfer public immutable PERMIT2;
@@ -273,7 +279,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         PubInputs.Transact calldata pi,
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[4] calldata aux
+        AuxValidation.Output[6] calldata aux
     ) external nonReentrant {
         if (pi.publicIn != 0) revert MustNotHaveDeposit();
         if (pi.publicOut == 0) revert MustHaveWithdraw();
@@ -291,7 +297,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         PubInputs.Transact calldata pi,
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[4] calldata aux
+        AuxValidation.Output[6] calldata aux
     ) external nonReentrant {
         if (pi.publicIn != 0) revert MustNotHaveDeposit();
         if (pi.publicOut != 0) revert MustNotHaveWithdraw();
@@ -709,7 +715,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     function _preflight(
         PubInputs.Transact calldata pi,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[4] calldata aux
+        AuxValidation.Output[6] calldata aux
     ) private view returns (AssetEntry memory a) {
         _validateRequest(pi, tpi, aux);
         a = _getAsset(pi.publicAssetId);
@@ -721,7 +727,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         PubInputs.Transact calldata pi,
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[4] calldata aux
+        AuxValidation.Output[6] calldata aux
     ) private {
         _verifyProofs(p, pi, tp, tpi, aux);
         for (uint256 k = 0; k < PubInputs.TRANSACT_IN; ++k) {
@@ -738,7 +744,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     function _validateRequest(
         PubInputs.Transact calldata pi,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[4] calldata aux
+        AuxValidation.Output[6] calldata aux
     ) private view {
         if (pi.chainId != block.chainid) revert BadChainId();
         if (pi.recipient == address(0)) revert ZeroRecipient();
@@ -802,7 +808,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         }
     }
 
-    /// Verify both Groth16 proofs (`transact_4x4` and `tree_update_batch`) in a
+    /// Verify both Groth16 proofs (`4x6` and `tree_update_batch`) in a
     /// single pairing check. Public inputs are Fiat-Shamir-compressed to
     /// `(y, z)` before pairing.
     ///
@@ -819,7 +825,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
         PubInputs.Transact calldata pi,
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
-        AuxValidation.Output[4] calldata aux
+        AuxValidation.Output[6] calldata aux
     ) private view {
         if (!SPEND_VERIFIER.verifyBatch(p.a, p.b, p.c, PubInputs.compress(pi, aux), tp.a, tp.b, tp.c, tpi.compress())) {
             revert ProofRejected();
@@ -830,7 +836,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, FeeConfig {
     /// emitted by the unshield paths themselves: every spend entry point forces
     /// `publicIn == 0`, so the shield side is always zero and `transfer` moves
     /// no tokens.
-    function _emitNotes(PubInputs.Transact calldata pi, AuxValidation.Output[4] calldata aux) private {
+    function _emitNotes(PubInputs.Transact calldata pi, AuxValidation.Output[6] calldata aux) private {
         for (uint256 k = 0; k < PubInputs.TRANSACT_OUT; ++k) {
             AuxValidation.Output calldata a = aux[k];
             emit NotePayload(

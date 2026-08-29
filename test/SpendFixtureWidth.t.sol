@@ -19,7 +19,7 @@ contract AuxHarness {
 ///
 /// `PubInputs.TRANSACT_OUT` is the real one. The other two are literals only
 /// because Solidity will not accept a library `internal constant` as an array
-/// length: `SPEND_OUTPUTS` in the test fixture, and the `Output[4]` parameter
+/// length: `SPEND_OUTPUTS` in the test fixture, and the `Output[6]` parameter
 /// of `AuxValidation.validate`. Nothing makes them agree, and a mismatch is
 /// quiet in the worst way — a short aux array still compiles and simply leaves
 /// the trailing payloads unvalidated.

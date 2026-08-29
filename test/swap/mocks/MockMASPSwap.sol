@@ -72,7 +72,7 @@ contract MockMASPSwap is IMASPPool {
         PubInputs.Transact calldata pi,
         Proof calldata,
         PubInputs.TreeUpdateBatch calldata,
-        AuxValidation.Output[4] calldata
+        AuxValidation.Output[6] calldata
     ) external {
         address token = assetToken[pi.publicAssetId];
         // Net the unshield fee on the gross amount, mirroring MASP's

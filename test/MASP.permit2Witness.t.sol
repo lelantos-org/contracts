@@ -218,7 +218,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     /// Baseline: a signature over the full preimage settles.
     function test_deposit_acceptsSignatureOverFullPreimage() public {
         PubInputs.DepositRequest memory d = _liveRequest();
-        AuxValidation.Output[4] memory aux = SpendFixture.validAux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         uint256 total = _liveTotal(d);
         _fundSigner(total);
 
@@ -235,7 +235,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     /// accepted against a payload it never saw.
     function test_revert_deposit_signatureOmitsFeeAux() public {
         PubInputs.DepositRequest memory d = _liveRequest();
-        AuxValidation.Output[4] memory aux = SpendFixture.validAux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         uint256 total = _liveTotal(d);
         _fundSigner(total);
 
@@ -253,7 +253,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     /// the payer's funds in an unspendable leaf.
     function test_revert_deposit_feeAuxSwappedAfterSigning() public {
         PubInputs.DepositRequest memory d = _liveRequest();
-        AuxValidation.Output[4] memory aux = SpendFixture.validAux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         uint256 total = _liveTotal(d);
         _fundSigner(total);
 
@@ -274,7 +274,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     /// Permit2's signed amount cap.
     function test_revert_deposit_feeCmSwappedAfterSigning() public {
         PubInputs.DepositRequest memory d = _liveRequest();
-        AuxValidation.Output[4] memory aux = SpendFixture.validAux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         uint256 total = _liveTotal(d);
         _fundSigner(total);
 

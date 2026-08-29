@@ -76,6 +76,6 @@ contract MockNativePool is IMASPPool {
         PubInputs.Transact calldata,
         Proof calldata,
         PubInputs.TreeUpdateBatch calldata,
-        AuxValidation.Output[4] calldata
+        AuxValidation.Output[6] calldata
     ) external { }
 }

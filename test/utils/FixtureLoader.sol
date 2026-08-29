@@ -22,7 +22,7 @@ library FixtureLoader {
             PubInputs.Transact memory pi,
             MASP.Proof memory tp,
             PubInputs.TreeUpdateBatch memory tpi,
-            AuxValidation.Output[4] memory aux
+            AuxValidation.Output[6] memory aux
         )
     {
         string memory json = vm.readFile(path);
@@ -107,7 +107,7 @@ library FixtureLoader {
     /// valid input that always passes `AuxValidation.validate`. Points are set
     /// to the Baby-Jubjub prime-order generator `BASE8` so the low-order /
     /// identity rejection in `AuxValidation` does not trip.
-    function emptyAux() internal pure returns (AuxValidation.Output[4] memory) {
+    function emptyAux() internal pure returns (AuxValidation.Output[6] memory) {
         return SpendFixture.uniformAux(hex"0000");
     }
 

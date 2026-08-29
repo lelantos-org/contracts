@@ -119,7 +119,7 @@ contract MASPTestBase is Test {
         return IERC20(address(token));
     }
 
-    function _emptyAux() internal pure returns (AuxValidation.Output[4] memory) {
+    function _emptyAux() internal pure returns (AuxValidation.Output[6] memory) {
         return FixtureLoader.emptyAux();
     }
 }

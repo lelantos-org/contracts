@@ -38,7 +38,7 @@ import {
     BATCH_DOMAIN
 } from "./VerifyingKeys.sol";
 
-/// Verifies a `transact_4x4` proof and a `tree_update_batch` proof together in
+/// Verifies a `4x6` proof and a `tree_update_batch` proof together in
 /// one call to the BN254 pairing precompile.
 ///
 /// # What it checks
@@ -231,7 +231,7 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // appear, and are kept textually parallel.
             // ---------------------------------------------------------------
 
-            // transact_4x4
+            // 4x6
             mstore(acc1, VK1_IC0X)
             mstore(add(acc1, 0x20), VK1_IC0Y)
             g1MulAcc(VK1_IC1X, VK1_IC1Y, y1, acc1, scr)

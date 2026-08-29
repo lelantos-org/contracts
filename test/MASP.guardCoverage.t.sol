@@ -98,7 +98,7 @@ contract MASPGuardCoverageTest is Test {
         return FixtureLoader.emptyProof();
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[4] memory aux) {
+    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
         for (uint256 j = 0; j < aux.length; j++) {
             aux[j].clueRx = BabyJubJub.BASE8_X;
             aux[j].clueRy = BabyJubJub.BASE8_Y;
@@ -297,7 +297,7 @@ contract MASPGuardCoverageTest is Test {
     function test_revert_LowOrderPoint_clue() public {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
         // Identity (0, 1) is on-curve and order 1.
         aux[0].clueRx = 0;
         aux[0].clueRy = 1;
@@ -309,7 +309,7 @@ contract MASPGuardCoverageTest is Test {
     function test_revert_LowOrderPoint_ephemeral() public {
         PubInputs.Transact memory pi = _pi();
         PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        AuxValidation.Output[4] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = _aux();
         aux[1].ephPubX = 0;
         aux[1].ephPubY = 1;
         aux[2].ephPubX = 0;

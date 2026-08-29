@@ -10,9 +10,9 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 // Mirrors `PubInputs.TRANSACT_OUT`, which cannot be used as an array length
 // from another file: Solidity rejects a library's `internal constant` there.
 // `SpendFixtureWidthTest` pins the two together, and pins both against the
-// `Output[4]` in `AuxValidation.validate`, so a shape change that misses one
+// `Output[6]` in `AuxValidation.validate`, so a shape change that misses one
 // of them fails as an assertion rather than as a silently short aux array.
-uint256 constant SPEND_OUTPUTS = 4;
+uint256 constant SPEND_OUTPUTS = 6;
 
 /// Scaffolding every MASP spend test needs before it can assert on anything.
 ///

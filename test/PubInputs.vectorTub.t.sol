@@ -28,7 +28,7 @@ contract VectorTubHarness {
 /// circuit's own witness and compares against the `(y, z)` the compiled circuit
 /// produced, so the layout is anchored outside the repo.
 ///
-/// Unlike the 4x4 transact vector there is no substituted slot — the batch circuit takes
+/// Unlike the 4x6 transact vector there is no substituted slot — the batch circuit takes
 /// every coefficient as a public input, so all 28 come from the vector verbatim
 /// and the published `(y, z)` can be asserted directly.
 contract PubInputsVectorTubTest is Test {
@@ -56,7 +56,7 @@ contract PubInputsVectorTubTest is Test {
     /// hand-edited copy: every assertion below is only as good as its
     /// provenance.
     function test_vectorMetadataMatchesDeployedShape() public view {
-        assertEq(vm.parseJsonString(json, ".circuit.template"), "TreeUpdateBatch(10, 4)", "template");
+        assertEq(vm.parseJsonString(json, ".circuit.template"), "TreeUpdateBatch(11, 8)", "template");
         assertEq(_u(".circuit.coeffCount"), COEFFS, "coeff count");
         assertEq(_u(".circuit.shape.maxL"), PubInputs.MAX_L_BATCH, "maxL");
     }
