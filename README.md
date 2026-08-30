@@ -26,12 +26,15 @@ The two proofs are checked together in one BN254 pairing call. Both circuits com
 flowchart TB
   subgraph P["Peripherals — hold no pool state, independently deployable"]
     NA["NativeAdapter<br/>wrap / unwrap native coin"]
-    SW["SwapWrapper + UniV3Adapter<br/>unshield → swap → re-shield"]
+    SW["SwapWrapper<br/>unshield → swap → re-shield"]
+    AD["UniV3Adapter · UniV4Adapter<br/>owner-allowlisted ISwapAdapter venues"]
     U["Relayers, wallets,<br/>future adapters"]
   end
   M["<b>MASP</b><br/>tree · nullifiers · escrow<br/>registry · fees"]
   NA -->|"depositAuthorized<br/>cancelDeposit / withdraw"| M
   SW -->|"withdraw<br/>depositAuthorized"| M
+  SW -->|"ISwapAdapter.swap"| AD
+  AD --> RT["SwapRouter02 (v3)<br/>UniversalRouter (v4)"]
   U -->|"deposit / transfer<br/>withdraw / flushBatch"| M
   M --> V["BatchedGroth16Verifier<br/>spend proof pair"]
   M --> V2["TreeUpdateBatchGroth16Verifier<br/>flush"]

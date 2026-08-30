@@ -457,8 +457,8 @@ sequenceDiagram
   participant U as User (pi_w.payer)
   participant SW as SwapWrapper
   participant M as MASP
-  participant AD as ISwapAdapter (UniV3 / UniV4)
-  participant RT as Venue router
+  participant AD as ISwapAdapter (UniV3Adapter / UniV4Adapter)
+  participant RT as Venue router (SwapRouter02 / UniversalRouter)
   participant TR as Treasury
 
   U->>SW: swap(SwapArgs)
@@ -468,9 +468,17 @@ sequenceDiagram
   M-->>SW: tokenIn (net of MASP fee)
   SW->>SW: received = balance delta, revert if below amountIn
   SW->>AD: transfer received, then swap(...)
-  AD->>RT: exactInputSingle / exactInput (v3)<br/>or execute(V4_SWAP) (v4)
-  RT-->>AD: tokenOut
-  AD-->>SW: actualOut
+  AD->>AD: snapshot tokenOut balance
+  alt UniV3Adapter — SwapRouter02
+    AD->>RT: forceApprove(router, amountIn)<br/>exactInputSingle / exactInput, recipient = adapter
+    RT-->>AD: tokenOut
+    AD->>RT: forceApprove(router, 0)
+  else UniV4Adapter — UniversalRouter V4_SWAP
+    AD->>RT: transfer amountIn, then execute(V4_SWAP, deadline)<br/>settles CONTRACT_BALANCE, payerIsUser = false<br/>no approval, hooks pinned to address(0)
+    RT-->>AD: tokenOut
+  end
+  AD->>AD: actualOut = tokenOut balance delta,<br/>not the router's return value;<br/>revert if below minOut
+  AD-->>SW: transfer actualOut
   SW->>SW: revert if actualOut below minOut
   SW->>M: depositAuthorized(deposit_d, aux_d)
   M-->>SW: depositId (pulled via Permit2)
