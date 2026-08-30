@@ -1,44 +1,44 @@
 {
-  "name": "@lelantos-org/contracts",
-  "version": "0.4.0",
-  "description": "Canonical ABIs for the Lelantos MASP contracts, generated from the Foundry build.",
-  "license": "MIT",
-  "type": "module",
-  "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "files": [
-    "dist",
-    "json",
-    "README.md"
-  ],
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+    "name": "@lelantos-org/contracts",
+    "version": "0.5.0",
+    "description": "Canonical ABIs for the Lelantos MASP contracts, generated from the Foundry build.",
+    "license": "MIT",
+    "type": "module",
+    "sideEffects": false,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "files": [
+        "dist",
+        "json",
+        "README.md"
+    ],
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./json/*": "./json/*",
+        "./package.json": "./package.json",
+        "./*": {
+            "types": "./dist/abis/*.d.ts",
+            "default": "./dist/abis/*.js"
+        }
     },
-    "./json/*": "./json/*",
-    "./package.json": "./package.json",
-    "./*": {
-      "types": "./dist/abis/*.d.ts",
-      "default": "./dist/abis/*.js"
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com",
+        "access": "restricted"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/lelantos-org/contracts.git",
+        "directory": "packages/abi"
+    },
+    "scripts": {
+        "generate": "node scripts/generate.mjs",
+        "build": "npm run generate && tsc -p tsconfig.json",
+        "prepack": "npm run build"
+    },
+    "devDependencies": {
+        "typescript": "^5.5.3"
     }
-  },
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
-    "access": "restricted"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/lelantos-org/contracts.git",
-    "directory": "packages/abi"
-  },
-  "scripts": {
-    "generate": "node scripts/generate.mjs",
-    "build": "npm run generate && tsc -p tsconfig.json",
-    "prepack": "npm run build"
-  },
-  "devDependencies": {
-    "typescript": "^5.5.3"
-  }
 }
