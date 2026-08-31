@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 /// Test stub for the deployed `V4Quoter` lens, mirroring `MockQuoterV2`.
 ///

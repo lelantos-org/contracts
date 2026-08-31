@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { ISwapAdapter } from "./ISwapAdapter.sol";
 
-/// Minimal UniversalRouter surface. Addresses per chain:
-///   Mainnet:  0x66a9893cC07d91D95644AEDD05D03f95e1dBA8Af
-///   Arbitrum: 0xA51afAFe0263b40EdaEf0Df8781eA9aa03E381a3
-///   Base:     0x6fF5693b99212Da76ad316178A184AB56D299b43
-/// Unlike SwapRouter02, `execute` returns nothing, so callers measure a balance
-/// delta rather than trusting a router-reported output.
+/// Minimal UniversalRouter surface. Addresses per chain: Mainnet:
+/// 0x66a9893cC07d91D95644AEDD05D03f95e1dBA8Af Arbitrum:
+/// 0xA51afAFe0263b40EdaEf0Df8781eA9aa03E381a3 Base:
+/// 0x6fF5693b99212Da76ad316178A184AB56D299b43 Unlike SwapRouter02, `execute`
+/// returns nothing, so callers measure a balance delta rather than trusting a
+/// router-reported output.
 interface IUniversalRouter {
     function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
 }
@@ -41,10 +41,10 @@ struct ExactInputSingleParams {
 }
 
 /// Command and action opcodes, transcribed from the deployed UniversalRouter
-/// (`Commands.sol`, `v4-periphery/src/libraries/Actions.sol`). Hand-copied
-/// rather than imported: pulling v4-core and v4-periphery in as submodules for
-/// one adapter is not worth the dependency weight. `UniV4Adapter.fork.t.sol` is
-/// what proves these match the live routers.
+/// (`Commands.sol`, `v4-periphery/src/libraries/Actions.sol`). Transcribed
+/// rather than imported, which would take v4-core and v4-periphery as
+/// submodules for one adapter. `UniV4Adapter.fork.t.sol` checks them against
+/// the live routers.
 library V4Commands {
     uint8 internal constant V4_SWAP = 0x10;
     uint8 internal constant SWAP_EXACT_IN_SINGLE = 0x06;
@@ -128,9 +128,8 @@ contract UniV4Adapter is ISwapAdapter {
     /// Builds the single `V4_SWAP` input: the action sequence plus one
     /// ABI-encoded parameter blob per action.
     ///
-    /// Split out of `swap` because this encoding is the delicate part of the
-    /// adapter — every byte of it is dictated by the deployed router — and it
-    /// keeps the swap's own control flow readable.
+    /// Split out of `swap` because every byte of this encoding is dictated by
+    /// the deployed router.
     function _encodeSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, bytes calldata route)
         private
         pure
@@ -159,7 +158,7 @@ contract UniV4Adapter is ISwapAdapter {
         // just after this returns. `payerIsUser = false` names the router as
         // payer, which keeps the whole flow off Permit2 and needs no approval.
         //
-        // The amount is the exact `amountIn`, deliberately not
+        // The amount is the exact `amountIn`, not
         // `ActionConstants.CONTRACT_BALANCE`. The UniversalRouter is a shared
         // public contract, so anyone can send it tokens; settling its whole
         // balance would over-pay the PoolManager debt and leave an unclaimed

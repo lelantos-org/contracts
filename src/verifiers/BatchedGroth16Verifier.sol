@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 import { IBatchVerifier } from "../interfaces/IBatchVerifier.sol";
 import {
@@ -214,9 +214,9 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // The reduction is very slightly non-uniform (`2^256 mod
             // (SNARK_R - 1)`), which shifts the soundness bound by about 2^-252.
             //
-            // `r2` is deliberately full width. BN254 ECMUL costs a flat 6000 gas
-            // regardless of scalar size, so a short exponent would save nothing
-            // and give up ~126 bits of margin.
+            // `r2` is full width. BN254 ECMUL costs a flat 6000 gas regardless
+            // of scalar size, so a short exponent would save nothing and give
+            // up ~126 bits of margin.
             // ---------------------------------------------------------------
             mstore(hash, BATCH_DOMAIN)
             calldatacopy(add(hash, 0x20), 0x04, CD_BODY)

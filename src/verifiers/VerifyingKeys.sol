@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 // Groth16 verifying-key constants for the two circuits a spend proves, lifted
 // verbatim from the snarkjs codegen verifiers so that `BatchedGroth16Verifier`

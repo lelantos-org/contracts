@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 /// Groth16 verifier interface (snarkjs codegen). Compressed public-input mode:
 /// only `(z, y)` with `y = p(z)` over the logical public inputs. Shared by the

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 /// Uniform per-leg fee arrays for a genesis asset set of `n`.
 ///

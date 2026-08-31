@@ -6,11 +6,13 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 # EIP-170. See the [profile.deploy] comment in foundry.toml.
 
 DEPLOY_PROFILE := "deploy"
-SOLC_VERSION := "0.8.30"
+SOLC_VERSION := "0.8.36"
 MASP_SCRIPT := "script/Deploy.s.sol:Deploy"
 SWAP_SCRIPT := "script/DeploySwap.s.sol:DeploySwap"
 TEST_SCRIPT := "script/DeployTest.s.sol:DeployTest"
 TEST_SWAP_SCRIPT := "script/DeployTestSwap.s.sol:DeployTestSwap"
+TEST_YIELD_SCRIPT := "script/DeployTestYield.s.sol:DeployTestYield"
+YIELD_SCRIPT := "script/DeployYield.s.sol:DeployYield"
 
 # Anvil dev defaults — public key #0, chain matches foundry.toml.
 
@@ -149,6 +151,16 @@ deploy-anvil:
 deploy-test-swap:
     forge script {{ TEST_SWAP_SCRIPT }} {{ ANVIL_FLAGS }}
 
+# Anvil yield-stack deploy: a MockERC4626 + ERC4626Venue per fixture asset,
+# registered as new yield ids (1,2,3 -> 4,5,6). Run AFTER deploy-anvil and
+# export its KEY=value output (MASP, TOKEN_1..3) into env first, e.g.
+# `eval "$(just deploy-anvil | grep -oE '^[A-Z_0-9]+=0x[0-9a-fA-F]{40}')"`.
+# Registration is permanent, so this runs once per MASP.
+[doc('Deploy the yield stack to a running anvil')]
+[group('deploy')]
+deploy-test-yield:
+    forge script {{ TEST_YIELD_SCRIPT }} {{ ANVIL_FLAGS }}
+
 # === deploy: mainnet ===
 
 # Mainnet (or any non-ephemeral chain) deploy. Reads dependency addresses
@@ -179,3 +191,20 @@ deploy-swap *args:
 [group('deploy')]
 dry-run-swap *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ SWAP_SCRIPT }} -vvv {{ args }}
+
+# Mainnet yield deploy (one ERC4626Venue per configured asset, then the owner
+# registration binding each to a new asset id). Reads $YIELD_CONFIG
+# (default script/config/mainnet.yield.json). Run AFTER deploy-mainnet — the
+# config must list the deployed MASP address and real ERC-4626 vaults.
+# Must be broadcast by the pool's owner: `addYieldAsset` is `onlyOwner`.
+[doc('Deploy yield venues to a real chain (broadcasts)')]
+[group('deploy')]
+deploy-yield *args:
+    FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ YIELD_SCRIPT }} --broadcast -vvv {{ args }}
+
+# Simulation only (no broadcast). Same args as `deploy-yield`. Worth running
+# first: a venue binding is permanent, so a wrong vault retires the asset id.
+[doc('Simulate the yield deploy without broadcasting')]
+[group('deploy')]
+dry-run-yield *args:
+    FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ YIELD_SCRIPT }} -vvv {{ args }}

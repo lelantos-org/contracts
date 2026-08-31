@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 /// Batched Groth16 verifier for the `(4x6, tree_update_batch)` proof
 /// pair a spend carries. Checks `E_1 * E_2^r2 = 1` in a single call to the BN254

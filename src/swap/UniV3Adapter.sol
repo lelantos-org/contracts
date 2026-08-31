@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { ISwapAdapter } from "./ISwapAdapter.sol";
 
-/// Minimal SwapRouter02 surface. Addresses per chain:
-///   Mainnet/Arbitrum: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45
-///   Base:             0x2626664c2603336E57B271c5C0b26F421741e481
-/// SwapRouter02 takes no `deadline`; it is enforced at the wrapper layer.
+/// Minimal SwapRouter02 surface. Addresses per chain: Mainnet/Arbitrum:
+/// 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45 Base:
+/// 0x2626664c2603336E57B271c5C0b26F421741e481 SwapRouter02 takes no `deadline`;
+/// it is enforced at the wrapper layer.
 interface ISwapRouter02 {
     struct ExactInputSingleParams {
         address tokenIn;
@@ -33,8 +33,8 @@ interface ISwapRouter02 {
 }
 
 /// Uniswap V3 single-hop and multi-hop adapter. The wrapper transfers
-/// `amountIn` of `tokenIn` here; this contract approves the router, executes the
-/// swap, resets the approval, and pushes the output back to the wrapper.
+/// `amountIn` of `tokenIn` here; this contract approves the router, executes
+/// the swap, resets the approval, and pushes the output back to the wrapper.
 ///
 /// `swap` is restricted to the pinned `WRAPPER`. Without that restriction, any
 /// caller could drain donated tokens by routing the output to themselves.
@@ -71,19 +71,18 @@ contract UniV3Adapter is ISwapAdapter {
     /// across the router call rather than read off the router's return value,
     /// then pushed to the wrapper. `SwapWrapper` settles against this return
     /// value and uses it as the ceiling on what MASP may pull out of its own
-    /// balance, so it has to be what the venue actually delivered; a router
-    /// that over-reports — which is what any `tokenOut` charging a fee on
-    /// transfer makes it do — would otherwise raise that ceiling above the
-    /// swap's real output.
+    /// balance, so it must be what the venue actually delivered: a router
+    /// over-reporting the output, as it does for any `tokenOut` that charges a
+    /// fee on transfer, would raise that ceiling above the swap's real output.
     ///
     /// This is what `reentrancy-balance` reports. The snapshot cannot go stale
     /// in a way that over-counts: the only permitted caller is the pinned
     /// `WRAPPER`, whose `swap` holds `nonReentrant` across the whole call, and
     /// `ROUTER` is immutable, so re-entering either contract is impossible. A
     /// multi-hop `route` is unauthenticated calldata and may name a token that
-    /// runs its own code mid-swap, but the delta only ever credits `tokenOut`
-    /// that genuinely arrived here and is forwarded on, and nothing but
-    /// `ROUTER` — approved for `tokenIn` alone — can move it out.
+    /// runs its own code mid-swap, but the delta only credits `tokenOut` that
+    /// arrived here and is forwarded on, and nothing but `ROUTER`, approved for
+    /// `tokenIn` alone, can move it out.
     // slither-disable-next-line reentrancy-balance
     function swap(
         address tokenIn,
@@ -101,8 +100,8 @@ contract UniV3Adapter is ISwapAdapter {
         uint256 outBefore = outToken.balanceOf(address(this));
         if (route.length == SINGLE_HOP_ROUTE_LEN) {
             (uint24 fee, uint160 sqrtPriceLimitX96) = abi.decode(route, (uint24, uint160));
-            // The router's reported output is ignored on purpose; `actualOut`
-            // is the measured balance delta, for the reason given above.
+            // The router's reported output is ignored; `actualOut` is the
+            // measured balance delta, for the reason given above.
             // slither-disable-next-line unused-return
             ROUTER.exactInputSingle(
                 ISwapRouter02.ExactInputSingleParams({

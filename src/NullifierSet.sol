@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 /// Packed-bitmap nullifier set. `_spentBuckets[nf >> 8]` holds 256 bits, keyed
 /// by `nf & 0xff`.

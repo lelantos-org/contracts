@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -26,8 +26,8 @@ import { IMASPPool } from "./interfaces/IMASPPool.sol";
 ///
 /// Provided here:
 ///
-/// * `_approveToken` — the ERC-20 → Permit2 → MASP approval pair.
-/// * `_escrowMeasured` — `depositAuthorized`, with the pull measured and bounded.
+/// * `_approveToken` — the ERC-20 → Permit2 → MASP approval pair. *
+/// `_escrowMeasured` — `depositAuthorized`, with the pull measured and bounded.
 /// * `_cancelAndVerify` — the cancel guards, record clearing, and refund check.
 ///
 /// Payout is left to the subclass: `_cancelAndVerify` returns the destination,
@@ -55,11 +55,15 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
     /// `amount` is `uint96` so the pair occupies one slot, saving a cold
     /// `SSTORE` on every escrow. The pool bounds what can land here well below
     /// that width: `publicIn` and `feeIn` are each validated against
-    /// `type(uint48).max`, so a pull cannot exceed roughly
-    /// `2^48 * scale * (2 + MAX_FEE_BPS/BPS_DENOMINATOR)`, which stays under
-    /// `type(uint96).max` for any `scale` below about `1.2e14`. Registered
-    /// scales are orders of magnitude smaller. `_escrowMeasured` enforces the
-    /// width regardless, so an asset registered outside that range reverts
+    /// `type(uint48).max`, so a pull cannot exceed roughly `2^48 * scale * (2 +
+    /// MAX_FEE_BPS/BPS_DENOMINATOR)`, which stays under `type(uint96).max` for
+    /// any `scale` below about `1.2e14`. Registered scales are orders of
+    /// magnitude smaller.
+    ///
+    /// On a yield asset that ceiling carries a further factor of the pool's
+    /// index, which grows without bound as the venue earns, so the headroom is
+    /// large but not permanent. Both `_escrowMeasured` and `_cancelAndVerify`
+    /// enforce the width explicitly, so an amount outside the range reverts
     /// rather than truncating.
     struct Escrow {
         address refundTo;
@@ -94,26 +98,26 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
         PERMIT2.approve(address(token), address(POOL), type(uint160).max, type(uint48).max);
     }
 
-    /// Returns the token an escrow is denominated in, and clears any
-    /// per-escrow token record the override keeps. `_cancelAndVerify` calls it
-    /// once its guards have passed and before any external call, placing that
-    /// state change inside the same CEI ordering.
+    /// Returns the token an escrow is denominated in, and clears any per-escrow
+    /// token record the override keeps. `_cancelAndVerify` calls it once its
+    /// guards have passed and before any external call, placing that state
+    /// change inside the same CEI ordering.
     function _consumeEscrowToken(uint256 id) internal virtual returns (IERC20);
 
     /// Escrow into MASP and measure the pull as a balance delta.
     ///
     /// Requires the subclass's reentrancy guard; see the contract notice.
     ///
-    /// @param token Asset the pull is measured in.
-    /// @param baseline Balance the pull is measured against: the caller's
-    /// snapshot plus any amount it credits to itself before the pool pulls.
-    /// @param minPull Inclusive floor on the measured pull. A deposit
-    /// denominated in another asset moves none of `token` and trips it.
-    /// @param maxPull Inclusive ceiling on the measured pull. The Permit2
-    /// allowance granted to the pool is unbounded and covers this contract's
-    /// entire balance, and `d` is unauthenticated calldata, so without a ceiling
-    /// an oversized `d.publicIn` would escrow balances held here for other
-    /// parties. The pull is separately bounded by the width of `Escrow.amount`.
+    /// @param token Asset the pull is measured in. @param baseline Balance the
+    /// pull is measured against: the caller's snapshot plus any amount it
+    /// credits to itself before the pool pulls. @param minPull Inclusive floor
+    /// on the measured pull. A deposit denominated in another asset moves none
+    /// of `token` and trips it. @param maxPull Inclusive ceiling on the
+    /// measured pull. The Permit2 allowance granted to the pool is unbounded
+    /// and covers this contract's entire balance, and `d` is unauthenticated
+    /// calldata, so without a ceiling an oversized `d.publicIn` would escrow
+    /// balances held here for other parties. The pull is separately bounded by
+    /// the width of `Escrow.amount`.
     // slither-disable-next-line reentrancy-balance
     function _escrowMeasured(
         IERC20 token,
@@ -134,10 +138,11 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
     /// Cancel a satellite-owned escrow and verify that the refund arrived.
     ///
     /// The digest preimage is supplied from the deposit's `DepositEscrowed`
-    /// event, less `payer`, which is always this contract. MASP rejects a cancel
-    /// of a contract payer's deposit from any other sender, so this contract is
-    /// necessarily the caller and the balance delta attributes to this refund.
-    /// An already-settled deposit was flushed and carries no refund.
+    /// event, less `payer`, which is always this contract. MASP rejects a
+    /// cancel of a contract payer's deposit from any other sender, so this
+    /// contract is necessarily the caller and the balance delta attributes to
+    /// this refund. An already-settled deposit was flushed and carries no
+    /// refund.
     ///
     /// Returns the verified record; the caller performs the payout.
     ///
@@ -166,6 +171,24 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
 
         uint256 balanceBefore = token.balanceOf(address(this));
         POOL.cancelDeposit(id, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt, feeNote);
-        if (token.balanceOf(address(this)) - balanceBefore != amount) revert RefundNotFunded(id);
+        // Measured, not asserted equal. On a yield asset the refund is the
+        // escrowed units valued at the current index, so it exceeds the amount
+        // pulled at submit by whatever the funds earned in escrow; an exact
+        // match would revert every cancel once the index has moved, and WETH is
+        // the wrapped native token on every deployed chain, so the native path
+        // would go with it.
+        //
+        // The floor catches the failure this guard exists for: an underfunded
+        // or partially delivered refund. It does not catch an over-delivery on
+        // a plain asset, which would indicate fee-on-transfer behaviour;
+        // distinguishing the two here needs the asset's registry entry, which
+        // no satellite holds.
+        uint256 delta = token.balanceOf(address(this)) - balanceBefore;
+        if (delta < amount) revert RefundNotFunded(id);
+        if (delta > type(uint96).max) revert EscrowAmountTooLarge(delta);
+        // Forwarded to the caller so the payout matches what actually arrived:
+        // `NativeAdapter` unwraps this and `SwapWrapper` transfers it, so both
+        // follow the index.
+        amount = delta;
     }
 }

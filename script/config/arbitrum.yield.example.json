@@ -1,0 +1,25 @@
+{
+  "masp": "0x0000000000000000000000000000000000000000",
+  "assets": [
+    {
+      "id": 12,
+      "token": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "scale": 1,
+      "vault": "0x0000000000000000000000000000000000000000",
+      "depositBps": 20,
+      "withdrawBps": 20,
+      "bufferBps": 500,
+      "perfBps": 1000
+    },
+    {
+      "id": 13,
+      "token": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "scale": 10000000000,
+      "vault": "0x0000000000000000000000000000000000000000",
+      "depositBps": 20,
+      "withdrawBps": 20,
+      "bufferBps": 500,
+      "perfBps": 1000
+    }
+  ]
+}

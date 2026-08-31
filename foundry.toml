@@ -127,7 +127,7 @@ ignored_warnings_from = ["lib"]
 # below and runs in CI's dedicated SMT job.
 
 [profile.smt.model_checker]
-contracts = { "src/MASP.sol" = ["MASP"], "src/AssetRegistry.sol" = ["AssetRegistry"], "src/CommitmentTree.sol" = ["CommitmentTree"], "src/FeeConfig.sol" = ["FeeConfig"], "src/NullifierSet.sol" = ["NullifierSet"], "src/swap/SwapWrapper.sol" = ["SwapWrapper"], "src/swap/UniV3Adapter.sol" = ["UniV3Adapter"], "src/swap/UniV4Adapter.sol" = ["UniV4Adapter"] }
+contracts = { "src/MASP.sol" = ["MASP"], "src/AssetRegistry.sol" = ["AssetRegistry"], "src/CommitmentTree.sol" = ["CommitmentTree"], "src/FeeConfig.sol" = ["FeeConfig"], "src/NullifierSet.sol" = ["NullifierSet"], "src/swap/SwapWrapper.sol" = ["SwapWrapper"], "src/swap/UniV3Adapter.sol" = ["UniV3Adapter"], "src/swap/UniV4Adapter.sol" = ["UniV4Adapter"], "src/yield/YieldOps.sol" = ["YieldOps"], "src/yield/ERC4626Venue.sol" = ["ERC4626Venue"] }
 engine = "all"
 timeout = 120000
 targets = ["assert", "underflow", "overflow", "divByZero", "constantCondition", "popEmptyArray", "outOfBounds", "balance", "assertions"]

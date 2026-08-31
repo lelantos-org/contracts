@@ -23,6 +23,7 @@ For build instructions, gas figures, and deployed sizes, see the [repository REA
   - [Shield: deposit escrow and batch flush](#shield-deposit-escrow-and-batch-flush)
   - [Spend: transfer and withdraw](#spend-transfer-and-withdraw)
   - [Fee accounting](#fee-accounting)
+- [Yield](#yield)
 - [Escrow satellites](#escrow-satellites)
 - [Shielded Swap](#shielded-swap)
 - [Native coin](#native-coin)
@@ -39,9 +40,9 @@ Two design choices drive most of the contract structure:
 1. **Merkle insertion is proven, not computed.** The contract never hashes a Merkle path. A relayer computes the new root off-chain and submits a `tree_update_batch` proof; the contract verifies it and swaps the root. Per-transaction cost is therefore flat in tree depth.
 2. **Public inputs are compressed before pairing.** Both circuits expose dozens of logical public signals. Each set is folded into a single pair `(y, z)` via a Fiat–Shamir challenge and a Horner evaluation, so every `verifyProof` call takes exactly two field elements regardless of the logical signal count.
 
-Consequently every spend verifies **two** independent Groth16 proofs, and the contract — not the circuits — is what cross-binds them.
-
 3. **The spend path verifies both proofs in one pairing call.** `BatchedGroth16Verifier` checks `E_1 · E_2^r2 = 1` over six pairing terms instead of two separate four-term checks, folding the `alpha`/`beta` and `gamma` terms the two circuits share. Measured saving: ~94k gas per spend. `r2` is a Fiat–Shamir coefficient over the full twenty-word calldata transcript, so the soundness error is about `2^-254`. `flushBatch` carries a single proof and uses the codegen verifier directly; its "batch" is a batch of leaves, unrelated to the batched pairing.
+
+Consequently every spend verifies **two** independent Groth16 proofs, and the contract — not the circuits — is what cross-binds them.
 
 ```mermaid
 flowchart LR
@@ -60,7 +61,7 @@ flowchart LR
 
   W -->|"proof + public inputs"| R
   R -->|"tx"| M
-  M --> V1
+  M --> BV
   M --> V2
   M --> P2
   M --> T
@@ -71,7 +72,7 @@ flowchart LR
 
 ## Module Map
 
-`MASP` is a single deployed contract composed by inheritance from four abstract state modules, plus three stateless libraries.
+`MASP` is a single deployed contract composed by inheritance from five abstract state modules, plus four stateless libraries and one external library reached by `delegatecall`.
 
 ```mermaid
 classDiagram
@@ -113,6 +114,24 @@ classDiagram
     +sweep()
     #_accrueFee()
   }
+  class YieldIndex {
+    <<abstract>>
+    #Store _y
+    +isYieldAsset()
+    +index()
+    +yieldState()
+    +rebalance()
+    +sweepNormalized()
+    #_initYieldAsset()
+  }
+  class YieldOps {
+    <<external library>>
+    +unshield()
+    +quoteShield()
+    +settleShield()
+    +cancel()
+    +rebalance()
+  }
   class PubInputs {
     <<library>>
     +compress()
@@ -136,9 +155,12 @@ classDiagram
   MASP --|> CommitmentTree
   MASP --|> NullifierSet
   MASP --|> AssetRegistry
-  MASP --|> FeeConfig
+  MASP --|> YieldIndex
+  YieldIndex --|> FeeConfig
   MASP ..> PubInputs
   MASP ..> AuxValidation
+  MASP ..> YieldOps
+  YieldIndex ..> YieldOps
   PubInputs ..> SnarkCompression
   AuxValidation ..> BabyJubJub
 ```
@@ -150,6 +172,11 @@ classDiagram
 | [NullifierSet.sol](NullifierSet.sol) | Packed-bitmap spent-nullifier set. |
 | [AssetRegistry.sol](AssetRegistry.sol) | Owner-managed `assetId → (ERC-20, scale)` mapping. |
 | [FeeConfig.sol](FeeConfig.sol) | Fee basis points, treasury, per-token accrual, permissionless `sweep`. |
+| [yield/YieldIndex.sol](yield/YieldIndex.sol) | Yield-index storage, owner controls, and the `isYieldAsset` / `index` / `yieldState` views. |
+| [yield/YieldOps.sol](yield/YieldOps.sol) | Every non-trivial yield operation, deployed as an external library and reached by `delegatecall`. |
+| [yield/IYieldVenue.sol](yield/IYieldVenue.sol) | The venue surface the pool drives: `deposit`, `withdraw`, `totalAssets`, `maxWithdraw`. |
+| [yield/ERC4626Venue.sol](yield/ERC4626Venue.sol) | Generic ERC-4626 venue, one instance per `(assetId, vault)`, pinned to its pool and otherwise immutable. |
+| [libs/Fees.sol](libs/Fees.sol) | `BPS_DENOMINATOR` and `MAX_FEE_BPS`, shared by `FeeConfig` and `AssetRegistry`. |
 | [libs/PubInputs.sol](libs/PubInputs.sol) | Public-input structs and Fiat–Shamir compression (calldata fast path + memory reference path). |
 | [libs/AuxValidation.sol](libs/AuxValidation.sol) | Bounds and curve checks on per-output FMD payloads. |
 | [SnarkCompression.sol](SnarkCompression.sol) | Horner evaluation over the coefficient vector, mod the BN254 scalar field. |
@@ -208,18 +235,20 @@ flowchart LR
 
 ### NullifierSet
 
-Spent nullifiers are stored as a packed bitmap: `_spentBuckets[nf >> 8]` holds 256 flags keyed by `nf & 0xff`. A spend consumes `TRANSACT_IN = 3` nullifiers; a repeat within the same word costs no extra storage slot.
+Spent nullifiers are stored as a packed bitmap: `_spentBuckets[nf >> 8]` holds 256 flags keyed by `nf & 0xff`. A spend consumes `TRANSACT_IN = 4` nullifiers; a repeat within the same word costs no extra storage slot.
 
 Two distinct guards apply:
 
-- `DuplicateNullifier` — raised in `_validateRequest` by a pairwise comparison across all three input slots, blocking the same note being spent twice *within one transaction*.
+- `DuplicateNullifier` — raised in `_validateRequest` by a pairwise comparison across all four input slots, blocking the same note being spent twice *within one transaction*.
 - `DoubleSpend` — raised in `_consumeNullifier` when the bit is already set, blocking a spend *across transactions*.
 
-The pairwise loop is required rather than a single adjacent comparison: at `N_IN = 3`, checking only `[0] != [1]` would leave the third slot free to repeat either.
+The pairwise loop is required rather than a single adjacent comparison: at `N_IN = 4`, checking only `[0] != [1]` would leave the remaining slots free to repeat either.
 
 ### AssetRegistry
 
 Maps a circuit-visible `uint64 publicAssetId` to an ERC-20 address and a `scale` factor converting circuit units to token base units. The registry is **add-only**: `addAsset` reverts on a duplicate id, and there is no removal path. An asset may be *disabled*, which blocks new deposits (`_validateDeposit`) while leaving existing notes and escrows spendable so funds can always exit.
+
+The add-only rule is load-bearing beyond duplicate protection: because `_addAsset` reverts on a re-registration, a subclass can bind extra per-asset state in the same call and rely on that binding being permanent. `MASP.addYieldAsset` pairs it with the venue binding on exactly that basis — see [Yield](#yield).
 
 `scale` is bounded to `1e18` and must be nonzero. The hot path uses two lookups deliberately: `_getAsset` reads both slots, while `_requireAssetKnown` — used by `transfer`, which moves no tokens — touches only slot 0 and skips the cold `SLOAD` for `scale`.
 
@@ -230,6 +259,8 @@ Rates are **per asset**, not pool-wide: every `AssetEntry` carries its own `depo
 `FeeConfig` also supplies the `ReentrancyGuardTransient` base used by every state-mutating entry point.
 
 The critical invariant: **escrowed principal is never counted as accrued fee.** A deposit locks `inAmt + fee + the relayer note's value` in the pool without touching `accruedFee`; only the treasury's `fee` is ever accrued, and only when `flushBatch` commits the leaves; `cancelDeposit` refunds all three together, since no leaf was minted and so nobody earned the relayer's share. The relayer's portion is never accrued at all — it stays pool principal, because the note minted against it is spendable only while the pool still holds the tokens behind it. A sweep can therefore never drain a depositor's refundable balance.
+
+On a yield asset the same invariant holds in normalized units. The treasury's cut lives in `accruedFeeNormalized` rather than `accruedFee`, is moved out of `totalNormalized` rather than minted, and is drained by `sweepNormalized(id)` rather than `sweep(token)` — a separate accumulator because a plain id and a yield id may share one ERC-20, which makes a token-keyed balance unattributable between them.
 
 ---
 
@@ -313,7 +344,7 @@ Two submit variants differ only in how funds arrive:
 
 | Entry point | Funding mechanism | Authorization |
 | --- | --- | --- |
-| `deposit` | Permit2 `permitWitnessTransferFrom` | Per-tx signature; witness binds `keccak256(abi.encode(d, aux))` |
+| `deposit` | Permit2 `permitWitnessTransferFrom` | Per-tx signature; witness binds `keccak256(abi.encode(d, aux, feeAux))` |
 | `depositAuthorized` | Permit2 `AllowanceTransfer.transferFrom` | Pre-signed `PermitSingle`; requires `msg.sender == d.payer` |
 
 Native-coin deposits go through [`NativeAdapter.depositNative`](native/NativeAdapter.sol), which wraps `msg.value` and then drives `depositAuthorized` as its own payer — see [Native coin](#native-coin).
@@ -384,11 +415,11 @@ sequenceDiagram
   M->>BV: verifyBatch(p, compress(pi, aux), tp, compress(tpi))
   Note right of BV: both Groth16 residuals in one<br/>six-term pairing check
   BV-->>M: true
-  M->>M: _consumeNullifier x3
-  M->>M: _advanceRoot(newRoot, 3, oldRoot)
+  M->>M: _consumeNullifier x4
+  M->>M: _advanceRoot(newRoot, 6, oldRoot)
   M->>M: accrue fee on outAmt
   M->>T: safeTransfer(recipient, outAmt - fee)
-  M-->>C: emit AssetMoved, NotePayload x3
+  M-->>C: emit AssetMoved, NotePayload x6
 ```
 
 **`_validateRequest` is the security centre of the spend path.** The two Groth16 proofs are independent; nothing in either circuit relates one to the other. The contract is what ties them together:
@@ -422,6 +453,101 @@ flowchart TD
 ```
 
 Deposit fees use the asset's `depositBps` snapshotted at submit time and carried in the digest, so a later `setAssetFee` cannot re-rate a pending deposit or its cancellation; withdraw fees read the asset's `withdrawBps` live at execution, which is bound by nothing the spender signed — `MAX_FEE_BPS` is the only ceiling on that leg. `flushBatch` accumulates fees into a fixed `MAX_L_BATCH`-wide array keyed by token address and writes one `SSTORE` per *unique* token, rather than one per deposit.
+---
+
+## Yield
+
+A yield asset routes its idle custody into an ERC-4626 vault. Yield is a property of the **asset id**, never of a note: the plain id for a token stays risk-free custody, a yield id for the same token earns, and a depositor opts in or out by choosing an id.
+
+The circuit is untouched. `publicIn` and `publicOut` remain plain integers and value conservation is unchanged, because notes in a yield asset are denominated in **normalized units** rather than base units: one unit is worth `gross / supply` of the token, and that ratio rises as the venue earns. Every note under an id shares the same unit, so the index exists only at the token boundary.
+
+```mermaid
+flowchart LR
+  subgraph POOL["MASP pool"]
+    Y["YieldIndex<br/>Store _y"]
+    I["idle[id]<br/>unlent buffer"]
+  end
+  O["YieldOps<br/>external library"]
+  V["ERC4626Venue<br/>onlyPool, immutable"]
+  VA["ERC-4626 vault"]
+
+  Y -.->|"delegatecall,<br/>runs in pool context"| O
+  O -->|"safeTransfer then deposit()"| V
+  O -->|"withdraw() redeems to POOL"| V
+  O -->|"reads totalAssets(), maxWithdraw()"| V
+  V --> VA
+  I -.->|"gross = totalAssets + idle"| O
+```
+
+### State and derivation
+
+| Field | Meaning |
+| --- | --- |
+| `params[id]` | `venue`, `bufferBps`, `perfBps`, `halted`, packed into one slot (25 of 32 bytes) so the venue test and everything behind it cost a single cold `SLOAD`. A zero `venue` means the asset carries no yield. |
+| `totalNormalized[id]` | Units owed to note holders. |
+| `accruedFeeNormalized[id]` | The treasury's units, accruing alongside holders' until swept. |
+| `idle[id]` | Underlying held by the pool and not supplied to the venue. |
+| `lastIdx[id]` | Performance-fee high-water mark, in RAY. The only stored index. |
+
+Everything user-facing is derived on demand:
+
+```
+gross  = venue.totalAssets() + idle[id]
+supply = totalNormalized[id] + accruedFeeNormalized[id]
+index  = gross * RAY / (supply * scale)     // RAY when supply == 0
+```
+
+**Solvency is structural.** The index comes from what the pool actually holds and is never stored or oracle-fed, so no accounting drift can make the pool owe more than it has. `lastIdx` is a fee mark only: a wrong value mis-collects for the treasury and can never pay a user the wrong amount.
+
+`idle` is tracked explicitly rather than read from `token.balanceOf(pool)`, because a plain id and a yield id may share one ERC-20, which makes that balance unattributable per asset. A direct transfer to the pool therefore cannot move the index — there is no donation vector.
+
+Conversions never route through the reported index: `_toUnderlying` computes `n * gross / supply` directly, one `mulDiv` with one rounding step. `scale` governs only the empty pool, where one unit is worth exactly `scale` base units, which pins the index to `RAY` at the first deposit.
+
+### The buffer
+
+`bufferBps` of `gross` is kept unlent so the common withdrawal never touches the venue.
+
+- **Funding is banded.** `_fundVenue` waits until `idle` reaches *twice* the target, then moves down to the target, so the transfer and ERC-4626 mint are paid once per band crossing rather than once per deposit. The band is `bufferBps` itself.
+- **A draw takes the shortfall plus a fresh buffer.** Taking exactly what is needed would leave `idle` at zero, so the next withdrawal of any size would reach the venue too. The top-up is best-effort; only a venue that cannot cover the shortfall itself reverts, with `VenueDrained`.
+- **Capital left idle is a yield decision, never a solvency one.** `idle` and `totalNormalized` both move at submit, so the books balance whether or not the tokens have reached the venue. Anyone may call `rebalance(id)` to close the gap.
+
+### The performance fee
+
+`perfBps` of growth since the last mark is taken by **minting normalized units to the treasury**, not by deducting from the payout the way `withdrawBps` is. A payout deduction needs the note's cost basis, and notes are shielded and fungible — `publicOut` is a bare unit count. Minting dilutes instead, which is what leaves the circuit untouched.
+
+Attribution stays per-holder even though no basis is recorded anywhere: the accrual runs before *every* change to `totalNormalized`, so the holder set is constant within an accrual window and the dilution charges that window's holders in proportion to their holdings. A holder who deposits late and exits early pays on the growth during their holding period and on nothing else.
+
+After a venue loss the accrual returns early and leaves `lastIdx` untouched, so nothing is charged until `gross` passes its previous peak. Every rounding step points away from the treasury.
+
+### Entry points
+
+Each hot path shares a prologue that resolves the asset, reads `gross` once, and brings the fee up to date before anything touches `totalNormalized`.
+
+| Path | Rounding | Note |
+| --- | --- | --- |
+| `quoteShield` | **up**, against the depositor | The amount moves with the index between signing and inclusion; `Permit2Sig.maxTotal` is the payer's signed ceiling on the whole pull and bounds that drift as it bounds a fee change. |
+| `settleShield` | — | `idle` and `totalNormalized` both move at submit. Fee units stay inside `totalNormalized` until flush, so a cancellation refunds them. |
+| `unshield` | **down**, against the withdrawer | The pool is never left owing more than it holds. |
+| `cancel` | **down** | Returns the escrowed units at the current index, including what they earned in the venue — floored against a ceilinged pull, so a round trip leaves the pool over-backed. |
+
+`flushBatch` recomputes the deposit fee in normalized units, with no `scale` and no index, so it reproduces exactly what submit charged. That is what keeps the index out of the escrow digest: an index-aware flush would need `idx` snapshotted at submit and carried through `DepositMeta`, `_depositDigest`, `DepositEscrowed`, and every adapter and indexer that resupplies the preimage. The move is supply-neutral — units go from the holders' pot to the treasury's, they are not created.
+
+### Venue binding
+
+**The binding is immutable.** `_initYieldAsset` is the only path that writes a venue, it is reachable only through `MASP.addYieldAsset`, and `_addAsset` reverts `DuplicateAsset` on an existing id — so an id's venue is fixed for its lifetime. There is deliberately no `setVenue`: an owner able to re-point a live id could move every holder's principal into another protocol with no delay. Replacing a venue means registering a new id, at the cost of a public exit and re-entry for those holders.
+
+Registration verifies the binding on-chain rather than trusting a deploy config: the venue must report this pool as its `POOL`, and its vault's `asset()` must be the token being registered.
+
+| Control | Authority | Limit |
+| --- | --- | --- |
+| `addYieldAsset` | owner | Binds a **new** id, once. Cannot re-point an existing one. |
+| `setYieldParams` | owner | Shifts the idle/lent split and the treasury's future cut. Settles at the old rate first, so a change is never retroactive. Touches no venue binding. |
+| `emergencyUnwind` | owner | Withdraws the position back to idle and halts supply. Leaves `venue` set — clearing it would move the asset onto plain arithmetic, where the same integers mean base units, stranding `totalNormalized`. `gross` is unchanged by the move, so the index is continuous and no note is revalued. Partial and repeatable. |
+| `setHalted` | owner | Resumes or re-halts supply. Funds can only return to the vault fixed at registration. |
+| `rebalance` / `accruePerf` / `sweepNormalized` | **anyone** | Restore the buffer, bring the fee up to date, drain the treasury's units to the owner-pinned `treasury`. |
+
+`ERC4626Venue` holds no allowance over the pool: the pool **pushes** the underlying and then calls `deposit`, and `withdraw` redeems straight back to `POOL`. A compromised venue therefore cannot reach the pool's balance. An ERC-4626 rounding remainder stays in the position and is counted by `totalAssets`, so it accrues to note holders rather than being stranded.
+
 
 ---
 
@@ -474,13 +600,13 @@ sequenceDiagram
     RT-->>AD: tokenOut
     AD->>RT: forceApprove(router, 0)
   else UniV4Adapter — UniversalRouter V4_SWAP
-    AD->>RT: transfer amountIn, then execute(V4_SWAP, deadline)<br/>settles CONTRACT_BALANCE, payerIsUser = false<br/>no approval, hooks pinned to address(0)
+    AD->>RT: transfer amountIn, then execute(V4_SWAP, deadline)<br/>settles exact amountIn, payerIsUser = false<br/>no approval, hooks pinned to address(0)
     RT-->>AD: tokenOut
   end
-  AD->>AD: actualOut = tokenOut balance delta,<br/>not the router's return value;<br/>revert if below minOut
+  AD->>AD: actualOut = tokenOut balance delta,<br/>not the router's return value,<br/>revert if below minOut
   AD-->>SW: transfer actualOut
   SW->>SW: revert if actualOut below minOut
-  SW->>M: depositAuthorized(deposit_d, aux_d)
+  SW->>M: depositAuthorized(deposit_d, aux_d, fee_aux_d)
   M-->>SW: depositId (pulled via Permit2)
   SW->>SW: check minOut, pulled, actualOut ordering
   SW->>TR: transfer dust = actualOut - pulled
@@ -501,7 +627,7 @@ An escrow the wrapper creates is owned by the wrapper: MASP refunds the digest-b
 
 `UniV3Adapter` is a thin pull-then-push adapter: the wrapper pre-transfers `amountIn`, the adapter approves the router, swaps to itself, resets the approval to zero (keeping tokens such as USDT, which reject non-zero-to-non-zero approval changes, usable on the next call), and pushes the output to `msg.sender`. Like `UniV4Adapter`, it reports the output as a balance delta across the router call rather than the router's own return value: the wrapper hands that number to `_escrowMeasured` as the pull ceiling, so it has to be what the venue actually delivered. A 64-byte `route` is decoded as `(uint24 fee, uint160 sqrtPriceLimitX96)` and routed single-hop; any other length is treated as a packed multi-hop path. `swap` is restricted to the pinned `WRAPPER`, without which any caller could drain donated tokens by routing output to themselves.
 
-`UniV4Adapter` is the same shape against the UniversalRouter's `V4_SWAP` command, with three differences worth naming. It needs **no approval at all**: it transfers `amountIn` to the router and settles with `CONTRACT_BALANCE` / `payerIsUser = false`, which pays out of the router's own balance and keeps the flow off Permit2. It **measures its own balance delta**, because `execute` returns nothing where `SwapRouter02.exactInputSingle` returns `amountOut`. And it **forwards `deadline`** to the router, which enforces it, where SwapRouter02 takes none. Its 64-byte `route` is `(uint24 fee, int24 tickSpacing)`; currency ordering is derived from the token addresses and `hooks` is pinned to `address(0)`, so neither can be named by the caller — `route` is unauthenticated calldata, and an attacker-chosen hook would otherwise be invoked by the PoolManager mid-swap.
+`UniV4Adapter` is the same shape against the UniversalRouter's `V4_SWAP` command, with three differences worth naming. It needs **no approval at all**: it transfers `amountIn` to the router and settles with `payerIsUser = false`, which pays out of the router's own balance and keeps the flow off Permit2. The settled amount is the exact `amountIn`, deliberately not `ActionConstants.CONTRACT_BALANCE`: the UniversalRouter is a shared public contract, so settling its whole balance would over-pay the PoolManager debt and leave an unclaimed credit, reverting the unlock with `CurrencyNotSettled` — a 1 wei donation would brick every swap for that token. It **measures its own balance delta**, because `execute` returns nothing where `SwapRouter02.exactInputSingle` returns `amountOut`. And it **forwards `deadline`** to the router, which enforces it, where SwapRouter02 takes none. Its 64-byte `route` is `(uint24 fee, int24 tickSpacing)`; currency ordering is derived from the token addresses and `hooks` is pinned to `address(0)`, so neither can be named by the caller — `route` is unauthenticated calldata, and an attacker-chosen hook would otherwise be invoked by the PoolManager mid-swap.
 
 Adding a venue is additive: a new `ISwapAdapter`, `setAdapterAllowed`, and nothing else. `SwapWrapper` never decodes `route` and its safety argument does not depend on the venue.
 
@@ -531,16 +657,17 @@ On the spend side the destination is `pi.payer`, a public input of the withdraw 
 
 | Constant | Value | Location |
 | --- | --- | --- |
-| `DEPTH` | 10 | `CommitmentTree` |
-| `ARITY` | 4 | `CommitmentTree` |
 | `MAX_LEAVES` | 4 194 304 (`4^11`) | `CommitmentTree` |
+| tree shape | arity 4, depth 11 — implied by `MAX_LEAVES`, not declared | `CommitmentTree` |
 | `ROOT_HISTORY` | 64 | `CommitmentTree` |
-| `TRANSACT_IN` / `TRANSACT_OUT` | 3 / 3 | `PubInputs` |
+| `TRANSACT_IN` / `TRANSACT_OUT` | 4 / 6 — the `4x6` of the circuit name | `PubInputs` |
 | `MAX_L_BATCH` | 8 | `PubInputs` |
-| `TRANSACT_COEFFS` | 42 | `PubInputs` |
+| `LEAVES_PER_DEPOSIT` | 2 (principal + relayer note) | `PubInputs` |
+| `TRANSACT_COEFFS` | 69 (`50 + 3 × 6 + 1`) | `PubInputs` |
 | batch coefficients | 52 (`4 + 6 × 8`) | `PubInputs` |
-| `MAX_FEE_BPS` | 2 000 (20%) | `FeeConfig` |
-| `BPS_DENOMINATOR` | 10 000 | `FeeConfig` |
+| `MAX_FEE_BPS` | 2 000 (20%) | `Fees`, re-exported by `FeeConfig` |
+| `BPS_DENOMINATOR` | 10 000 | `Fees`, re-exported by `FeeConfig` |
+| `RAY` | `1e27` (yield index fixed point) | `YieldOps` |
 | `CANCEL_DELAY_DEFAULT` | 7 200 blocks (~24 h at 12 s) | `MASP` |
 | `CANCEL_DELAY_MIN` / `MAX` | 3 600 / 50 400 blocks | `MASP` |
 | `MAX_CIPHERTEXT_LEN` | 256 bytes | `AuxValidation` |

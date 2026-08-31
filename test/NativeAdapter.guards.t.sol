@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 
@@ -160,9 +160,17 @@ contract NativeAdapterGuardsTest is Test {
         );
     }
 
-    /// Same guard against an over-refund: the delta must match the record
-    /// exactly, so a pool paying too much cannot inflate a claim either.
-    function test_revert_RefundNotFunded_overRefund() public {
+    /// A refund larger than the record is now *accepted*, and the measured
+    /// amount is what reaches the funder.
+    ///
+    /// This is the yield-index case: an escrow refunds its units valued at
+    /// today's index, so it exceeds the amount pulled at submit by whatever the
+    /// funds earned while escrowed. WETH is the wrapped native token on every
+    /// deployed chain, so holding the old exact-match rule here would revert
+    /// every native cancel once the index had moved. `RefundNotFunded` still
+    /// fires on an under-refund, which is the failure the guard exists for and
+    /// is covered by `test_revert_RefundNotFunded_shortRefund`.
+    function test_cancelNative_overRefund_forwardsMeasuredAmount() public {
         uint256 id = _deposit();
         // Fund the pool beyond what it escrowed so it can overpay.
         vm.deal(address(this), AMOUNT);
@@ -170,7 +178,6 @@ contract NativeAdapterGuardsTest is Test {
         weth.transfer(address(pool), AMOUNT);
         pool.setRefundAmount(AMOUNT + 1);
 
-        vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.RefundNotFunded.selector, id));
         adapter.cancelNative(
             id,
             1,
@@ -181,6 +188,7 @@ contract NativeAdapterGuardsTest is Test {
             uint32(vm.getBlockNumber()),
             PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
+        assertEq(DEPOSITOR.balance, AMOUNT + 1, "measured refund forwarded, not the stale record");
     }
 
     /// Exact refund on the funded branch pays the recorded funder in native.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 import { UniV3Adapter } from "../src/swap/UniV3Adapter.sol";
 import { UniV4Adapter } from "../src/swap/UniV4Adapter.sol";

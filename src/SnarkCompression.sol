@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 /// Polynomial evaluation for SNARK public-input compression. Folds N Groth16
 /// public inputs into two, `z` and `y = p(z)`. Soundness follows from

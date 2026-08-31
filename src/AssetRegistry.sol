@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
@@ -12,18 +12,16 @@ import { Fees } from "./libs/Fees.sol";
 /// asset blocks new deposits but stays spendable, so notes and escrows can
 /// exit.
 abstract contract AssetRegistry is Ownable {
-    /// `token`, `disabled` and the fee override share slot 0; `scale` is slot
-    /// 1. The three fee-related fields land in slot 0's existing padding —
-    /// 20 + 1 + 1 + 2 + 2 = 26 of 32 bytes — so `_getAsset`, which already
-    /// loads both slots, reads them for free. Adding a field that spilled into
-    /// a third slot would cost a cold SLOAD on every deposit and withdraw,
-    /// which is the cost `_requireAssetKnown` exists to avoid; these do not.
+    /// `token`, `disabled` and the fee fields share slot 0; `scale` is slot 1.
+    /// The three fee-related fields fit slot 0's existing padding (20 + 1 + 1 +
+    /// 2 + 2 = 26 of 32 bytes), so `_getAsset`, which already loads both slots,
+    /// reads them at no extra cost. A field spilling into a third slot would
+    /// add a cold SLOAD to every deposit and withdraw.
     ///
     /// Both rates are literal: there is no pool-wide fallback and no unset
     /// sentinel, so a stored `0` means the asset charges nothing on that leg.
-    /// Every asset carries its own pair from the moment it is registered,
-    /// which is what makes a fee change reach exactly the ids named in the
-    /// call and no others.
+    /// Every asset carries its own pair from registration, so a fee change
+    /// reaches exactly the ids named in the call.
     struct AssetEntry {
         IERC20 token;
         bool disabled;
@@ -59,9 +57,8 @@ abstract contract AssetRegistry is Ownable {
 
     /// Owner-only single-asset add. Reverts if `id` is already registered.
     ///
-    /// Rates are required rather than defaulted. There is nothing to inherit,
-    /// so an omitted rate would silently be zero — and a new asset that is
-    /// accidentally free is the failure this signature exists to prevent.
+    /// Rates are required rather than defaulted: there is nothing to inherit,
+    /// so an omitted rate would silently register the asset as free.
     function addAsset(uint64 id, IERC20 token, uint256 scale, uint16 depositBps, uint16 withdrawBps)
         external
         onlyOwner
@@ -108,10 +105,10 @@ abstract contract AssetRegistry is Ownable {
     /// Constructor-time bulk initialization. Same validation as `addAsset`.
     ///
     /// Rates are parallel arrays rather than one uniform value: the deployed
-    /// policy is asymmetric per leg and may differ per asset, and registering
-    /// at a placeholder rate to fix it afterwards would leave the pool live at
-    /// the wrong rate between two transactions. Every asset is registered at
-    /// its final rates or the deploy reverts.
+    /// policy is asymmetric per leg and may differ per asset. Registering at a
+    /// placeholder rate would leave the pool live at the wrong rate between two
+    /// transactions, so every asset is registered at its final rates or the
+    /// deploy reverts.
     function _writeAssets(
         uint64[] memory ids,
         IERC20[] memory tokens,
@@ -131,7 +128,11 @@ abstract contract AssetRegistry is Ownable {
         }
     }
 
-    function _addAsset(uint64 id, IERC20 token, uint256 scale, uint16 depositBps, uint16 withdrawBps) private {
+    /// `internal` rather than `private` so a subclass can register an asset and
+    /// bind extra per-asset state in the same call — `MASP.addYieldAsset` pairs
+    /// it with the venue binding. The add-only rule below is what makes such a
+    /// binding permanent: a second registration of `id` reverts here.
+    function _addAsset(uint64 id, IERC20 token, uint256 scale, uint16 depositBps, uint16 withdrawBps) internal {
         if (address(_assets[id].token) != address(0)) revert DuplicateAsset(id);
         if (address(token) == address(0)) revert ZeroToken();
         if (scale == 0) revert ZeroScale();
