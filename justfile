@@ -124,9 +124,13 @@ fmt-check:
 # sources into the build info. Those have no file on disk, so crytic-compile
 # aborts with `InvalidCompilation: Unknown file: foundry-pp/...`. Slither wants
 # the real sources anyway.
+# `forge clean` first: an incremental build rewrites build-info only for what it
+# recompiled, leaving entries with no `output` key, and crytic-compile dies on
+# `KeyError: 'output'`. CI checks out fresh, so only local runs hit this.
 [doc('Run Slither (mirrors the CI job)')]
 [group('ci')]
 slither:
+    forge clean
     forge build --build-info --no-dynamic-test-linking
     slither . --config-file slither.config.json --ignore-compile --fail-medium
 

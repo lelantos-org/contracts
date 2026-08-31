@@ -742,11 +742,6 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
     /// that must observe it arriving. `NativeAdapter` is such a payer: a refund
     /// landing on it through a third-party call leaves nothing on-chain to
     /// distinguish it from a flushed deposit, stranding the funder's claim.
-    // `nonReentrant`, as is every other state-mutating external here, so the
-    // cross-function reentrancy slither reports on `escrowed` is unreachable:
-    // the guard is contract-wide, and re-entry through the venue or the token
-    // during `YieldOps.cancel` reverts before it can observe the stale entry.
-    // slither-disable-next-line reentrancy-no-eth
     function cancelDeposit(
         uint256 id,
         uint48 publicIn,
@@ -785,6 +780,13 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
             // Refunded at the current index, including whatever the escrowed
             // funds earned while they sat in the venue, which matches the
             // liability being released.
+            //
+            // This external call precedes the `escrowed` clear below. Every
+            // state-mutating external on this contract is `nonReentrant` and
+            // the guard is contract-wide, so the cross-function reentrancy
+            // slither reports here is unreachable: re-entry through the venue
+            // or the token reverts before it can observe the stale entry.
+            // slither-disable-next-line reentrancy-no-eth
             total =
                 YieldOps.cancel(_y, publicAssetId, a.scale, uint256(publicIn), uint256(fbps), uint256(feeNote.feeIn));
         }

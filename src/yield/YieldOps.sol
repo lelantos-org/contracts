@@ -178,11 +178,6 @@ library YieldOps {
     /// the venue. Capital left idle dilutes the return, and dilutes every
     /// holder alike. `rebalance` passes `banded = false` to close the gap on
     /// demand.
-    // The band check multiplies the already-rounded `target` on purpose: it is
-    // the same value written back to `idle` below, so re-deriving it at full
-    // precision would compare against a threshold the accounting never uses.
-    // The rounding loss is at most one unit, doubled.
-    // slither-disable-next-line divide-before-multiply
     function _fundVenue(Store storage y, uint64 id, IERC20 token, uint256 g, YieldParams memory q, bool banded)
         private
     {
@@ -190,6 +185,11 @@ library YieldOps {
         uint256 target = (g * q.bufferBps) / Fees.BPS_DENOMINATOR;
         uint256 have = y.idle[id];
         if (have <= target) return;
+        // Deliberately doubles the already-rounded `target` rather than
+        // re-deriving the threshold at full precision: this is the same value
+        // written back to `idle` below, so a more precise band would compare
+        // against a number the accounting never uses. Loss is one unit, doubled.
+        // slither-disable-next-line divide-before-multiply
         if (banded && have < target * 2) return;
         uint256 amt = have - target;
         y.idle[id] = target;
