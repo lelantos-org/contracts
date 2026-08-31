@@ -9,6 +9,16 @@ optimizer = true
 optimizer_runs = 1_000_000
 via_ir = true
 evm_version = "cancun"
+# Foundry 1.8.0 made `--isolate` the default: each top-level call runs as its
+# own transaction in a fresh EVM context, so account and storage warmth no
+# longer carries across calls. test/yield/YieldGas.t.sol deliberately warms
+# both the plain and the indexed path before measuring — under isolate that
+# warm-up is discarded and every measured call restarts cold, inflating both
+# the absolute numbers and the plain-vs-indexed premium it guards (the shield
+# premium goes 39,275 -> 63,675 against a 55,000 ceiling). Bytecode is
+# byte-identical either way, so this is a measurement change, not a
+# regression. Keep the pre-1.8 semantics that .gas-snapshot was taken under.
+isolate = false
 # Slither reads the AST out of `out/build-info`. Without this, `forge build
 # --build-info` emits `"ast": {}` for every .sol file that declares no
 # contract/library/interface — src/verifiers/VerifyingKeys.sol and

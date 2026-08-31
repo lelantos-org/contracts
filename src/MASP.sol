@@ -544,8 +544,8 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
         _validateBatchHeader(n, tpi);
 
         // Per-token fee accumulator; width is constructor-checked against
-        // `PubInputs.MAX_L_BATCH`. See FEE_ACC_SLOTS. slither-disable-next-line
-        // uninitialized-local
+        // `PubInputs.MAX_L_BATCH`. See FEE_ACC_SLOTS.
+        // slither-disable-next-line uninitialized-local
         IERC20[FEE_ACC_SLOTS] memory tokens;
         // slither-disable-next-line uninitialized-local
         uint256[FEE_ACC_SLOTS] memory fees;
@@ -742,6 +742,11 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
     /// that must observe it arriving. `NativeAdapter` is such a payer: a refund
     /// landing on it through a third-party call leaves nothing on-chain to
     /// distinguish it from a flushed deposit, stranding the funder's claim.
+    // `nonReentrant`, as is every other state-mutating external here, so the
+    // cross-function reentrancy slither reports on `escrowed` is unreachable:
+    // the guard is contract-wide, and re-entry through the venue or the token
+    // during `YieldOps.cancel` reverts before it can observe the stale entry.
+    // slither-disable-next-line reentrancy-no-eth
     function cancelDeposit(
         uint256 id,
         uint48 publicIn,

@@ -119,10 +119,15 @@ fmt-check:
 # `out/build-info` rather than compiling itself, so the build must come first
 # (and `ast = true` in foundry.toml must stay set — see the note there).
 # `--fail-medium` is what the action's `fail-on: medium` resolves to.
+# `--no-dynamic-test-linking` is required: foundry 1.8 turned dynamic test
+# linking on by default, which injects synthetic `foundry-pp/DeployHelperN.sol`
+# sources into the build info. Those have no file on disk, so crytic-compile
+# aborts with `InvalidCompilation: Unknown file: foundry-pp/...`. Slither wants
+# the real sources anyway.
 [doc('Run Slither (mirrors the CI job)')]
 [group('ci')]
 slither:
-    forge build --build-info
+    forge build --build-info --no-dynamic-test-linking
     slither . --config-file slither.config.json --ignore-compile --fail-medium
 
 [doc('Everything CI runs, in order')]

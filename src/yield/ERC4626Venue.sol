@@ -63,6 +63,9 @@ contract ERC4626Venue is IYieldVenue {
 
     /// Supplies `assets`, which the pool has already transferred in.
     function deposit(uint256 assets) external onlyPool {
+        // Shares minted are not tracked per call: the venue's position is read
+        // back from `balanceOf` in `totalAssets`, so the return is redundant.
+        // slither-disable-next-line unused-return
         IERC4626(VAULT).deposit(assets, address(this));
     }
 
@@ -72,6 +75,9 @@ contract ERC4626Venue is IYieldVenue {
     /// reverts anyway reverts the whole transaction, leaving the spend's
     /// nullifiers unconsumed. That is a liveness failure, not a loss.
     function withdraw(uint256 assets) external onlyPool {
+        // Returns shares burned, which nothing here consumes: `assets` is the
+        // exact amount the vault sends to the pool, and a short vault reverts.
+        // slither-disable-next-line unused-return
         IERC4626(VAULT).withdraw(assets, POOL, address(this));
     }
 

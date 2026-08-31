@@ -22,7 +22,7 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           # Keep in step with .github/workflows/ci.yml.
-          version: v1.5.1
+          version: v1.8.1
       - uses: extractions/setup-just@v2
       - run: just version
       - name: Heavy fuzz + invariant sweep

@@ -15,7 +15,7 @@ concurrency:
 # src/, test/ and script/ — foundry only has to fetch it.
 env:
   FOUNDRY_PROFILE: default
-  FOUNDRY_VERSION: v1.5.1
+  FOUNDRY_VERSION: v1.8.1
 
 jobs:
   test:
@@ -92,7 +92,11 @@ jobs:
           version: ${{ env.FOUNDRY_VERSION }}
       # `--build-info` emits the solc standard-json output that crytic-compile
       # reads under `--ignore-compile`.
-      - run: forge build --build-info
+      # `--no-dynamic-test-linking`: foundry 1.8 enables dynamic test linking by
+      # default, which injects synthetic `foundry-pp/DeployHelperN.sol` sources
+      # into the build info. They have no file on disk, so crytic-compile aborts
+      # with `InvalidCompilation: Unknown file: foundry-pp/...`.
+      - run: forge build --build-info --no-dynamic-test-linking
       # v0.4.2 is the first release whose image is Python 3.10; the 3.9 images
       # in v0.4.0/v0.4.1 cannot install slither 0.11.5 (Requires-Python >=3.10).
       - uses: crytic/slither-action@v0.4.2

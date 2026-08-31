@@ -19,7 +19,7 @@ jobs:
       packages: write
     env:
       FOUNDRY_PROFILE: default
-      FOUNDRY_VERSION: v1.5.1
+      FOUNDRY_VERSION: v1.8.1
     steps:
       - uses: actions/checkout@v4
         with:
