@@ -485,8 +485,13 @@ library YieldOps {
         uint256 units = y.accruedFeeNormalized[id];
         if (units == 0) return 0;
         amount = _toUnderlying(units, scale, g, _supply(y, id), Math.Rounding.Floor);
-        y.accruedFeeNormalized[id] = 0;
+        // Bail before clearing. Flooring to zero means the units are worth less
+        // than one base unit right now — deeply under water, say — and the
+        // accumulator must survive to be claimable once the pool recovers.
+        // Clearing first discarded the treasury's whole balance for no payout,
+        // silently, since the emit below is never reached either.
         if (amount == 0) return 0;
+        y.accruedFeeNormalized[id] = 0;
 
         _ensureIdle(y, id, amount, q, _refillFor(g, amount, q.bufferBps));
         y.idle[id] -= amount;

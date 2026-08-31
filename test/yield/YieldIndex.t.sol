@@ -127,6 +127,39 @@ contract YieldIndexTest is YieldBase {
         assertEq(feeAfter, 0, "accumulator cleared");
     }
 
+    /// A sweep worth less than one base unit must leave the accrual alone.
+    ///
+    /// The accumulator used to be zeroed before the payout was checked, so a
+    /// single permissionless call while the pool was deeply under water threw
+    /// the treasury's entire balance away for nothing — and silently, since the
+    /// `NormalizedFeeSwept` emit sits past that early return.
+    function test_sweepNormalized_zeroValueSweepKeepsTheAccrual() public {
+        // Zero buffer, so a vault loss can drive `gross` down to dust; `scale`
+        // of one is what lets the floored payout reach zero at all.
+        vm.prank(OWNER);
+        masp.setYieldParams(FINE_ID, 0, PERF_BPS);
+
+        _deposit(FINE_ID, N, 0x101);
+        _earnInto(vaultFine, 5e17);
+        masp.accruePerf(FINE_ID);
+        masp.rebalance(FINE_ID);
+
+        uint256 accrued = masp.yieldState(FINE_ID).accruedFeeNormalized;
+        assertGt(accrued, 0, "fee accrued");
+
+        // Near-total loss: those units are now worth less than one base unit.
+        vaultFine.lose(vaultFine.totalAssetsHeld() - 1);
+
+        uint256 treasuryBefore = token.balanceOf(TREASURY);
+        assertEq(masp.sweepNormalized(FINE_ID), 0, "payout floors to zero");
+        assertEq(token.balanceOf(TREASURY), treasuryBefore, "nothing moved");
+        assertEq(masp.yieldState(FINE_ID).accruedFeeNormalized, accrued, "accrual survives");
+
+        // Still claimable once the vault recovers.
+        _earnInto(vaultFine, 5e17);
+        assertGt(masp.sweepNormalized(FINE_ID), 0, "claimable after recovery");
+    }
+
     /// A parameter change must not hand the treasury a fresh water line.
     ///
     /// `setParams` re-marks `lastIdx` so that enabling a fee cannot bill
