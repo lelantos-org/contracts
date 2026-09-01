@@ -14,35 +14,32 @@ interface IERC4626Asset {
 }
 
 /// Yield-index operations for `YieldIndex`, deployed as an external library.
-///
 /// The pool carries both the plain and the indexed arithmetic and sits close to
 /// the EIP-170 code-size limit, so this logic is deployed once at its own
-/// address and reached by `delegatecall` rather than inlined at each of the
-/// pool's branch sites.
+/// address and reached by `delegatecall`.
 ///
 /// Under `delegatecall` the library runs in the pool's context: `Store storage`
 /// resolves against the pool's slots, `safeTransfer` moves the pool's tokens,
-/// and events are emitted by the pool. The library holds no state and no
-/// privileges of its own; every entry point is reachable only through the pool,
-/// which applies the access control.
+/// and the pool emits the events. The library holds no state and no privileges
+/// of its own; every entry point is reachable only through the pool, which
+/// applies the access control.
 ///
-/// Callers pass `token` and `scale` from the `AssetEntry` they already hold, so
-/// this library has no dependency on the asset registry.
+/// Callers pass `token` and `scale` from the `AssetEntry` they hold, so this
+/// library has no dependency on the asset registry.
 library YieldOps {
     using SafeERC20 for IERC20;
 
-    /// Fixed-point base for the reported index. Used only by `lastIdx` and
-    /// `index`; the unit conversions themselves are exact ratios
-    /// (`_toUnderlying`).
+    /// Fixed-point base for the reported index, used only by `lastIdx` and
+    /// `index`. The unit conversions are exact ratios; see `_toUnderlying`.
     uint256 internal constant RAY = 1e27;
 
     /// Per-asset configuration, packed into one slot (25 of 32 bytes) so the
-    /// venue test and every parameter behind it cost a single cold SLOAD.
+    /// venue test and every parameter behind it cost one cold SLOAD.
     struct YieldParams {
         /// Zero means the asset carries no venue. Written once, by `initAsset`.
         address venue;
         /// Share of `gross` kept unlent, so ordinary withdrawals are served
-        /// without touching the venue.
+        /// without reaching the venue.
         uint16 bufferBps;
         /// Performance fee on yield, minted to the treasury as normalized
         /// units.
@@ -63,10 +60,10 @@ library YieldOps {
         /// Underlying held by the pool for this asset and not supplied to the
         /// venue.
         ///
-        /// Tracked explicitly rather than derived from `token.balanceOf(pool)`:
-        /// a plain id and a yield id may share one ERC-20, so that balance is
-        /// not attributable per asset. A direct transfer to the pool therefore
-        /// cannot move the index.
+        /// Tracked explicitly rather than derived from `token.balanceOf(pool)`,
+        /// which is not attributable per asset because a plain id and a yield id
+        /// may share one ERC-20. A direct transfer to the pool therefore cannot
+        /// move the index.
         mapping(uint64 assetId => uint256) idle;
         /// High-water mark for the performance fee, in RAY. The only stored
         /// index; every user-facing value is derived from holdings on demand.
@@ -101,15 +98,13 @@ library YieldOps {
         return IYieldVenue(venue).totalAssets() + y.idle[id];
     }
 
-    /// Converts normalized units to underlying.
-    ///
-    /// Equivalent to `n * scale * idx / RAY` with `idx = g * RAY / (s *
-    /// scale)`; `scale` and `RAY` cancel, leaving `n * g / s`, which is one
-    /// `mulDiv` and one rounding step.
+    /// Converts normalized units to underlying. Equivalent to
+    /// `n * scale * idx / RAY` with `idx = g * RAY / (s * scale)`; `scale` and
+    /// `RAY` cancel, leaving `n * g / s`, one `mulDiv` and one rounding step.
     ///
     /// `scale` governs the empty pool, where there is no ratio yet and one unit
-    /// is worth exactly `scale` base units, which pins the index to `RAY` at
-    /// the first deposit.
+    /// is worth exactly `scale` base units, pinning the index to `RAY` at the
+    /// first deposit.
     function _toUnderlying(uint256 n, uint256 scale, uint256 g, uint256 s, Math.Rounding r)
         private
         pure
@@ -123,22 +118,22 @@ library YieldOps {
     /// units to the treasury.
     ///
     /// A performance fee cannot be deducted from the payout the way
-    /// `withdrawBps` is: that requires the note's cost basis, and notes are
+    /// `withdrawBps` is: that needs the note's cost basis, and notes are
     /// shielded and fungible, so `publicOut` is a bare unit count. Minting
-    /// dilutes instead, which leaves the circuit untouched.
+    /// dilutes instead and leaves the circuit untouched.
     ///
-    /// Attribution remains per-holder without any basis being recorded. This
-    /// runs before every change to `totalNormalized`, so the holder set is
-    /// constant within an accrual window and the dilution charges that window's
-    /// holders in proportion to their holdings.
+    /// Attribution stays per-holder with no basis recorded: this runs before
+    /// every change to `totalNormalized`, so the holder set is constant within
+    /// an accrual window and the dilution charges that window's holders in
+    /// proportion to their holdings.
     ///
-    /// Growth is measured against holdings rather than through the index: `(idx
-    /// - lastIdx) * supply / RAY` expands to `gross - lastIdx * supply / RAY`,
-    /// which needs one division.
+    /// Growth is measured against holdings rather than through the index:
+    /// `(idx - lastIdx) * supply / RAY` expands to
+    /// `gross - lastIdx * supply / RAY`, one division.
     ///
-    /// `g` is supplied by the caller, which has already read `totalAssets()`.
-    /// Reading it again would add cost on the hot path and widen the
-    /// read-only-reentrancy surface.
+    /// `g` is supplied by the caller, which has already read `totalAssets()`;
+    /// re-reading it would cost the hot path and widen the read-only-reentrancy
+    /// surface.
     function _accruePerf(Store storage y, uint64 id, uint256 scale, uint256 g, YieldParams memory q) private {
         if (q.perfBps == 0) return;
         uint256 s = _supply(y, id);
@@ -147,9 +142,8 @@ library YieldOps {
         // Value of this supply at the mark, rounded up against the treasury so
         // rounding cannot manufacture growth.
         uint256 hwm = Math.mulDiv(s * scale, y.lastIdx[id], RAY, Math.Rounding.Ceil);
-        // Loss check and high-water mark in one line: after a venue loss
-        // `lastIdx` is left untouched, so nothing is charged until gross passes
-        // its old peak.
+        // Loss check and high-water mark in one: after a venue loss `lastIdx`
+        // is left untouched, so nothing is charged until gross passes its peak.
         if (g <= hwm) return;
 
         uint256 cut = ((g - hwm) * q.perfBps) / Fees.BPS_DENOMINATOR;
@@ -169,15 +163,14 @@ library YieldOps {
     ///
     /// `banded` defers the transfer and ERC-4626 mint until idle reaches twice
     /// the target, then moves down to the target, so the cost is paid once per
-    /// band crossing and amortises across the deposits in between. The band is
-    /// `bufferBps` itself, which already expresses how much unlent capital the
+    /// band crossing and amortises across the deposits between. The band is
+    /// `bufferBps` itself, which already states how much unlent capital the
     /// asset tolerates.
     ///
     /// This governs yield, not solvency: `idle` and `totalNormalized` both move
     /// at submit, so the books balance whether or not the tokens have reached
-    /// the venue. Capital left idle dilutes the return, and dilutes every
-    /// holder alike. `rebalance` passes `banded = false` to close the gap on
-    /// demand.
+    /// the venue. Idle capital dilutes the return for every holder alike.
+    /// `rebalance` passes `banded = false` to close the gap on demand.
     function _fundVenue(Store storage y, uint64 id, IERC20 token, uint256 g, YieldParams memory q, bool banded)
         private
     {
@@ -185,10 +178,10 @@ library YieldOps {
         uint256 target = (g * q.bufferBps) / Fees.BPS_DENOMINATOR;
         uint256 have = y.idle[id];
         if (have <= target) return;
-        // Deliberately doubles the already-rounded `target` rather than
-        // re-deriving the threshold at full precision: this is the same value
-        // written back to `idle` below, so a more precise band would compare
-        // against a number the accounting never uses. Loss is one unit, doubled.
+        // Doubles the already-rounded `target` rather than re-deriving the
+        // threshold at full precision: this is the value written back to `idle`
+        // below, so a more precise band would compare against a number the
+        // accounting never uses. Loss is one unit, doubled.
         // slither-disable-next-line divide-before-multiply
         if (banded && have < target * 2) return;
         uint256 amt = have - target;
@@ -199,16 +192,16 @@ library YieldOps {
 
     /// Makes `need` of underlying available as idle, drawing any shortfall from
     /// the venue. Reverts `VenueDrained` when the venue cannot service it,
-    /// which leaves the caller's transaction, and its nullifiers, untouched.
+    /// leaving the caller's transaction and its nullifiers untouched.
     ///
     /// `maxWithdraw` is read only once a draw is required; the buffer exists so
-    /// the common withdrawal never reaches the venue at all.
+    /// the common withdrawal never reaches the venue.
     ///
     /// A draw takes the shortfall plus `refill`, restoring the buffer in the
-    /// same hop so the withdrawals that follow do not each reach the venue. The
-    /// top-up is best-effort: a venue that cannot cover it still serves the
-    /// shortfall, and only one that cannot cover even that reverts. `rebalance`
-    /// passes zero, since it targets an exact idle balance.
+    /// same hop so subsequent withdrawals need not reach the venue. The top-up
+    /// is best-effort: a venue that cannot cover it still serves the shortfall,
+    /// and only one that cannot cover that reverts. `rebalance` passes zero,
+    /// targeting an exact idle balance.
     function _ensureIdle(Store storage y, uint64 id, uint256 need, YieldParams memory q, uint256 refill) private {
         uint256 have = y.idle[id];
         if (have >= need) return;
@@ -233,12 +226,12 @@ library YieldOps {
         if (q.venue == address(0)) revert NotYieldAsset(id);
     }
 
-    /// Shared prologue: resolve the asset, read `gross` once, and bring the
+    /// Shared prologue: resolves the asset, reads `gross` once, and brings the
     /// performance fee up to date before anything touches `totalNormalized`.
     ///
-    /// `g` is returned because `_accruePerf` mints units and moves no tokens,
-    /// so `gross` is unchanged afterwards and callers can price against it
-    /// without a second round trip into the venue and its vault.
+    /// `g` is returned because `_accruePerf` mints units and moves no tokens, so
+    /// `gross` is unchanged afterwards and callers can price against it without
+    /// a second round trip into the venue.
     function _begin(Store storage y, uint64 id, uint256 scale) private returns (YieldParams memory q, uint256 g) {
         q = _requireYield(y, id);
         g = _gross(y, id, q.venue);
@@ -249,8 +242,10 @@ library YieldOps {
 
     /// Prices and books a yield-asset unshield, then transfers the underlying.
     ///
-    /// Rounds the payout down, against the withdrawer, so the pool is never
-    /// left owing more than it holds.
+    /// Rounds the payout down, against the withdrawer, so the pool is never left
+    /// owing more than it holds, and the unit fee up, so a withdrawal below
+    /// `BPS_DENOMINATOR / withdrawBps` units is not free; see `Fees.unitFee`. At
+    /// the rate ceiling a one-unit withdrawal is consumed entirely by its fee.
     function unshield(
         Store storage y,
         uint64 id,
@@ -263,10 +258,9 @@ library YieldOps {
         // Settles at the old rate first, so the change is not retroactive.
         (YieldParams memory q, uint256 g) = _begin(y, id, scale);
 
-        uint256 nFee = (nOut * withdrawBps) / Fees.BPS_DENOMINATOR;
-        // Priced against the supply that still includes these units, and
-        // against a `gross` the accrual left unchanged: it mints units, not
-        // tokens.
+        uint256 nFee = Fees.unitFee(nOut, withdrawBps);
+        // Priced against the supply that still includes these units, and a
+        // `gross` the accrual left unchanged: it mints units, not tokens.
         net = _toUnderlying(nOut - nFee, scale, g, _supply(y, id), Math.Rounding.Floor);
 
         y.totalNormalized[id] -= nOut;
@@ -280,9 +274,8 @@ library YieldOps {
     /// Prices a yield-asset shield and returns the units it buys.
     ///
     /// Rounds the pull up, against the depositor. The amount moves with the
-    /// index between signing and inclusion; `Permit2Sig.maxTotal` is the
-    /// payer's signed ceiling on the whole pull and bounds that drift as it
-    /// bounds a fee change.
+    /// index between signing and inclusion; `Permit2Sig.maxTotal` is the payer's
+    /// signed ceiling on the whole pull and bounds that drift.
     function quoteShield(Store storage y, uint64 id, uint256 scale, uint16 depositBps, uint256 publicIn, uint256 feeIn)
         external
         returns (uint256 total, uint256 inAmt, uint256 nTotal, uint256 grossBefore)
@@ -293,7 +286,7 @@ library YieldOps {
         grossBefore = g;
 
         uint256 s = _supply(y, id);
-        uint256 nFee = (publicIn * depositBps) / Fees.BPS_DENOMINATOR;
+        uint256 nFee = Fees.unitFee(publicIn, depositBps);
         nTotal = publicIn + nFee + feeIn;
         total = _toUnderlying(nTotal, scale, g, s, Math.Rounding.Ceil);
         // Principal only, matching the `inAmount` reported for a plain asset.
@@ -302,17 +295,17 @@ library YieldOps {
 
     /// Books a pulled yield-asset shield and supplies the venue.
     ///
-    /// `idle` and `totalNormalized` both move here, at submit, so the pool's
-    /// books balance from the moment the tokens land, independently of whether
-    /// those tokens have reached the venue. That separation lets `_fundVenue`
-    /// wait for a band without putting solvency at stake.
+    /// `idle` and `totalNormalized` both move here, at submit, so the books
+    /// balance from the moment the tokens land, whether or not they have reached
+    /// the venue. That separation lets `_fundVenue` wait for a band without
+    /// putting solvency at stake.
     ///
     /// The fee units stay inside `totalNormalized` until flush, so a
     /// cancellation refunds them.
     ///
     /// `grossBefore` is the pre-pull `gross` already read by `quoteShield`;
-    /// re-deriving it here would mean a second round trip into the venue and
-    /// its vault on every shield.
+    /// re-deriving it would cost a second round trip into the venue on every
+    /// shield.
     function settleShield(Store storage y, uint64 id, IERC20 token, uint256 total, uint256 nTotal, uint256 grossBefore)
         external
     {
@@ -323,18 +316,17 @@ library YieldOps {
         _fundVenue(y, id, token, grossBefore + total, q, true);
     }
 
-    /// Releases a yield-asset escrow and returns today's value of its units.
-    ///
-    /// Includes whatever the escrowed funds earned while they sat in the venue,
-    /// which matches the liability being released. Floored against a ceilinged
-    /// pull, so a round trip leaves the pool over-backed.
+    /// Releases a yield-asset escrow and returns the current value of its
+    /// units, including what the escrowed funds earned in the venue, matching
+    /// the liability released. Floored against a ceilinged pull, so a round trip
+    /// leaves the pool over-backed.
     function cancel(Store storage y, uint64 id, uint256 scale, uint256 publicIn, uint256 fbps, uint256 feeIn)
         external
         returns (uint256 total)
     {
         (YieldParams memory q, uint256 g) = _begin(y, id, scale);
 
-        uint256 nTotal = publicIn + ((publicIn * fbps) / Fees.BPS_DENOMINATOR) + feeIn;
+        uint256 nTotal = publicIn + Fees.unitFee(publicIn, fbps) + feeIn;
         total = _toUnderlying(nTotal, scale, g, _supply(y, id), Math.Rounding.Floor);
 
         y.totalNormalized[id] -= nTotal;
@@ -345,8 +337,8 @@ library YieldOps {
     // ============== Registration and administration ==========================
 
     /// Binds `id` to `venue`. Called by the pool once its registry has accepted
-    /// `id`; that registry is add-only and rejects a duplicate id, which makes
-    /// the binding permanent without a further guard here.
+    /// `id`; that registry is add-only and rejects a duplicate id, making the
+    /// binding permanent without a further guard here.
     function initAsset(Store storage y, uint64 id, address token, address venue, uint16 bufferBps, uint16 perfBps)
         external
     {
@@ -376,19 +368,17 @@ library YieldOps {
         // Then move the water line to here, so the new rate applies only to
         // growth from this point on.
         //
-        // This is load-bearing rather than tidy-up. `_accruePerf` returns on
-        // `perfBps == 0` *before* it touches `lastIdx`, so while a fee is
-        // switched off the mark stays frozen wherever it was — at `RAY` from
-        // `initAsset` if the asset was registered without one. Re-enabling the
-        // fee would otherwise bill against that stale mark and charge a cut of
-        // everything the venue had earned in the meantime, which is exactly the
-        // period the operator had declared fee-free.
+        // `_accruePerf` returns on `perfBps == 0` before it touches `lastIdx`,
+        // so while a fee is switched off the mark stays frozen — at `RAY` from
+        // `initAsset` if the asset was registered without one. Without this,
+        // re-enabling the fee would bill against that stale mark and charge a
+        // cut of everything the venue earned over the fee-free period.
         //
-        // Raised, never assigned. A plain assignment would *lower* the mark
-        // while the pool is under water, so an owner could reset the high-water
-        // mark with a no-op parameter change and then bill the recovery. Only
-        // ever moving it up preserves the loss protection that the `g <= hwm`
-        // check in `_accruePerf` provides.
+        // Raised, never assigned: a plain assignment would lower the mark while
+        // the pool is under water, letting an owner reset it with a no-op
+        // parameter change and then bill the recovery. Only ever raising it
+        // preserves the loss protection of the `g <= hwm` check in
+        // `_accruePerf`.
         //
         // Rounded up, against the treasury, matching `_accruePerf`.
         uint256 s = _supply(y, id);
@@ -404,17 +394,17 @@ library YieldOps {
 
     /// Withdraws the venue position back to idle and halts further supply.
     ///
-    /// `venue` is left set. Clearing it would move the asset onto the pool's
+    /// `venue` is left set: clearing it would move the asset onto the pool's
     /// plain arithmetic, where the same integers denote underlying rather than
-    /// units, stranding `totalNormalized` and mis-paying every holder; `halted`
+    /// units, stranding `totalNormalized` and mis-paying every holder. `halted`
     /// covers this case instead.
     ///
-    /// `gross` is unchanged by the move, since the underlying only travels from
-    /// the venue to the pool, so the index is continuous and no note is
-    /// revalued. The asset becomes zero-yield custody, fully backed.
+    /// The underlying travels only from the venue to the pool, so `gross` is
+    /// unchanged, the index is continuous, and no note is revalued. The asset
+    /// becomes zero-yield custody, fully backed.
     ///
     /// Partial unwinds are supported and the call is repeatable: a vault short
-    /// of liquidity returns what it can now, and the remainder as it recovers.
+    /// of liquidity returns what it can now and the remainder as it recovers.
     function emergencyUnwind(Store storage y, uint64 id) external returns (uint256 recovered) {
         YieldParams memory q = _requireYield(y, id);
         y.params[id].halted = true;
@@ -430,11 +420,9 @@ library YieldOps {
         emit EmergencyUnwound(id, recovered);
     }
 
-    /// Halts or resumes supply to the asset's bound vault.
-    ///
-    /// Funds can only return to the vault fixed at registration, never to a
-    /// different protocol. This allows a transient vault outage without
-    /// retiring the asset id and fragmenting its anonymity set.
+    /// Halts or resumes supply to the asset's bound vault. Funds can return
+    /// only to the vault fixed at registration, so a transient vault outage does
+    /// not require retiring the asset id and fragmenting its anonymity set.
     function setHalted(Store storage y, uint64 id, bool halted) external {
         _requireYield(y, id);
         y.params[id].halted = halted;
@@ -469,13 +457,12 @@ library YieldOps {
     ///
     /// Permissionless caller, owner-pinned destination. Settlement is lazy:
     /// paying the treasury inside every withdraw would add a venue draw and a
-    /// transfer to every exit, and would place the payout behind the venue's
-    /// liveness, so a drained vault could block a withdrawal the buffer would
-    /// otherwise cover.
+    /// transfer to every exit and place the payout behind the venue's liveness,
+    /// so a drained vault could block a withdrawal the buffer would cover.
     ///
     /// The accumulator is cleared in full while the floored amount is paid out;
-    /// the remainder stays in the pool as surplus backing, which accrues to
-    /// note holders. Rounding points away from the treasury.
+    /// the remainder stays in the pool as surplus backing and accrues to note
+    /// holders. Rounding points away from the treasury.
     function sweepNormalized(Store storage y, uint64 id, IERC20 token, uint256 scale, address treasury)
         external
         returns (uint256 amount)
@@ -485,11 +472,9 @@ library YieldOps {
         uint256 units = y.accruedFeeNormalized[id];
         if (units == 0) return 0;
         amount = _toUnderlying(units, scale, g, _supply(y, id), Math.Rounding.Floor);
-        // Bail before clearing. Flooring to zero means the units are worth less
-        // than one base unit right now — deeply under water, say — and the
-        // accumulator must survive to be claimable once the pool recovers.
-        // Clearing first discarded the treasury's whole balance for no payout,
-        // silently, since the emit below is never reached either.
+        // Bail before clearing: flooring to zero means the units are currently
+        // worth less than one base unit, and the accumulator must survive to be
+        // claimable once the pool recovers.
         if (amount == 0) return 0;
         y.accruedFeeNormalized[id] = 0;
 
@@ -504,9 +489,9 @@ library YieldOps {
     /// The index in RAY, for indexers and the SDK. `RAY` when nothing is
     /// outstanding.
     ///
-    /// `scale` sits in the denominator because a conversion is `underlying = n
-    /// * scale * idx / RAY`; summed over the supply this gives `gross = supply
-    /// * scale * idx / RAY`, which inverts to this.
+    /// `scale` sits in the denominator because a conversion is
+    /// `underlying = n * scale * idx / RAY`; summed over the supply that gives
+    /// `gross = supply * scale * idx / RAY`, which inverts to this.
     function index(Store storage y, uint64 id, uint256 scale) external view returns (uint256) {
         uint256 s = _supply(y, id);
         if (s == 0) return RAY;

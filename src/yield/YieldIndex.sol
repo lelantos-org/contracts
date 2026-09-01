@@ -8,54 +8,49 @@ import { YieldOps } from "./YieldOps.sol";
 
 /// Pool-managed yield index: storage, access control, and the registry lookup
 /// the logic requires. Every non-trivial operation lives in `YieldOps`, an
-/// external library that runs against this contract's storage by
-/// `delegatecall`.
+/// external library run against this contract's storage by `delegatecall`.
 ///
 /// Notes in a yield asset are denominated in normalized units rather than
-/// underlying: one unit is worth `gross / supply` of the token, and that ratio
-/// rises as the venue earns. The circuit is unaffected, since `publicIn` and
-/// `publicOut` remain plain integers and value conservation is unchanged,
-/// because every note in an asset shares the same unit. The index exists only
-/// at the token boundary.
+/// underlying: one unit is worth `gross / supply` of the token, a ratio that
+/// rises as the venue earns. The circuit is unaffected — `publicIn` and
+/// `publicOut` remain plain integers and every note in an asset shares one unit,
+/// so value conservation is unchanged. The index exists only at the token
+/// boundary.
 ///
-/// Venue binding is immutable. `_initYieldAsset` is the only path that writes a
-/// venue, and the registry it is called from is add-only, so an asset id's
-/// venue is fixed for its lifetime. There is no `setVenue`: an owner able to
-/// re-point a live id could move every holder's principal into another protocol
-/// with no delay. Replacing a venue means registering a new asset id, at the
-/// cost of a public exit and re-entry for those holders.
+/// Venue binding is immutable: `_initYieldAsset` is the only path that writes a
+/// venue and the registry it is called from is add-only, so an asset id's venue
+/// is fixed for its lifetime and there is no `setVenue`. Replacing a venue means
+/// registering a new asset id, at the cost of a public exit and re-entry for
+/// those holders.
 ///
-/// Yield is therefore a property of the asset id, not of the note, which is
-/// what makes opting out possible: the plain id for a token remains risk-free
-/// custody, and a depositor chooses between them by picking an id.
+/// Yield is a property of the asset id, not of the note, which is what makes
+/// opting out possible: the plain id for a token remains unlent custody, and a
+/// depositor chooses by picking an id.
 ///
 /// Solvency is structural. The index is derived from what the pool holds and is
-/// never stored or oracle-fed, so no accounting drift can make the pool owe
-/// more than it has. The one stored index, `lastIdx`, is a fee high-water mark:
-/// a wrong value mis-collects for the treasury and can never pay a user the
-/// wrong amount.
+/// never stored or oracle-fed, so no accounting drift can make the pool owe more
+/// than it has. The one stored index, `lastIdx`, is a fee high-water mark: a
+/// wrong value mis-collects for the treasury and cannot mis-pay a user.
 abstract contract YieldIndex is FeeConfig {
     YieldOps.Store internal _y;
 
-    /// Resolves an asset id to the registry fields this mixin cannot see.
-    /// Implemented by the pool over its own registry. Used only by the entry
-    /// points below, which hold no `AssetEntry`; the spend and shield paths
-    /// pass `scale` down from the one they already have.
+    /// Resolves an asset id to the registry fields this mixin cannot see,
+    /// implemented by the pool over its own registry. Used only by the entry
+    /// points below, which hold no `AssetEntry`; the spend and shield paths pass
+    /// `scale` down from the one they hold.
     function _yieldAsset(uint64 id) internal view virtual returns (IERC20 token, uint256 scale);
 
     // ============== Views ====================================================
 
     /// True iff `id` carries a venue. One SLOAD, and the branch test the pool's
-    /// yield-aware paths perform.
+    /// yield-aware paths use.
     function isYieldAsset(uint64 id) public view returns (bool) {
         return _y.params[id].venue != address(0);
     }
 
-    /// Everything an indexer or the SDK needs for one asset.
-    ///
-    /// One view returning one struct rather than a public getter per mapping:
-    /// the pool sits close to the EIP-170 limit, and each additional dispatch
-    /// entry costs code size.
+    /// Everything an indexer or the SDK needs for one asset. One view returning
+    /// one struct rather than a getter per mapping, since the pool sits close to
+    /// the EIP-170 limit and each dispatch entry costs code size.
     struct YieldState {
         address venue;
         uint16 bufferBps;
@@ -99,9 +94,8 @@ abstract contract YieldIndex is FeeConfig {
 
     // ============== Owner controls ===========================================
 
-    /// Updates the buffer split and the performance-fee rate. Neither rate
-    /// touches the venue binding, so neither can move principal between
-    /// protocols.
+    /// Updates the buffer split and the performance-fee rate. Neither touches
+    /// the venue binding, so neither can move principal between protocols.
     function setYieldParams(uint64 id, uint16 bufferBps, uint16 perfBps) external onlyOwner {
         (, uint256 scale) = _yieldAsset(id);
         YieldOps.setParams(_y, id, scale, bufferBps, perfBps);

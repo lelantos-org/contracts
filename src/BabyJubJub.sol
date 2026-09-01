@@ -15,8 +15,7 @@ library BabyJubJub {
     uint256 internal constant BASE8_X = 5299619240641551281634865583518297030282874472190772894086521144482721001553;
     uint256 internal constant BASE8_Y = 16950150798460657717958625567821834550301663161624707787222815936182638968203;
 
-    /// Identity element of the twisted Edwards form, (0, 1). `[k]·O = O` for
-    /// all k.
+    /// Identity of the twisted Edwards form, (0, 1). `[k]·O = O` for all k.
     function isIdentity(uint256 x, uint256 y) internal pure returns (bool) {
         return x == 0 && y == 1;
     }
@@ -32,9 +31,9 @@ library BabyJubJub {
     }
 
     /// Whether (x, y) has order dividing the cofactor 8: the identity or a
-    /// small-subgroup point. Requires an on-curve input; callers must run
+    /// small-subgroup point. Requires an on-curve input, so callers must run
     /// `isOnCurve` first. Rejecting these points blocks small-subgroup attacks
-    /// on FMD clues and mirrors the equivalent in-circuit constraint.
+    /// on FMD clues and mirrors the in-circuit constraint.
     function isLowOrder(uint256 x, uint256 y) internal pure returns (bool) {
         if (isIdentity(x, y)) return true;
         // Three projective doublings. The formula is complete on Baby-Jubjub

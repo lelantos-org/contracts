@@ -56,6 +56,34 @@ contract PubInputsTest is Test {
 
     // --- fast path ≡ reference path ----------------------------------------
 
+    /// The two coefficient counts, pinned as numbers rather than left to
+    /// commentary.
+    ///
+    /// Every derived offset in `PubInputs` follows the shape constants, so a
+    /// change to `TRANSACT_OUT` or `MAX_L_BATCH` silently moves both vectors —
+    /// and the circuit-side PolyEval they must match is in another repository.
+    /// The prose around this arithmetic has drifted before (a stale "MAX_L = 4"
+    /// outlived the move to 8), which is what this test is for: a wrong number
+    /// now fails here instead of misleading the next reader.
+    ///
+    /// The counts are load-bearing on both sides. `4x6` is 69 — odd, which is
+    /// the case `SnarkCompression.evaluatePolyAtRaw` handles with its
+    /// single-coefficient prologue before the unrolled-by-two loop.
+    function test_coefficientCountsMatchTheDeployedShape() public pure {
+        assertEq(PubInputs.TRANSACT_IN, 4, "transact inputs");
+        assertEq(PubInputs.TRANSACT_OUT, 6, "transact outputs");
+        assertEq(PubInputs.MAX_L_BATCH, 8, "batch width");
+
+        // 50 struct words, then (clueRx, clueRy, clueBits) per output, then the
+        // aux digest.
+        assertEq(PubInputs.TRANSACT_COEFFS, 69, "4x6 coefficient vector");
+        assertEq(PubInputs.TRANSACT_COEFFS % 2, 1, "4x6 vector is odd; the prologue path is live");
+
+        // oldRoot, newRoot, startIndex, actualCount, then six per-leaf arrays
+        // (cms, cvDep x, cvDep y, leafAsset, leafPublicIn, isDeposit).
+        assertEq(4 + 6 * PubInputs.MAX_L_BATCH, 52, "tree_update_batch coefficient vector");
+    }
+
     function test_batch_fastPathMatchesReference() public view {
         PubInputs.TreeUpdateBatch memory tpi = _sampleBatch(3);
         uint256[2] memory fast = h.batch(tpi);

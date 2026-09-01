@@ -2,6 +2,7 @@
 pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { YieldIndex } from "../../src/yield/YieldIndex.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
@@ -75,13 +76,35 @@ contract YieldArithmeticFuzzTest is YieldBase {
     /// A shield is charged principal plus exactly the deposit fee, in units,
     /// converted once. At the first deposit the index is `RAY`, so the whole
     /// arithmetic is checkable in closed form.
+    ///
+    /// The unit fee rounds up (`Fees.unitFee`). A unit is worth `scale` base
+    /// units, so flooring would give away up to a whole `scale` per deposit and
+    /// charge nothing below `10_000 / FEE_BPS` units.
     function testFuzz_firstShieldChargesUnitFeeExactly(uint64 rawN) public {
         uint64 n = _boundN(rawN);
         (, uint256 paidIn) = _deposit(YIELD_ID, n, 0x101);
 
-        uint256 nFee = (uint256(n) * FEE_BPS) / 10_000;
+        uint256 nFee = Math.ceilDiv(uint256(n) * FEE_BPS, 10_000);
         assertEq(paidIn, (uint256(n) + nFee) * SCALE, "fee charged in units, converted once on the total");
         assertEq(masp.index(YIELD_ID), RAY, "empty pool prices at RAY");
+    }
+
+    /// No deposit size is free. Flooring the unit fee charged zero for every
+    /// `publicIn` under `10_000 / FEE_BPS`, and nothing bounds deposit size
+    /// from below, so the whole schedule could be dodged in chunks — worth real
+    /// money at a large `scale`.
+    ///
+    /// Swept across the entire sub-threshold range rather than fuzzed, because
+    /// the range is small and the boundary is the point.
+    function test_noSubThresholdDepositIsFree() public {
+        uint64 threshold = 10_000 / FEE_BPS; // 400 at 25 bps
+        for (uint64 n = 1; n <= threshold; ++n) {
+            uint256 nFee = Math.ceilDiv(uint256(n) * FEE_BPS, 10_000);
+            assertEq(nFee, 1, "sub-threshold deposit rounds to a one-unit fee");
+        }
+        // And the fee is still exact, not inflated, once past the boundary.
+        assertEq(Math.ceilDiv(uint256(threshold + 1) * FEE_BPS, 10_000), 2, "just past the boundary");
+        assertEq(Math.ceilDiv(uint256(2 * threshold) * FEE_BPS, 10_000), 2, "exactly two units' worth");
     }
 
     /// The performance fee is a cut of growth and nothing else: it can never

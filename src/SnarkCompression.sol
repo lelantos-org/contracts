@@ -26,15 +26,16 @@ library SnarkCompression {
     /// without the per-element bounds check; the caller owns the region.
     /// Reverts `CoefficientOutOfField` if any word is `>= R`.
     function evaluatePolyAtRaw(uint256 dataPtr, uint256 length, uint256 z) internal pure returns (uint256 y) {
-        // MULMOD and ADDMOD cost 8 gas each, so loop control dominates: the body
-        // is unrolled by two and the field check reverts in place. Both on-chain
-        // coefficient vectors (42 and 28) have even length.
+        // MULMOD and ADDMOD cost 8 gas each, so loop control dominates: the
+        // body is unrolled by two and the field check reverts in place. The
+        // coefficient vectors are 69 (`4x6`) and 52 (`tree_update_batch`), so
+        // the odd-length prologue below is a live path.
         uint256 errSel = uint256(uint32(CoefficientOutOfField.selector)) << 224;
         assembly ("memory-safe") {
             let r := R
             let p := add(dataPtr, shl(5, length))
-            // Odd length: fold the top coefficient on its own so the remaining
-            // span is a whole number of pairs.
+            // Odd length: fold the top coefficient alone so the remaining span
+            // is a whole number of pairs.
             if and(length, 1) {
                 p := sub(p, 0x20)
                 let c := mload(p)
@@ -49,7 +50,7 @@ library SnarkCompression {
                 let hi := mload(add(p, 0x20))
                 let lo := mload(p)
                 // Both are range-checked before either is folded in, so an
-                // out-of-field coefficient cannot influence the result.
+                // out-of-field coefficient cannot reach the result.
                 if iszero(and(lt(hi, r), lt(lo, r))) {
                     mstore(0x00, errSel)
                     revert(0x00, 0x04)

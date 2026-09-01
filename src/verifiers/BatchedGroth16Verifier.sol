@@ -58,33 +58,33 @@ import {
 ///   * e(PI_1 + r2*PI_2, gamma)
 ///   * e(C_1, delta_1) * e(r2*C_2, delta_2)   ==  1
 ///
-/// This is an unconditional algebraic identity, not an approximation: the two
-/// `C` terms stay separate because `delta_1 != delta_2`, so `E_1` and `E_2`
-/// remain independently well defined. Writing `E_i = g^{e_i}` in the order-`r`
-/// subgroup of `G_T` — which is where the precompile's final exponentiation
-/// lands — the check above is exactly `e_1 + r2*e_2 == 0 (mod SNARK_R)`.
+/// This is an unconditional algebraic identity: the two `C` terms stay separate
+/// because `delta_1 != delta_2`, so `E_1` and `E_2` remain independently well
+/// defined. Writing `E_i = g^{e_i}` in the order-`r` subgroup of `G_T`, where
+/// the precompile's final exponentiation lands, the check above is exactly
+/// `e_1 + r2*e_2 == 0 (mod SNARK_R)`.
 ///
 /// With `r2` drawn from `[1, SNARK_R - 1]` after `(e_1, e_2)` are fixed: if
 /// `e_2 != 0` exactly one value of `r2` is bad, and if `e_2 == 0` the check
-/// collapses to `e_1 == 0`. Soundness error is therefore at most
-/// `1 / (SNARK_R - 1)`, about `2^-254`. This is the Bellare-Garay-Rabin
-/// small-exponents test; `r1` is fixed to 1 because the requirement is only that
-/// the linear form be unpredictable with no zero coefficient.
+/// collapses to `e_1 == 0`. Soundness error is at most `1 / (SNARK_R - 1)`,
+/// about `2^-254`. This is the Bellare-Garay-Rabin small-exponents test; `r1` is
+/// fixed to 1, the requirement being only that the linear form be unpredictable
+/// with no zero coefficient.
 ///
 /// # Transcript
 ///
 /// `e_i` is determined by `(A_i, B_i, C_i, PI_i)`, and `PI_i` by `(y_i, z_i)`.
 /// The transcript is therefore `BATCH_DOMAIN` followed by all twenty calldata
-/// words, and `calldatasize` is pinned so no trailing bytes can be appended:
-/// without that, a relayer could resample `r2` for a fixed instance. Omitting
-/// any of the twenty words would leave a grinding target.
+/// words, with `calldatasize` pinned so no trailing bytes can be appended;
+/// otherwise a relayer could resample `r2` for a fixed instance. Omitting any of
+/// the twenty words would leave a grinding target.
 ///
 /// # Failure modes
 ///
-/// Nearly every implementation error here is fail-closed — a wrong `IC` pairing,
+/// Nearly every implementation error here is fail-closed: a wrong `IC` pairing,
 /// a swapped `y`/`z`, a wrong constant block, an off-by-one memory offset, or a
-/// drifted `alpha`/`beta`/`gamma` all reject valid proofs. The fail-*open* set is
-/// small and fully enumerable:
+/// drifted `alpha`/`beta`/`gamma` all reject valid proofs. The fail-open set is
+/// fully enumerable:
 ///
 ///   1. an unchecked `staticcall` success flag, which would let a stale output
 ///      buffer stand in for a rejected point — every flag below is checked;
@@ -93,13 +93,13 @@ import {
 ///      construction, see `_deriveR2`'s `+ 1`;
 ///   4. a wrong length passed to the pairing precompile.
 ///
-/// Point validation is delegated to the precompiles, exactly as the snarkjs
-/// codegen does. `ECMUL`/`ECADD` reject G1 points that are off-curve or have a
-/// coordinate `>= SNARK_Q`, and BN254 G1 has cofactor 1 so on-curve implies
-/// correct subgroup. The pairing precompile additionally checks each G2 point for
-/// order-`r` subgroup membership, which is mandatory because G2 has a large
-/// cofactor. Batching routes `A_2` and `C_2` through `ECMUL` before pairing, so
-/// they get strictly more validation than in the unbatched path.
+/// Point validation is delegated to the precompiles, as in the snarkjs codegen.
+/// `ECMUL`/`ECADD` reject G1 points that are off-curve or have a coordinate
+/// `>= SNARK_Q`, and BN254 G1 has cofactor 1, so on-curve implies correct
+/// subgroup. The pairing precompile additionally checks each G2 point for
+/// order-`r` subgroup membership, mandatory because G2 has a large cofactor.
+/// Batching routes `A_2` and `C_2` through `ECMUL` before pairing, so they get
+/// strictly more validation than in the unbatched path.
 contract BatchedGroth16Verifier is IBatchVerifier {
     // Calldata offsets, from the start of `msg.data`. Every parameter is static,
     // so the twenty words sit contiguously after the 4-byte selector:
@@ -144,8 +144,7 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             let hash := add(base, 0x580)
 
             // Return false and stop, matching the codegen's fail-closed
-            // behaviour. The caller is responsible for turning this into a
-            // revert with whatever error it wants to surface.
+            // behaviour. The caller turns this into whatever error it surfaces.
             function reject() {
                 mstore(0x00, 0)
                 return(0x00, 0x20)
@@ -160,7 +159,7 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             }
 
             // acc := acc + s * (x, y). Structurally identical to the codegen's
-            // `g1_mulAccC` so the two can be diffed line for line.
+            // `g1_mulAccC`, so the two can be diffed line for line.
             function g1MulAcc(x, y, s, acc, scratch) {
                 mstore(scratch, x)
                 mstore(add(scratch, 0x20), y)
@@ -174,10 +173,10 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // ---------------------------------------------------------------
             // 1. Pin the calldata length.
             //
-            // The transcript is the calldata body verbatim. Without this check a
-            // caller could append arbitrary trailing bytes and resample `r2` for
-            // an otherwise fixed instance. Each resample still costs a ~2^254
-            // search; the check removes the sampling oracle outright for 3 gas.
+            // The transcript is the calldata body verbatim. Without this check
+            // a caller could append trailing bytes and resample `r2` for an
+            // otherwise fixed instance. Each resample still costs a ~2^254
+            // search; this removes the sampling oracle for 3 gas.
             // ---------------------------------------------------------------
             if iszero(eq(calldatasize(), CD_LEN)) { reject() }
 
@@ -194,9 +193,9 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             if iszero(and(lt(y1, SNARK_R), lt(z1, SNARK_R))) { reject() }
             if iszero(and(lt(y2, SNARK_R), lt(z2, SNARK_R))) { reject() }
 
-            // `a1.y` is the one word that reaches no precompile unreduced: it is
-            // negated below, and `mod(sub(q, v), q)` maps both `v` and `v + q` to
-            // the same point, so two encodings of one instance would hash to two
+            // `a1.y` is the one word that reaches no precompile unreduced: it
+            // is negated below, and `mod(sub(q, v), q)` maps both `v` and `v + q`
+            // to the same point, so two encodings of one instance would hash to
             // different transcripts. Pinning it makes the transcript a strict
             // function of the instance. Every other coordinate is rejected
             // unreduced by ECMUL or by the pairing precompile.
@@ -208,15 +207,14 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             //
             // `mod(h, SNARK_R - 1) + 1` lands in [1, SNARK_R - 1], excluding 0
             // by arithmetic rather than by a branch. `r2 == 0` would degenerate
-            // the check to `e_1 == 0` and leave proof 2 unverified, so it is the
-            // one value that must not occur.
+            // the check to `e_1 == 0` and leave proof 2 unverified.
             //
-            // The reduction is very slightly non-uniform (`2^256 mod
-            // (SNARK_R - 1)`), which shifts the soundness bound by about 2^-252.
+            // The reduction is slightly non-uniform (`2^256 mod (SNARK_R - 1)`),
+            // shifting the soundness bound by about 2^-252.
             //
-            // `r2` is full width. BN254 ECMUL costs a flat 6000 gas regardless
-            // of scalar size, so a short exponent would save nothing and give
-            // up ~126 bits of margin.
+            // `r2` is full width: BN254 ECMUL costs a flat 6000 gas regardless of
+            // scalar size, so a short exponent would save nothing and give up
+            // ~126 bits of margin.
             // ---------------------------------------------------------------
             mstore(hash, BATCH_DOMAIN)
             calldatacopy(add(hash, 0x20), 0x04, CD_BODY)
@@ -227,8 +225,8 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             //
             //   PI_i = IC0_i + y_i * IC1_i + z_i * IC2_i
             //
-            // These two blocks are the only place the per-circuit IC constants
-            // appear, and are kept textually parallel.
+            // The only place the per-circuit IC constants appear; the two
+            // blocks are kept textually parallel.
             // ---------------------------------------------------------------
 
             // 4x6
@@ -258,26 +256,25 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             calldatacopy(add(pair, 0x40), 0x44, 0x80)
 
             // Pair 1 — (-(r2 * A_2), B_2). Multiply first, then negate: the
-            // ECMUL is what validates the submitted `A_2`, and it leaves a
-            // canonical `y`, so negating its output is exact. If `A_2` is the
-            // point at infinity the product is `(0, 0)` and `mod(sub(q, 0), q)`
-            // preserves it.
+            // ECMUL validates the submitted `A_2` and leaves a canonical `y`, so
+            // negating its output is exact. If `A_2` is the point at infinity the
+            // product is `(0, 0)` and `mod(sub(q, 0), q)` preserves it.
             //
-            // The order is significant, and is why `a2.y` needs no counterpart
-            // to the `a1.y` range check above: the raw `a2.y` never reaches an
-            // arithmetic op, so an unreduced encoding is rejected by ECMUL
-            // instead of being folded to a canonical point. Negating the
-            // calldata `y` before multiplying would make two encodings of one
-            // instance hash to two transcripts and hand a prover free `r2`
-            // resamples; add an `lt(a2y, SNARK_Q)` check before reordering.
+            // The order is significant, and is why `a2.y` needs no counterpart to
+            // the `a1.y` range check above: the raw `a2.y` never reaches an
+            // arithmetic op, so an unreduced encoding is rejected by ECMUL rather
+            // than folded to a canonical point. Negating the calldata `y` before
+            // multiplying would make two encodings of one instance hash to two
+            // transcripts and hand a prover free `r2` resamples; add an
+            // `lt(a2y, SNARK_Q)` check before reordering.
             g1Mul(calldataload(0x144), calldataload(0x164), r2, add(pair, 0xc0), scr)
             mstore(add(pair, 0xe0), mod(sub(SNARK_Q, mload(add(pair, 0xe0))), SNARK_Q))
             calldatacopy(add(pair, 0x100), 0x184, 0x80)
 
             // Pair 2 — ((1 + r2) * alpha, beta), the two shared alpha/beta terms
             // folded into one. When `r2 == SNARK_R - 1` the scalar is 0 and this
-            // becomes the point at infinity; that is correct, not degenerate,
-            // because the regrouping identity holds unconditionally.
+            // becomes the point at infinity, which is correct: the regrouping
+            // identity holds unconditionally.
             g1Mul(VK_ALPHA_X, VK_ALPHA_Y, addmod(1, r2, SNARK_R), add(pair, 0x180), scr)
             mstore(add(pair, 0x1c0), VK_BETA_X1)
             mstore(add(pair, 0x1e0), VK_BETA_X2)
@@ -300,8 +297,8 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             mstore(add(pair, 0x380), VK1_DELTA_Y1)
             mstore(add(pair, 0x3a0), VK1_DELTA_Y2)
 
-            // Pair 5 — (r2 * C_2, delta_2). Distinct deltas are why the C terms
-            // cannot fold, making the batch six pairs rather than five.
+            // Pair 5 — (r2 * C_2, delta_2). Distinct deltas prevent the C terms
+            // folding, making the batch six pairs rather than five.
             g1Mul(calldataload(0x204), calldataload(0x224), r2, add(pair, 0x3c0), scr)
             mstore(add(pair, 0x400), VK2_DELTA_X1)
             mstore(add(pair, 0x420), VK2_DELTA_X2)

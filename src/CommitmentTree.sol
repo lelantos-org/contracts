@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-/// Lazy-root commitment tree.
-///
-/// Holds a 64-entry ring buffer of recently accepted roots and
-/// `committedCount`, the number of leaves baked into the latest one. Leaves are
-/// inserted off-chain; a relayer submits the tree-update SNARK that proves the
+/// Lazy-root commitment tree. Holds a 64-entry ring buffer of accepted roots
+/// and `committedCount`, the number of leaves baked into the latest one. Leaves
+/// are inserted off-chain; a relayer submits the tree-update SNARK proving the
 /// transition, and the verifying caller advances the root.
 abstract contract CommitmentTree {
     /// Capacity of the arity-4, depth-11 tree the circuits are built for.
@@ -39,15 +37,14 @@ abstract contract CommitmentTree {
     /// Push `newRoot` and advance the leaf count. The caller must have verified
     /// the tree-update SNARK and that `oldRoot == currentRoot()` beforehand.
     function _advanceRoot(bytes32 newRoot, uint64 inserted, bytes32 oldRoot) internal {
-        // `rootIndex` and `committedCount` share a slot: both are read here and
-        // written together at the end, so the pair costs one SLOAD and one
-        // SSTORE rather than two of each.
+        // `rootIndex` and `committedCount` share a slot and are read here and
+        // written together below, for one SLOAD and one SSTORE.
         uint32 newIdx = uint32((uint256(rootIndex) + 1) & (ROOT_HISTORY - 1));
         uint64 startIndex = committedCount;
 
         bytes32 evicted = roots[newIdx];
-        // Clearing the evicted entry when it equals `newRoot` would mark a root
-        // that remains live in the buffer as unknown.
+        // Clearing the evicted entry when it equals `newRoot` would mark a
+        // root still live in the buffer as unknown.
         if (evicted != bytes32(0) && evicted != newRoot) {
             isKnownRoot[evicted] = false;
         }

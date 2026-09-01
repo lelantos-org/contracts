@@ -8,21 +8,19 @@ import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/Reentran
 
 import { Fees } from "./libs/Fees.sol";
 
-/// Owner-set fees with per-token accrual, drained to `treasury` by the
-/// permissionless `sweep`. Fees accrue at flush, so `accruedFee` never holds
-/// escrowed funds.
+/// Per-token fee accrual, drained to `treasury` by the permissionless `sweep`.
+/// Fees accrue at flush, so `accruedFee` never holds escrowed funds.
 ///
-/// There is no pool-wide rate. Every asset carries its own deposit and
-/// withdraw rates in its registry entry (`AssetRegistry`), set when it is
-/// registered and mutable only through `setAssetFee`. A stored `0` therefore
-/// means exactly 0 — there is no sentinel and no inheritance, so no owner
-/// action can re-rate an asset that was not named in the call.
+/// There is no pool-wide rate: every asset carries its own deposit and withdraw
+/// rates in its `AssetRegistry` entry, set at registration and mutable only
+/// through `setAssetFee`. A stored `0` means exactly 0, so no owner action can
+/// re-rate an asset not named in the call.
 abstract contract FeeConfig is Ownable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     uint16 public constant BPS_DENOMINATOR = Fees.BPS_DENOMINATOR;
 
-    /// Ceiling on any rate, global or per-asset (20%).
+    /// Ceiling on any rate (20%).
     uint16 public constant MAX_FEE_BPS = Fees.MAX_FEE_BPS;
 
     address public treasury;
@@ -42,8 +40,8 @@ abstract contract FeeConfig is Ownable, ReentrancyGuardTransient {
         treasury = newTreasury;
     }
 
-    /// Drain `accruedFee` for `token` to `treasury`. Permissionless; the
-    /// destination is owner-pinned.
+    /// Drains `accruedFee` for `token` to `treasury`. Permissionless caller,
+    /// owner-pinned destination.
     function sweep(IERC20 token) external nonReentrant returns (uint256 amount) {
         amount = accruedFee[token];
         if (amount == 0) return 0;

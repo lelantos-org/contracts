@@ -36,8 +36,8 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
     mapping(address adapter => bool allowed) public adapterAllowed;
 
     /// The escrowed token, alongside the base `refundTo`/`amount` record. The
-    /// wrapper handles an open set of tokens, so the asset cannot be recovered
-    /// from an immutable. Written by `swap`, consumed by `cancelEscrow`.
+    /// wrapper handles an open set of tokens, so the asset cannot come from an
+    /// immutable. Written by `swap`, consumed by `cancelEscrow`.
     mapping(uint256 depositId => address token) internal _escrowToken;
 
     event AdapterAllowedSet(address indexed adapter, bool allowed);
@@ -73,7 +73,7 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
         // --- tokens + amounts ---
         address tokenIn;
         address tokenOut;
-        // Floor on tokenIn received from `MASP.withdraw`, net of its fee; set to
+        // Floor on tokenIn received from `MASP.withdraw`, net of its fee:
         // `publicOut * scale - fee`. The swap uses the balance-delta receipt,
         // not this value. Reverts `InsufficientWithdraw` if less arrives.
         uint256 amountIn;
@@ -94,19 +94,18 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
         AuxValidation.Output[6] aux_w;
         // --- leg 2: escrow B into MASP via Permit2 AllowanceTransfer ---
         PubInputs.DepositRequest deposit_d;
-        // The depositor's payload for the B note. A deposit carries one payload
-        // per leaf and occupies two; the second is `fee_aux_d`.
+        // The depositor's payload for the B note. A deposit occupies two
+        // leaves; the second payload is `fee_aux_d`.
         AuxValidation.Output aux_d;
         // The relayer leaf's payload. Not optional and not zeroable: MASP runs
         // it through `AuxValidation` like any other, so a zeroed struct reverts
-        // `CiphertextTooShort`, and `deposit_d.feeCm == 0` reverts `ZeroCm`.
-        // A deployment that does not want to pay a flush relayer sets
-        // `deposit_d.feeIn` to zero and still supplies a well-formed payload;
-        // the leaf is minted either way.
+        // `CiphertextTooShort` and `deposit_d.feeCm == 0` reverts `ZeroCm`. To
+        // pay no flush relayer, set `deposit_d.feeIn` to zero and still supply a
+        // well-formed payload; the leaf is minted either way.
         //
         // Its value is funded on top of the escrowed principal, out of the
         // slippage cushion `minOut` leaves behind, so `_escrowAndSettle` bounds
-        // the pull by `actualOut` and not by `minOut`.
+        // the pull by `actualOut` rather than `minOut`.
         AuxValidation.Output fee_aux_d;
     }
 
@@ -121,7 +120,7 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
 
     /// Who a canceled escrow refunds to, in which token, and what the pool
     /// pulled for it. `MASP.cancelDeposit` returns the coin to the digest-bound
-    /// payer — this wrapper — so without a record the refund would have no
+    /// payer, this wrapper, so without a record the refund would have no
     /// owner.
     function escrows(uint256 depositId) external view returns (address refundTo, address token, uint256 amount) {
         Escrow storage e = _escrows[depositId];
@@ -150,7 +149,7 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
         emit TreasurySet(t);
     }
 
-    /// Arm a token for use as a swap output. Required once per `tokenOut`
+    /// Arms a token for use as a swap output. Required once per `tokenOut`
     /// before any swap escrows into it; idempotent thereafter.
     function prepareToken(IERC20 token) external {
         _approveToken(token);
@@ -159,29 +158,29 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
 
     // -------- swap ------------------------------------------------------
 
-    /// Execute the three-leg shielded swap atomically.
-    /// @return actualOut Adapter-reported output (≥ minOut, asserted).
-    /// @return depositId  MASP-assigned id for the deposit.
+    /// Executes the three-leg shielded swap atomically.
     ///
-    /// Every amount here is measured as a balance delta across an external call;
-    /// this is what `reentrancy-balance` reports. Re-entry is blocked
-    /// on both sides (`nonReentrant` here and on the MASP entry points), the
-    /// adapter is owner-allowlisted, and the closing leftover invariant reverts
-    /// on any net drift in either token, so a stale snapshot cannot settle
-    /// silently.
+    /// Every amount is measured as a balance delta across an external call,
+    /// which is what `reentrancy-balance` reports. Re-entry is blocked on both
+    /// sides (`nonReentrant` here and on the MASP entry points), the adapter is
+    /// owner-allowlisted, and the closing leftover invariant reverts on any net
+    /// drift in either token, so a stale snapshot cannot settle silently.
+    ///
+    /// @return actualOut Adapter-reported output, asserted `>= minOut`.
+    /// @return depositId MASP-assigned id for the deposit.
     // slither-disable-next-line reentrancy-balance
     function swap(SwapArgs calldata a) external nonReentrant returns (uint256 actualOut, uint256 depositId) {
         _validate(a);
 
         IERC20 inToken = IERC20(a.tokenIn);
         IERC20 outToken = IERC20(a.tokenOut);
-        // Snapshot balances so the leftover check tolerates donations: only the
-        // funds this swap moves must net to zero.
+        // Snapshot balances so the leftover check tolerates donations: only
+        // the funds this swap moves must net to zero.
         uint256 inBefore = inToken.balanceOf(address(this));
         uint256 outBefore = outToken.balanceOf(address(this));
 
-        // Leg 1: unshield A. The receipt is measured by balance delta, because
-        // MASP nets a withdraw fee.
+        // Leg 1: unshield A. The receipt is measured by balance delta, as MASP
+        // nets a withdraw fee.
         POOL.withdraw(a.p_w, a.pi_w, a.tp_w, a.tpi_w, a.aux_w);
         uint256 received = inToken.balanceOf(address(this)) - inBefore;
         if (received < a.amountIn) revert InsufficientWithdraw(received, a.amountIn);
@@ -196,7 +195,7 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
 
         // Donation-tolerant leftover invariant: the pre-swap balances must be
         // untouched. Drift is reported as a magnitude, since a balance below the
-        // snapshot violates the invariant as much as one above, and a
+        // snapshot violates the invariant as much as one above and a
         // fixed-direction subtraction would underflow.
         uint256 leftIn = inToken.balanceOf(address(this));
         if (leftIn != inBefore) revert LeftoverBalance(a.tokenIn, _absDiff(leftIn, inBefore));
@@ -215,11 +214,11 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
         if (!adapterAllowed[a.adapter]) revert AdapterNotAllowed();
         if (block.timestamp > a.deadline) revert SwapExpired();
         // The proofs bind the funds to this wrapper. The `relayer` check is
-        // defense-in-depth (MASP also enforces it) and gives an earlier revert.
+        // defense in depth, MASP enforcing it too, and reverts earlier.
         if (a.pi_w.recipient != address(this)) revert WrapperNotRecipient();
         if (a.pi_w.relayer != address(this)) revert WrapperNotRelayer();
         if (a.deposit_d.payer != address(this)) revert WrapperNotPayer();
-        // `swap` is permissionless, and `deposit_d`, which names the output
+        // `swap` is permissionless and `deposit_d`, which names the output
         // note's commitments and recipient, is unauthenticated calldata. Without
         // this check the withdraw proof could be replayed from the mempool under
         // a different deposit, redirecting the swap output. `payer` is a public
@@ -238,10 +237,10 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
         if (actualOut < a.minOut) revert InsufficientOut(actualOut, a.minOut);
     }
 
-    /// Escrow B via Permit2 and forward dust to the treasury. The pull is
-    /// measured by balance delta, because the fee total is not visible to the
-    /// wrapper. The leftover invariant is enforced by the caller against the
-    /// pre-swap balance snapshots.
+    /// Escrows B via Permit2 and forwards dust to the treasury. The pull is
+    /// measured by balance delta, as the fee total is not visible to the
+    /// wrapper; the caller enforces the leftover invariant against the pre-swap
+    /// snapshots.
     ///
     /// Reached only from `swap`, which holds the reentrancy guard; see there for
     /// why the balance-delta measurement is sound.
@@ -257,7 +256,7 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
         // any other asset yields a zero delta, and must carry at least the
         // requested output rather than routing it to the treasury as dust. The
         // ceiling is `actualOut` rather than `minOut`, leaving the relayer note
-        // fundable out of the slippage cushion.
+        // fundable from the slippage cushion.
         uint256 balanceBefore = outToken.balanceOf(address(this));
         uint256 pulled;
         (depositId, pulled) =
@@ -265,7 +264,7 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
 
         // The pool refunds this wrapper, not the swap's driver, so a cancel
         // needs a record of who the escrow belongs to. `pi_w.payer` is the
-        // address authorized to drive this swap (see `_validate`).
+        // address authorized to drive this swap; see `_validate`.
         _escrows[depositId] = Escrow({ refundTo: a.pi_w.payer, amount: uint96(pulled) });
         _escrowToken[depositId] = a.tokenOut;
 
@@ -276,23 +275,24 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
 
     // -------- escrow recovery -------------------------------------------
 
-    /// Cancel an escrow this wrapper created and return the refund to the
+    /// Cancels an escrow this wrapper created and returns the refund to the
     /// address that drove the swap. Anyone may call; the destination is the
     /// recorded driver, not the caller. The digest preimage comes from the
-    /// deposit's `DepositEscrowed` event, minus `payer` — always this wrapper.
+    /// deposit's `DepositEscrowed` event, less `payer`, which is always this
+    /// wrapper.
     ///
-    /// `feeNote` is the relayer leaf's half of that preimage. The wrapper
-    /// cannot reconstruct it: MASP binds it at submit from caller-supplied
-    /// calldata and stores only the digest, so it has to come back in from the
-    /// event like every other preimage field.
+    /// `feeNote` is the relayer leaf's half of that preimage. The wrapper cannot
+    /// reconstruct it: MASP binds it at submit from caller-supplied calldata and
+    /// stores only the digest, so it comes back in from the event like every
+    /// other preimage field.
     ///
     /// Without this, an escrow that is never flushed is unrecoverable: MASP
-    /// refunds the digest-bound payer, and a contract payer may only cancel its
-    /// own deposit, so no other party can reach it.
+    /// refunds the digest-bound payer, and a contract payer may cancel only its
+    /// own deposit.
     ///
-    /// The refund is attributed by balance delta across the pool call, which is
-    /// sound because the wrapper is necessarily the caller. A deposit that is
-    /// already settled was flushed and has no refund to forward.
+    /// The refund is attributed by balance delta across the pool call, sound
+    /// because the wrapper is necessarily the caller. An already-settled deposit
+    /// was flushed and has no refund to forward.
     // slither-disable-next-line reentrancy-balance
     function cancelEscrow(
         uint256 depositId,

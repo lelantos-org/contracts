@@ -6,19 +6,20 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 
 import { ISwapAdapter } from "./ISwapAdapter.sol";
 
-/// Minimal UniversalRouter surface. Addresses per chain: Mainnet:
-/// 0x66a9893cC07d91D95644AEDD05D03f95e1dBA8Af Arbitrum:
-/// 0xA51afAFe0263b40EdaEf0Df8781eA9aa03E381a3 Base:
-/// 0x6fF5693b99212Da76ad316178A184AB56D299b43 Unlike SwapRouter02, `execute`
-/// returns nothing, so callers measure a balance delta rather than trusting a
+/// Minimal UniversalRouter surface. Deployments:
+/// - Mainnet: 0x66a9893cC07d91D95644AEDD05D03f95e1dBA8Af
+/// - Arbitrum: 0xA51afAFe0263b40EdaEf0Df8781eA9aa03E381a3
+/// - Base: 0x6fF5693b99212Da76ad316178A184AB56D299b43
+///
+/// `execute` returns nothing, so callers measure a balance delta rather than a
 /// router-reported output.
 interface IUniversalRouter {
     function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
 }
 
-/// A V4 pool's identity. `currency0 < currency1` is required by the
-/// PoolManager. `hooks` is part of the key but this adapter always sets it to
-/// the zero address; see `UniV4Adapter`.
+/// A V4 pool's identity. The PoolManager requires `currency0 < currency1`.
+/// `hooks` is part of the key but this adapter always sets it to the zero
+/// address; see `UniV4Adapter`.
 struct PoolKey {
     address currency0;
     address currency1;
@@ -27,11 +28,10 @@ struct PoolKey {
     address hooks;
 }
 
-/// `IV4Router.ExactInputSingleParams` **as deployed**. Upstream revisions after
+/// `IV4Router.ExactInputSingleParams` as deployed. Upstream revisions after
 /// March 2026 add a `minHopPriceX36` field between `amountOutMinimum` and
-/// `hookData`; the routers live on mainnet, Arbitrum and Base all predate that
-/// change, so this five-field layout is what they decode. Encoding the newer
-/// layout against them produces calldata they cannot decode.
+/// `hookData`; the live routers on mainnet, Arbitrum and Base predate that
+/// change, so this five-field layout is what they decode.
 struct ExactInputSingleParams {
     PoolKey poolKey;
     bool zeroForOne;
@@ -41,10 +41,9 @@ struct ExactInputSingleParams {
 }
 
 /// Command and action opcodes, transcribed from the deployed UniversalRouter
-/// (`Commands.sol`, `v4-periphery/src/libraries/Actions.sol`). Transcribed
-/// rather than imported, which would take v4-core and v4-periphery as
-/// submodules for one adapter. `UniV4Adapter.fork.t.sol` checks them against
-/// the live routers.
+/// (`Commands.sol`, `v4-periphery/src/libraries/Actions.sol`) rather than
+/// imported, which would add v4-core and v4-periphery as submodules for one
+/// adapter. `UniV4Adapter.fork.t.sol` checks them against the live routers.
 library V4Commands {
     uint8 internal constant V4_SWAP = 0x10;
     uint8 internal constant SWAP_EXACT_IN_SINGLE = 0x06;
@@ -54,17 +53,17 @@ library V4Commands {
 
 /// Uniswap V4 single-hop adapter, routed through the UniversalRouter's
 /// `V4_SWAP` command. The wrapper transfers `amountIn` of `tokenIn` here; this
-/// contract forwards it to the router, runs the swap, and pushes the output
-/// back to the wrapper.
+/// contract forwards it to the router, runs the swap, and pushes the output back
+/// to the wrapper.
 ///
-/// `swap` is restricted to the pinned `WRAPPER`. Without that restriction, any
-/// caller could drain donated tokens by routing the output to themselves.
+/// `swap` is restricted to the pinned `WRAPPER`: any other caller could drain
+/// donated tokens by routing the output to themselves.
 ///
 /// Only vanilla pools are reachable: `hooks` is pinned to `address(0)` and is
 /// not part of the route. `route` is unauthenticated calldata on the
-/// `SwapWrapper.swap` path, so accepting an arbitrary `hooks` address would let
-/// a caller name a contract that the PoolManager then calls mid-swap. Vetted
-/// hook pools would need an explicit allowlist, not a wider route blob.
+/// `SwapWrapper.swap` path, so an arbitrary `hooks` address would let a caller
+/// name a contract the PoolManager then calls mid-swap. Vetted hook pools would
+/// require an explicit allowlist, not a wider route blob.
 contract UniV4Adapter is ISwapAdapter {
     using SafeERC20 for IERC20;
 
@@ -96,8 +95,8 @@ contract UniV4Adapter is ISwapAdapter {
     /// is what `reentrancy-balance` reports. The snapshot cannot go stale: the
     /// only permitted caller is the pinned `WRAPPER`, whose `swap` holds
     /// `nonReentrant` across the whole call, `ROUTER` is immutable, and only
-    /// vanilla pools are reachable (`hooks` is pinned to `address(0)`), so no
-    /// attacker-chosen code runs between the two balance reads.
+    /// vanilla pools are reachable, so no attacker-chosen code runs between the
+    /// two balance reads.
     // slither-disable-next-line reentrancy-balance
     function swap(
         address tokenIn,
@@ -117,19 +116,17 @@ contract UniV4Adapter is ISwapAdapter {
         ROUTER.execute(abi.encodePacked(V4Commands.V4_SWAP), inputs, deadline);
         actualOut = IERC20(tokenOut).balanceOf(address(this)) - outBefore;
 
-        // Defense in depth: the router enforces `minOut` twice already, but the
-        // wrapper settles against this return value, so the measured delta is
-        // checked too.
+        // Defense in depth: the router enforces `minOut` twice, but the wrapper
+        // settles against this return value, so the measured delta is checked
+        // too.
         if (actualOut < minOut) revert InsufficientOut(actualOut, minOut);
 
         IERC20(tokenOut).safeTransfer(msg.sender, actualOut);
     }
 
     /// Builds the single `V4_SWAP` input: the action sequence plus one
-    /// ABI-encoded parameter blob per action.
-    ///
-    /// Split out of `swap` because every byte of this encoding is dictated by
-    /// the deployed router.
+    /// ABI-encoded parameter blob per action. Every byte of this encoding is
+    /// dictated by the deployed router.
     function _encodeSwap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, bytes calldata route)
         private
         pure
@@ -156,14 +153,14 @@ contract UniV4Adapter is ISwapAdapter {
         );
         // Settle the input from the router's own balance, funded by the caller
         // just after this returns. `payerIsUser = false` names the router as
-        // payer, which keeps the whole flow off Permit2 and needs no approval.
+        // payer, keeping the flow off Permit2 and requiring no approval.
         //
         // The amount is the exact `amountIn`, not
-        // `ActionConstants.CONTRACT_BALANCE`. The UniversalRouter is a shared
-        // public contract, so anyone can send it tokens; settling its whole
-        // balance would over-pay the PoolManager debt and leave an unclaimed
-        // credit, reverting the unlock with `CurrencyNotSettled`. A 1 wei
-        // donation would otherwise brick every swap for that token.
+        // `ActionConstants.CONTRACT_BALANCE`: the UniversalRouter is a shared
+        // public contract, so settling its whole balance would over-pay the
+        // PoolManager debt and leave an unclaimed credit, reverting the unlock
+        // with `CurrencyNotSettled`. A 1 wei donation would brick every swap for
+        // that token.
         params[1] = abi.encode(tokenIn, amountIn, false);
         // Take the full output credit to this adapter, with `minOut` re-checked
         // by the router on top of the swap's own `amountOutMinimum`.
@@ -176,7 +173,7 @@ contract UniV4Adapter is ISwapAdapter {
     }
 
     /// The router's calldata layout narrows both amounts to `uint128`, so the
-    /// bound is checked at the cast rather than left to a distant guard.
+    /// bound is checked at the cast.
     function _toUint128(uint256 v) private pure returns (uint128) {
         if (v > type(uint128).max) revert AmountTooLarge(v);
         // forge-lint: disable-next-line(unsafe-typecast)

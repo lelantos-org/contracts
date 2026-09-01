@@ -2,29 +2,28 @@
 pragma solidity 0.8.36;
 
 // Groth16 verifying-key constants for the two circuits a spend proves, lifted
-// verbatim from the snarkjs codegen verifiers so that `BatchedGroth16Verifier`
-// has a single source of truth for them.
+// verbatim from the snarkjs codegen verifiers so `BatchedGroth16Verifier` has a
+// single source of truth for them.
 //
-// Circuit 1 is `4x6` (`Verifier.sol`), circuit 2 is
-// `tree_update_batch` (`TreeUpdateBatchVerifier.sol`).
-//
-// `Verifier.sol` is not deployed. It is the provenance of the `VK1_*` constants
-// below and the oracle in `test/BatchedGroth16Verifier.t.sol`.
+// Circuit 1 is `4x6` (`Verifier.sol`), circuit 2 is `tree_update_batch`
+// (`TreeUpdateBatchVerifier.sol`). `Verifier.sol` is not deployed; it is the
+// provenance of the `VK1_*` constants below and the oracle in
+// `test/BatchedGroth16Verifier.t.sol`.
 //
 // `alpha`, `beta` and `gamma` are shared: both circuits were set up against the
 // same `powersOfTau28_hez_final_16.ptau`, so alpha and beta are the same
-// ptau-derived points, and snarkjs always fixes gamma to the G2 generator. Only
-// `delta` and the `IC` points are per-circuit. That sharing lets the batched
-// verifier fold the two `e(alpha, beta)` terms into one and the two
-// `e(PI_i, gamma)` terms into one: six pairings instead of eight.
+// ptau-derived points, and snarkjs fixes gamma to the G2 generator. Only `delta`
+// and the `IC` points are per-circuit. That sharing lets the batched verifier
+// fold the two `e(alpha, beta)` terms into one and the two `e(PI_i, gamma)`
+// terms into one: six pairings instead of eight.
 //
-// These are declared at file level, not as library members, because inline
-// assembly can reference a file-level or contract-level `constant` of value type
-// by bare identifier but cannot reference `Lib.CONST`.
+// Declared at file level rather than as library members: inline assembly can
+// reference a file-level or contract-level `constant` of value type by bare
+// identifier but cannot reference `Lib.CONST`.
 //
-// If either circuit is ever rebuilt against a different ptau the shared values
-// diverge and the batched verifier stops accepting anything (fail-closed).
-// Regenerate this file and re-prove every fixture whenever a circuit changes.
+// Rebuilding either circuit against a different ptau diverges the shared values
+// and the batched verifier stops accepting anything (fail-closed). Regenerate
+// this file and re-prove every fixture whenever a circuit changes.
 
 // ---------------------------------------------------------------------------
 // Field moduli (identical in both codegen verifiers)
@@ -71,7 +70,7 @@ uint256 constant VK1_IC2X = 1104484580235059774257190252798493862643431181614724
 uint256 constant VK1_IC2Y = 11747161231248698306432681111347353122385280461926944996889757527581282155473;
 
 // ---------------------------------------------------------------------------
-// Circuit 2 — tree_update_batch, MAX_L = 4 (src/verifiers/TreeUpdateBatchVerifier.sol)
+// Circuit 2 — tree_update_batch, MAX_L = 8 (src/verifiers/TreeUpdateBatchVerifier.sol)
 // ---------------------------------------------------------------------------
 
 uint256 constant VK2_DELTA_X1 = 11350293034882680347011663573987034552059666750016967596718122869115168833323;
@@ -93,7 +92,7 @@ uint256 constant VK2_IC2Y = 2026511477793396798024936813172848771316446747000679
 // Prefix for the Fiat-Shamir transcript that derives the batching coefficient.
 //
 // Equal to `keccak256(abi.encode(...))` over all thirty verifying-key constants
-// above, in exactly this order:
+// above, in this order:
 //
 //   VK_ALPHA_X, VK_ALPHA_Y,
 //   VK_BETA_X1, VK_BETA_X2, VK_BETA_Y1, VK_BETA_Y2,
@@ -103,12 +102,12 @@ uint256 constant VK2_IC2Y = 2026511477793396798024936813172848771316446747000679
 //   VK2_DELTA_X1, VK2_DELTA_X2, VK2_DELTA_Y1, VK2_DELTA_Y2,
 //   VK2_IC0X, VK2_IC0Y, VK2_IC1X, VK2_IC1Y, VK2_IC2X, VK2_IC2Y
 //
-// It is a literal rather than a computed expression because Solidity cannot
-// fold `keccak256(abi.encode(...))` into a compile-time `constant`. A test must
-// recompute it, so that editing any key constant without regenerating this
-// value fails loudly instead of silently reusing a stale domain.
+// A literal rather than a computed expression, because Solidity cannot fold
+// `keccak256(abi.encode(...))` into a compile-time `constant`. A test recomputes
+// it, so editing any key constant without regenerating this value fails loudly
+// rather than reusing a stale domain.
 //
-// This is defence in depth: the keys are fixed in bytecode, so a deployment
-// with different keys is a different contract regardless. It costs ~40 gas and
-// keeps any future instantiation from sharing a challenge derivation.
+// Defence in depth: the keys are fixed in bytecode, so a deployment with
+// different keys is a different contract regardless. It costs ~40 gas and keeps
+// any future instantiation from sharing a challenge derivation.
 bytes32 constant BATCH_DOMAIN = 0x0d5247d7bacdbee5f5e6b36a2b71f391b983be4b51688fd9ce9e138d15ef4be1;

@@ -6,10 +6,11 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 
 import { ISwapAdapter } from "./ISwapAdapter.sol";
 
-/// Minimal SwapRouter02 surface. Addresses per chain: Mainnet/Arbitrum:
-/// 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45 Base:
-/// 0x2626664c2603336E57B271c5C0b26F421741e481 SwapRouter02 takes no `deadline`;
-/// it is enforced at the wrapper layer.
+/// Minimal SwapRouter02 surface. Deployments:
+/// - Mainnet / Arbitrum: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45
+/// - Base: 0x2626664c2603336E57B271c5C0b26F421741e481
+///
+/// SwapRouter02 takes no `deadline`; it is enforced at the wrapper layer.
 interface ISwapRouter02 {
     struct ExactInputSingleParams {
         address tokenIn;
@@ -33,11 +34,11 @@ interface ISwapRouter02 {
 }
 
 /// Uniswap V3 single-hop and multi-hop adapter. The wrapper transfers
-/// `amountIn` of `tokenIn` here; this contract approves the router, executes
-/// the swap, resets the approval, and pushes the output back to the wrapper.
+/// `amountIn` of `tokenIn` here; this contract approves the router, executes the
+/// swap, resets the approval, and pushes the output back to the wrapper.
 ///
-/// `swap` is restricted to the pinned `WRAPPER`. Without that restriction, any
-/// caller could drain donated tokens by routing the output to themselves.
+/// `swap` is restricted to the pinned `WRAPPER`: any other caller could drain
+/// donated tokens by routing the output to themselves.
 contract UniV3Adapter is ISwapAdapter {
     using SafeERC20 for IERC20;
 
@@ -64,24 +65,23 @@ contract UniV3Adapter is ISwapAdapter {
     }
 
     /// Approve, swap, then reset. The trailing reset to zero keeps tokens that
-    /// reject non-zero-to-non-zero approval changes, such as USDT, usable on
-    /// the next swap.
+    /// reject non-zero-to-non-zero approval changes, such as USDT, usable on the
+    /// next swap.
     ///
-    /// The output is taken to this adapter and measured as a balance delta
-    /// across the router call rather than read off the router's return value,
-    /// then pushed to the wrapper. `SwapWrapper` settles against this return
-    /// value and uses it as the ceiling on what MASP may pull out of its own
-    /// balance, so it must be what the venue actually delivered: a router
-    /// over-reporting the output, as it does for any `tokenOut` that charges a
-    /// fee on transfer, would raise that ceiling above the swap's real output.
+    /// The output is taken to this adapter, measured as a balance delta across
+    /// the router call rather than read from the router's return value, then
+    /// pushed to the wrapper. `SwapWrapper` settles against this return value
+    /// and uses it as the ceiling on what MASP may pull from its own balance, so
+    /// it must be what the venue delivered: a router over-reporting the output,
+    /// as it does for any fee-on-transfer `tokenOut`, would raise that ceiling
+    /// above the swap's real output.
     ///
     /// This is what `reentrancy-balance` reports. The snapshot cannot go stale
     /// in a way that over-counts: the only permitted caller is the pinned
     /// `WRAPPER`, whose `swap` holds `nonReentrant` across the whole call, and
-    /// `ROUTER` is immutable, so re-entering either contract is impossible. A
-    /// multi-hop `route` is unauthenticated calldata and may name a token that
-    /// runs its own code mid-swap, but the delta only credits `tokenOut` that
-    /// arrived here and is forwarded on, and nothing but `ROUTER`, approved for
+    /// `ROUTER` is immutable. A multi-hop `route` is unauthenticated calldata and
+    /// may name a token that runs its own code mid-swap, but the delta credits
+    /// only `tokenOut` that arrived here, and nothing but `ROUTER`, approved for
     /// `tokenIn` alone, can move it out.
     // slither-disable-next-line reentrancy-balance
     function swap(
@@ -101,7 +101,7 @@ contract UniV3Adapter is ISwapAdapter {
         if (route.length == SINGLE_HOP_ROUTE_LEN) {
             (uint24 fee, uint160 sqrtPriceLimitX96) = abi.decode(route, (uint24, uint160));
             // The router's reported output is ignored; `actualOut` is the
-            // measured balance delta, for the reason given above.
+            // measured balance delta.
             // slither-disable-next-line unused-return
             ROUTER.exactInputSingle(
                 ISwapRouter02.ExactInputSingleParams({
@@ -127,8 +127,8 @@ contract UniV3Adapter is ISwapAdapter {
 
         inToken.forceApprove(address(ROUTER), 0);
 
-        // Defense in depth: the router enforces `minOut` already, but the
-        // wrapper settles against the measured delta, so that is checked too.
+        // Defense in depth: the router enforces `minOut`, but the wrapper
+        // settles against the measured delta, so that is checked too.
         if (actualOut < minOut) revert InsufficientOut(actualOut, minOut);
 
         outToken.safeTransfer(msg.sender, actualOut);

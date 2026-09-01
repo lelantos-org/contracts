@@ -17,7 +17,7 @@ abstract contract NullifierSet {
         return (_spentBuckets[n >> 8] >> (n & 0xff)) & 1 != 0;
     }
 
-    /// Marks `nf` spent. Reverts with `DoubleSpend` if it is already set.
+    /// Marks `nf` spent. Reverts `DoubleSpend` if already set.
     function _consumeNullifier(bytes32 nf) internal {
         uint256 n = uint256(nf);
         uint256 bucketIdx = n >> 8;

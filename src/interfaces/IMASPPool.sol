@@ -4,14 +4,13 @@ pragma solidity 0.8.36;
 import { PubInputs } from "../libs/PubInputs.sol";
 import { AuxValidation } from "../libs/AuxValidation.sol";
 
-/// The MASP surface the adapters call.
+/// The MASP surface the adapters call. `NativeAdapter` and `SwapWrapper`
+/// require the same four functions and share this declaration.
 ///
-/// `NativeAdapter` and `SwapWrapper` require the same four functions and share
-/// this declaration. Solidity does not check a hand-written interface against
-/// the contract it describes, and a mismatched signature is a wrong selector at
-/// runtime rather than a compile error, so `IMASPPoolTest` pins every selector
-/// below against `MASP`'s: a signature that changes in one place and not the
-/// other fails the test suite.
+/// Solidity does not check a hand-written interface against the contract it
+/// describes, and a mismatched signature is a wrong selector at runtime rather
+/// than a compile error, so `IMASPPoolTest` pins every selector below against
+/// `MASP`'s.
 interface IMASPPool {
     struct Proof {
         uint256[2] a;
@@ -27,8 +26,8 @@ interface IMASPPool {
         AuxValidation.Output[6] calldata aux
     ) external;
 
-    /// A deposit occupies two leaves — the depositor's note and the note paying
-    /// whoever flushes it — hence two aux payloads.
+    /// A deposit occupies two leaves, the depositor's note and the note paying
+    /// the flusher, hence two aux payloads.
     function depositAuthorized(
         PubInputs.DepositRequest calldata d,
         AuxValidation.Output calldata aux,

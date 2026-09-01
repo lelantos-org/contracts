@@ -7,15 +7,14 @@ import { IERC4626 } from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import { IYieldVenue } from "./IYieldVenue.sol";
 
-/// Generic ERC-4626 venue. Vaults that are natively ERC-4626, such as
-/// MetaMorpho, need no per-protocol adapter; anything else that speaks the
-/// standard sits behind the same interface.
+/// Generic ERC-4626 venue, covering any vault that speaks the standard without
+/// a per-protocol adapter.
 ///
 /// One instance per `(assetId, vault)`, pinned to its pool: `onlyPool` gates
-/// `deposit` and `withdraw`, so no other caller can move the position or route
-/// a redemption. Everything else is immutable, so there is no owner and no
-/// configuration to compromise. A venue that turns out to be wrong is replaced
-/// by registering a new asset id, never by re-pointing this one.
+/// `deposit` and `withdraw`, so no other caller can move the position or route a
+/// redemption. Everything else is immutable, so there is no owner and no
+/// configuration to compromise. A venue is replaced by registering a new asset
+/// id, never by re-pointing this one.
 ///
 /// The pool pushes the underlying here and then calls `deposit`; this contract
 /// holds no allowance over the pool. `withdraw` redeems straight to `POOL`, so
@@ -51,32 +50,28 @@ contract ERC4626Venue is IYieldVenue {
         POOL = pool;
         VAULT = vault;
         UNDERLYING = underlying;
-        // Approved once here rather than per deposit.
-        //
-        // The allowance is this contract's, over a vault fixed at construction,
-        // and this contract holds no balance between calls: `deposit` consumes
-        // what the pool just pushed and `withdraw` redeems straight to the
-        // pool. It is not an allowance over the pool, which no contract ever
-        // holds.
+        // Approved once rather than per deposit. The allowance is this
+        // contract's, over a vault fixed at construction, and this contract
+        // holds no balance between calls: `deposit` consumes what the pool just
+        // pushed and `withdraw` redeems straight to the pool.
         IERC20(underlying).forceApprove(vault, type(uint256).max);
     }
 
     /// Supplies `assets`, which the pool has already transferred in.
     function deposit(uint256 assets) external onlyPool {
-        // Shares minted are not tracked per call: the venue's position is read
-        // back from `balanceOf` in `totalAssets`, so the return is redundant.
+        // Shares minted are not tracked per call: `totalAssets` reads the
+        // position back from `balanceOf`.
         // slither-disable-next-line unused-return
         IERC4626(VAULT).deposit(assets, address(this));
     }
 
-    /// Redeems `assets` of the underlying directly to the pool.
-    ///
-    /// The pool gates the amount on `maxWithdraw` beforehand; a vault that
-    /// reverts anyway reverts the whole transaction, leaving the spend's
-    /// nullifiers unconsumed. That is a liveness failure, not a loss.
+    /// Redeems `assets` of the underlying directly to the pool. The pool gates
+    /// the amount on `maxWithdraw` beforehand; a vault that reverts anyway
+    /// reverts the whole transaction, leaving the spend's nullifiers
+    /// unconsumed — a liveness failure, not a loss.
     function withdraw(uint256 assets) external onlyPool {
-        // Returns shares burned, which nothing here consumes: `assets` is the
-        // exact amount the vault sends to the pool, and a short vault reverts.
+        // Shares burned are unused: `assets` is the exact amount the vault
+        // sends to the pool, and a short vault reverts.
         // slither-disable-next-line unused-return
         IERC4626(VAULT).withdraw(assets, POOL, address(this));
     }
@@ -86,7 +81,7 @@ contract ERC4626Venue is IYieldVenue {
         return IERC4626(VAULT).convertToAssets(IERC4626(VAULT).balanceOf(address(this)));
     }
 
-    /// What the vault will service right now. Below `totalAssets` whenever the
+    /// What the vault will service now. Below `totalAssets` whenever the
     /// vault's own markets are short of liquidity.
     function maxWithdraw() external view returns (uint256) {
         return IERC4626(VAULT).maxWithdraw(address(this));
