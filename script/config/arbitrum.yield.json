@@ -1,0 +1,15 @@
+{
+  "masp": "0x2fC0681F6631eebaCA9720F5c4b1353B18466467",
+  "assets": [
+    {
+      "id": 7,
+      "token": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "scale": 1,
+      "vault": "0x5c0C306Aaa9F877de636f4d5822cA9F2E81563BA",
+      "depositBps": 20,
+      "withdrawBps": 20,
+      "bufferBps": 1000,
+      "perfBps": 1000
+    }
+  ]
+}

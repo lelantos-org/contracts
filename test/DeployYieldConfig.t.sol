@@ -22,10 +22,12 @@ contract DeployYieldConfigTest is Test {
     ];
 
     /// Per chain: the yield ids the plan assigns, being the next free id above
-    /// what each chain's core config already registers (mainnet 1-9, base 1-8,
-    /// arbitrum 1-11).
+    /// everything the chain already registers -- both its core config
+    /// (mainnet 1-10, base 1-5, arbitrum 1-6) and the Morpho yield ids in
+    /// `{chain}.yield.json` (mainnet 11-15, base 6-8, arbitrum 7). BTC carries
+    /// no yield id on any chain, so neither 16 nor base 9 is taken.
     function test_decodesWithFieldsInTheRightSlots() public view {
-        uint64[2][3] memory expectedIds = [[uint64(10), 11], [uint64(9), 10], [uint64(12), 13]];
+        uint64[2][3] memory expectedIds = [[uint64(17), 18], [uint64(10), 11], [uint64(8), 9]];
 
         for (uint256 f; f < files.length; ++f) {
             string memory j = vm.readFile(files[f]);

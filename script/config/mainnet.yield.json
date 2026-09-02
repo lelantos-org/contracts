@@ -1,0 +1,55 @@
+{
+  "masp": "0x2fC0681F6631eebaCA9720F5c4b1353B18466467",
+  "assets": [
+    {
+      "id": 11,
+      "token": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+      "scale": 10000000000,
+      "vault": "0xBEEf050ecd6a16c4e7bfFbB52Ebba7846C4b8cD4",
+      "depositBps": 20,
+      "withdrawBps": 20,
+      "bufferBps": 1000,
+      "perfBps": 1000
+    },
+    {
+      "id": 12,
+      "token": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "scale": 1,
+      "vault": "0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB",
+      "depositBps": 20,
+      "withdrawBps": 20,
+      "bufferBps": 1000,
+      "perfBps": 1000
+    },
+    {
+      "id": 13,
+      "token": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+      "scale": 10000000000,
+      "vault": "0x500331c9fF24D9d11aee6B07734Aa72343EA74a5",
+      "depositBps": 20,
+      "withdrawBps": 20,
+      "bufferBps": 1000,
+      "perfBps": 1000
+    },
+    {
+      "id": 14,
+      "token": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      "scale": 1,
+      "vault": "0xbEef047a543E45807105E51A8BBEFCc5950fcfBa",
+      "depositBps": 20,
+      "withdrawBps": 20,
+      "bufferBps": 1000,
+      "perfBps": 1000
+    },
+    {
+      "id": 15,
+      "token": "0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c",
+      "scale": 1,
+      "vault": "0x2ed10624315b74a78f11FAbedAa1A228c198aEfB",
+      "depositBps": 20,
+      "withdrawBps": 20,
+      "bufferBps": 1000,
+      "perfBps": 1000
+    }
+  ]
+}
