@@ -163,6 +163,18 @@ jobs:
         with:
           submodules: recursive
       - uses: extractions/setup-just@v2
+      # Aderyn drives solc itself rather than reading a forge build, and its
+      # bundled svm release list predates solc 0.8.36, so on a clean runner it
+      # cannot resolve the `=0.8.36` pragma pinned across src/ and dies with
+      # "No solc version exists that matches the version requirement".
+      # It does read the shared svm store (~/.svm), so a forge build ahead of it
+      # is enough: foundry resolves and downloads 0.8.36 there, and aderyn then
+      # finds it. Remove once an Aderyn release ships a list that has 0.8.36.
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - name: Populate the svm store with solc 0.8.36
+        run: forge build --skip test --skip script
       - name: Install Aderyn ${{ env.ADERYN_VERSION }}
         run: |
           curl -sSfL "https://github.com/Cyfrin/aderyn/releases/download/aderyn-v${ADERYN_VERSION}/aderyn-installer.sh" \

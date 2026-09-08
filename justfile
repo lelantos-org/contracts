@@ -52,10 +52,19 @@ build-sizes:
 # Enforce EIP-170 (24,576 B runtime) under the profile actually shipped:
 # the default profile (optimizer_runs=1M) bloats MASP past the limit, the
 # deploy profile (optimizer_runs=10k) keeps margin. Non-zero on violation.
+#
+# `--skip Echidna` is required on top of `--skip test`, which is only an alias
+# for `.t.sol`: the Echidna property contracts live at test/echidna/*.sol and so
+# are built and measured like deployable code. `forge build --sizes` enforces
+# EIP-3860 (49,152 B initcode) alongside EIP-170, and EchidnaMasp (~64 kB) and
+# EchidnaMaspYield (~61 kB) exceed it by construction — each one instantiates a
+# whole pool plus its mocks in a constructor. Echidna deploys them itself and
+# never through a transaction, so the initcode limit does not apply to them;
+# measuring them here only fails the gate on contracts it is not about.
 [doc('Check runtime sizes against EIP-170 under the deploy profile')]
 [group('build')]
 size:
-    FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge build --sizes --skip test --skip script
+    FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge build --sizes --skip test --skip script --skip Echidna
 
 
 [doc('Remove the Foundry build output')]
@@ -272,10 +281,17 @@ snapshot:
 quint-install:
     npm ci
 
+# One invocation per file: `quint typecheck` takes a single input and rejects a
+# multi-file glob with "Unknown arguments".
 [doc('Typecheck the Quint specs themselves')]
 [group('quint')]
 quint-spec:
-    lib/quint-sol-connect/node_modules/.bin/quint typecheck spec/*.qnt
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in spec/*.qnt; do
+        echo "typecheck $f"
+        lib/quint-sol-connect/node_modules/.bin/quint typecheck "$f"
+    done
 
 # Rewrites test/fixtures/quint/** and test/quint/generated/**, both committed.
 # The seed is pinned in quint-connect.config.mjs, so an unchanged spec
