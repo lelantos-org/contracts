@@ -5,19 +5,16 @@ import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
-import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
-import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
-import { MockERC1271 } from "../mocks/MockERC1271.sol";
-import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
-import { uniformBps } from "../utils/FeeArrays.sol";
+import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
+import { Stubs } from "../utils/Stubs.sol";
 
 /// Handler exercises deposit / flushBatch / cancelDeposit / sweep
 /// randomly. Fees accrue only at flush; the handler shadows both the
@@ -133,7 +130,10 @@ contract EscrowFeeHandler is Test {
         tpi.leafPublicIn[0] = uint64(preimagePublicIn[id]);
         tpi.isDeposit[0] = 1;
         tpi.cms[1] = bytes32(uint256(0xfee));
-        tpi.leafAsset[1] = ASSET_ID;
+        // Zero-value leaves declare asset 0: `tree_update_batch.circom` step 7a
+        // canonicalises the asset of a leaf whose Pedersen binding cannot see
+        // it, and `_drainDeposit` requires the match.
+        tpi.leafAsset[1] = relayerFeeIn[id] == 0 ? 0 : ASSET_ID;
         tpi.leafPublicIn[1] = relayerFeeIn[id];
         tpi.isDeposit[1] = 1;
 
@@ -164,6 +164,13 @@ contract EscrowFeeHandler is Test {
         vm.roll(block.number + masp.cancelDelay());
 
         uint256[2] memory zCv;
+        // The payer is `vm.etch`ed with MockERC1271 so Permit2's ERC-1271
+        // check passes at submit, which gives it code — and MASP restricts
+        // cancel to the payer itself once `payer.code.length != 0`. Without
+        // this prank every real cancel reverts `PayerNotSender` and the
+        // early returns above absorb the rest, so no deposit here was ever
+        // actually cancelled.
+        vm.prank(payer);
         masp.cancelDeposit(
             id,
             preimagePublicIn[id],
@@ -206,8 +213,8 @@ contract EscrowFeeHandler is Test {
 }
 
 contract MASPEscrowFeeInvariantTest is Test {
-    TreeUpdateBatchGroth16Verifier tubVerifier;
-    BatchedGroth16Verifier batchVerifier;
+    IVerifier tubVerifier;
+    IBatchVerifier batchVerifier;
     address permit2;
     MockERC20 token;
     MASP masp;
@@ -216,37 +223,20 @@ contract MASPEscrowFeeInvariantTest is Test {
     address payer = address(0xface);
 
     function setUp() public {
-        tubVerifier = new TreeUpdateBatchGroth16Verifier();
-        batchVerifier = new BatchedGroth16Verifier();
-        permit2 = new DeployPermit2().deployPermit2();
+        ISignatureTransfer p2;
+        (tubVerifier, batchVerifier, p2) = realVerifierStack();
+        permit2 = address(p2);
         token = new MockERC20("M", "M", 18);
 
-        uint64[] memory ids = new uint64[](1);
-        IERC20[] memory tokens = new IERC20[](1);
-        uint256[] memory scales = new uint256[](1);
-        ids[0] = 1;
-        tokens[0] = IERC20(address(token));
-        scales[0] = 1e10;
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
+            singleAsset(IERC20(address(token)), 1, 1e10);
 
-        masp = new MASP(
-            IVerifier(address(tubVerifier)),
-            IBatchVerifier(address(batchVerifier)),
-            ISignatureTransfer(address(permit2)),
-            ids,
-            tokens,
-            scales,
-            uniformBps(ids.length, 25),
-            uniformBps(ids.length, 25),
-            address(0xfee),
-            address(this)
-        );
+        masp = deployPoolUniform(tubVerifier, batchVerifier, p2, ids, tokens, scales, 25, address(0xfee), address(this));
 
-        // Permissive ERC-1271 stub at payer so any sig bytes pass Permit2.
-        MockERC1271 stub = new MockERC1271();
-        vm.etch(payer, address(stub).code);
+        Stubs.installPermissiveERC1271(payer);
 
-        // Mock the batch SNARK verifier to always return true.
-        vm.mockCall(address(tubVerifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        // flushBatch's only real dependency that requires a depth-10 proof.
+        Stubs.acceptTreeUpdateProofs(tubVerifier, true);
 
         handler = new EscrowFeeHandler(masp, permit2, token, payer);
         targetContract(address(handler));

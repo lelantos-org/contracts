@@ -1,0 +1,6682 @@
+{
+  "#meta": {
+    "format": "ITF",
+    "format-description": "https://apalache-mc.org/docs/adr/015adr-trace.html",
+    "source": "spec/fee_burner.qnt",
+    "status": "ok",
+    "description": "Created by Quint; regenerate with `quint-sol-connect gen`",
+    "exemplarOf": "trace-007.json"
+  },
+  "vars": [
+    "paused",
+    "soldTotal",
+    "nowTs",
+    "burnedTotal",
+    "burnerTokenBal",
+    "lotEnabled",
+    "largeFills",
+    "flatDecays",
+    "accruedTotal",
+    "govInTotal",
+    "burnerGovBal",
+    "timeAdvanced",
+    "startedAt",
+    "fillCount",
+    "govSupply",
+    "lastTouchAt",
+    "startPrice",
+    "ratchetViolations",
+    "bidderGov",
+    "flatRatchets",
+    "minPrice",
+    "costBasis",
+    "secondaryGov",
+    "smallFills",
+    "mbt::actionTaken",
+    "mbt::nondetPicks"
+  ],
+  "states": [
+    {
+      "#meta": {
+        "index": 0
+      },
+      "accruedTotal": {
+        "#bigint": "0"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "0"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "0"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "init",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "0"
+      },
+      "nowTs": {
+        "#bigint": "0"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "0"
+      },
+      "startedAt": {
+        "#bigint": "0"
+      },
+      "timeAdvanced": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 1
+      },
+      "accruedTotal": {
+        "#bigint": "0"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "0"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "0"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "0"
+      },
+      "nowTs": {
+        "#bigint": "1000"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "0"
+      },
+      "startedAt": {
+        "#bigint": "0"
+      },
+      "timeAdvanced": {
+        "#bigint": "1000"
+      }
+    },
+    {
+      "#meta": {
+        "index": 2
+      },
+      "accruedTotal": {
+        "#bigint": "0"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "0"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "0"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7300"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "0"
+      },
+      "nowTs": {
+        "#bigint": "8300"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "0"
+      },
+      "startedAt": {
+        "#bigint": "0"
+      },
+      "timeAdvanced": {
+        "#bigint": "8300"
+      }
+    },
+    {
+      "#meta": {
+        "index": 3
+      },
+      "accruedTotal": {
+        "#bigint": "0"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "0"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "0"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "0"
+      },
+      "nowTs": {
+        "#bigint": "8300"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "0"
+      },
+      "startedAt": {
+        "#bigint": "0"
+      },
+      "timeAdvanced": {
+        "#bigint": "8300"
+      }
+    },
+    {
+      "#meta": {
+        "index": 4
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100003"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "0"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "100003"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "0"
+      },
+      "nowTs": {
+        "#bigint": "8300"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "0"
+      },
+      "startedAt": {
+        "#bigint": "0"
+      },
+      "timeAdvanced": {
+        "#bigint": "8300"
+      }
+    },
+    {
+      "#meta": {
+        "index": 5
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100003"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "0"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "0"
+      },
+      "nowTs": {
+        "#bigint": "8300"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "0"
+      },
+      "startedAt": {
+        "#bigint": "0"
+      },
+      "timeAdvanced": {
+        "#bigint": "8300"
+      }
+    },
+    {
+      "#meta": {
+        "index": 6
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100003"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "0"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "0"
+      },
+      "nowTs": {
+        "#bigint": "8301"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "0"
+      },
+      "startedAt": {
+        "#bigint": "0"
+      },
+      "timeAdvanced": {
+        "#bigint": "8301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 7
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100003"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "8301"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "8301"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "8301"
+      },
+      "timeAdvanced": {
+        "#bigint": "8301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 8
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100003"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "8301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "8301"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "8301"
+      },
+      "timeAdvanced": {
+        "#bigint": "8301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 9
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100003"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "8301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "8301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "8301"
+      },
+      "timeAdvanced": {
+        "#bigint": "8301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 10
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "100000000000000000000000"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100003"
+      },
+      "costBasis": {
+        "#bigint": "0"
+      },
+      "fillCount": {
+        "#bigint": "0"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "0"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "8301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "50000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "0"
+      },
+      "smallFills": {
+        "#bigint": "0"
+      },
+      "soldTotal": {
+        "#bigint": "0"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "8301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 11
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999999999"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "98994"
+      },
+      "costBasis": {
+        "#bigint": "403600000000000000"
+      },
+      "fillCount": {
+        "#bigint": "1"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1009"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "1"
+      },
+      "smallFills": {
+        "#bigint": "1"
+      },
+      "soldTotal": {
+        "#bigint": "1009"
+      },
+      "startPrice": {
+        "#bigint": "403080000000000"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 12
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999999999"
+      },
+      "burnedTotal": {
+        "#bigint": "0"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "98994"
+      },
+      "costBasis": {
+        "#bigint": "403600000000000000"
+      },
+      "fillCount": {
+        "#bigint": "1"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1"
+      },
+      "govSupply": {
+        "#bigint": "1000000000000000000000000000"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "1"
+      },
+      "smallFills": {
+        "#bigint": "1"
+      },
+      "soldTotal": {
+        "#bigint": "1009"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 13
+      },
+      "accruedTotal": {
+        "#bigint": "100003"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999999997"
+      },
+      "burnedTotal": {
+        "#bigint": "1"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "98993"
+      },
+      "costBasis": {
+        "#bigint": "1638167890123456789"
+      },
+      "fillCount": {
+        "#bigint": "2"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "3"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999999"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "2"
+      },
+      "smallFills": {
+        "#bigint": "2"
+      },
+      "soldTotal": {
+        "#bigint": "1010"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 14
+      },
+      "accruedTotal": {
+        "#bigint": "100004"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999999997"
+      },
+      "burnedTotal": {
+        "#bigint": "1"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "98994"
+      },
+      "costBasis": {
+        "#bigint": "1638167890123456789"
+      },
+      "fillCount": {
+        "#bigint": "2"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "3"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999999"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "2"
+      },
+      "smallFills": {
+        "#bigint": "2"
+      },
+      "soldTotal": {
+        "#bigint": "1010"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 15
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999999997"
+      },
+      "burnedTotal": {
+        "#bigint": "1"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99001"
+      },
+      "costBasis": {
+        "#bigint": "1638167890123456789"
+      },
+      "fillCount": {
+        "#bigint": "2"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "3"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999999"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "2"
+      },
+      "smallFills": {
+        "#bigint": "2"
+      },
+      "soldTotal": {
+        "#bigint": "1010"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 16
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999999997"
+      },
+      "burnedTotal": {
+        "#bigint": "1"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99001"
+      },
+      "costBasis": {
+        "#bigint": "1638167890123456789"
+      },
+      "fillCount": {
+        "#bigint": "2"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "3"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999999"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "2"
+      },
+      "smallFills": {
+        "#bigint": "2"
+      },
+      "soldTotal": {
+        "#bigint": "1010"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 17
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999999997"
+      },
+      "burnedTotal": {
+        "#bigint": "1"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99001"
+      },
+      "costBasis": {
+        "#bigint": "1638167890123456789"
+      },
+      "fillCount": {
+        "#bigint": "2"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "3"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999999"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "2"
+      },
+      "smallFills": {
+        "#bigint": "2"
+      },
+      "soldTotal": {
+        "#bigint": "1010"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 18
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999999995"
+      },
+      "burnedTotal": {
+        "#bigint": "2"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99000"
+      },
+      "costBasis": {
+        "#bigint": "2872735780246913578"
+      },
+      "fillCount": {
+        "#bigint": "3"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "5"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999998"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "3"
+      },
+      "smallFills": {
+        "#bigint": "3"
+      },
+      "soldTotal": {
+        "#bigint": "1011"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 19
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1009"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58301"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1244197519666419751"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58301"
+      }
+    },
+    {
+      "#meta": {
+        "index": 20
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "58302"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1244197519666419751"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "58302"
+      }
+    },
+    {
+      "#meta": {
+        "index": 21
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3600"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "61902"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1244197519666419751"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "61902"
+      }
+    },
+    {
+      "#meta": {
+        "index": 22
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "58301"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "61902"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1244197519666419751"
+      },
+      "startedAt": {
+        "#bigint": "58301"
+      },
+      "timeAdvanced": {
+        "#bigint": "61902"
+      }
+    },
+    {
+      "#meta": {
+        "index": 23
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "61902"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "61902"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "61902"
+      },
+      "timeAdvanced": {
+        "#bigint": "61902"
+      }
+    },
+    {
+      "#meta": {
+        "index": 24
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "61902"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7300"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "69202"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "61902"
+      },
+      "timeAdvanced": {
+        "#bigint": "69202"
+      }
+    },
+    {
+      "#meta": {
+        "index": 25
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "61902"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "69202"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "61902"
+      },
+      "timeAdvanced": {
+        "#bigint": "69202"
+      }
+    },
+    {
+      "#meta": {
+        "index": 26
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "61902"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "70202"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "61902"
+      },
+      "timeAdvanced": {
+        "#bigint": "70202"
+      }
+    },
+    {
+      "#meta": {
+        "index": 27
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "61902"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "70202"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "61902"
+      },
+      "timeAdvanced": {
+        "#bigint": "70202"
+      }
+    },
+    {
+      "#meta": {
+        "index": 28
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998749"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97991"
+      },
+      "costBasis": {
+        "#bigint": "1248551736914814813679"
+      },
+      "fillCount": {
+        "#bigint": "4"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1251"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "61902"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3600"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "73802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "419"
+      },
+      "smallFills": {
+        "#bigint": "4"
+      },
+      "soldTotal": {
+        "#bigint": "2020"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "61902"
+      },
+      "timeAdvanced": {
+        "#bigint": "73802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 29
+      },
+      "accruedTotal": {
+        "#bigint": "100011"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998748"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97990"
+      },
+      "costBasis": {
+        "#bigint": "1248682481083734138096"
+      },
+      "fillCount": {
+        "#bigint": "5"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1252"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "73802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "73802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "420"
+      },
+      "smallFills": {
+        "#bigint": "5"
+      },
+      "soldTotal": {
+        "#bigint": "2021"
+      },
+      "startPrice": {
+        "#bigint": "130744168919324417"
+      },
+      "startedAt": {
+        "#bigint": "73802"
+      },
+      "timeAdvanced": {
+        "#bigint": "73802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 30
+      },
+      "accruedTotal": {
+        "#bigint": "200014"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998748"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197993"
+      },
+      "costBasis": {
+        "#bigint": "1248682481083734138096"
+      },
+      "fillCount": {
+        "#bigint": "5"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1252"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "73802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "100003"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "73802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "420"
+      },
+      "smallFills": {
+        "#bigint": "5"
+      },
+      "soldTotal": {
+        "#bigint": "2021"
+      },
+      "startPrice": {
+        "#bigint": "130744168919324417"
+      },
+      "startedAt": {
+        "#bigint": "73802"
+      },
+      "timeAdvanced": {
+        "#bigint": "73802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 31
+      },
+      "accruedTotal": {
+        "#bigint": "200014"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998748"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197993"
+      },
+      "costBasis": {
+        "#bigint": "1248682481083734138096"
+      },
+      "fillCount": {
+        "#bigint": "5"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1252"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "73802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "50000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "123802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "420"
+      },
+      "smallFills": {
+        "#bigint": "5"
+      },
+      "soldTotal": {
+        "#bigint": "2021"
+      },
+      "startPrice": {
+        "#bigint": "130744168919324417"
+      },
+      "startedAt": {
+        "#bigint": "73802"
+      },
+      "timeAdvanced": {
+        "#bigint": "123802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 32
+      },
+      "accruedTotal": {
+        "#bigint": "200014"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998748"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197993"
+      },
+      "costBasis": {
+        "#bigint": "1248682481083734138096"
+      },
+      "fillCount": {
+        "#bigint": "5"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1252"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "73802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "124802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "420"
+      },
+      "smallFills": {
+        "#bigint": "5"
+      },
+      "soldTotal": {
+        "#bigint": "2021"
+      },
+      "startPrice": {
+        "#bigint": "130744168919324417"
+      },
+      "startedAt": {
+        "#bigint": "73802"
+      },
+      "timeAdvanced": {
+        "#bigint": "124802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 33
+      },
+      "accruedTotal": {
+        "#bigint": "200021"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998748"
+      },
+      "burnedTotal": {
+        "#bigint": "832"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "198000"
+      },
+      "costBasis": {
+        "#bigint": "1248682481083734138096"
+      },
+      "fillCount": {
+        "#bigint": "5"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1252"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999168"
+      },
+      "largeFills": {
+        "#bigint": "0"
+      },
+      "lastTouchAt": {
+        "#bigint": "73802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "124802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "420"
+      },
+      "smallFills": {
+        "#bigint": "5"
+      },
+      "soldTotal": {
+        "#bigint": "2021"
+      },
+      "startPrice": {
+        "#bigint": "130744168919324417"
+      },
+      "startedAt": {
+        "#bigint": "73802"
+      },
+      "timeAdvanced": {
+        "#bigint": "124802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 34
+      },
+      "accruedTotal": {
+        "#bigint": "200021"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998707"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97997"
+      },
+      "costBasis": {
+        "#bigint": "1288683681083734138096"
+      },
+      "fillCount": {
+        "#bigint": "6"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1293"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "100003"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "124802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "434"
+      },
+      "smallFills": {
+        "#bigint": "5"
+      },
+      "soldTotal": {
+        "#bigint": "102024"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "124802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 35
+      },
+      "accruedTotal": {
+        "#bigint": "200021"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "97996"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "124802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "124802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 36
+      },
+      "accruedTotal": {
+        "#bigint": "300024"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197999"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "100003"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "124802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "124802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 37
+      },
+      "accruedTotal": {
+        "#bigint": "300024"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197999"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "124802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "124802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 38
+      },
+      "accruedTotal": {
+        "#bigint": "300024"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197999"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "50000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "174802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "174802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 39
+      },
+      "accruedTotal": {
+        "#bigint": "300024"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197999"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "174802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "174802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 40
+      },
+      "accruedTotal": {
+        "#bigint": "300024"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197999"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "175802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "175802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 41
+      },
+      "accruedTotal": {
+        "#bigint": "300024"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "197999"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "176802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "176802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 42
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "124802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1009"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "176802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "557080000000000"
+      },
+      "startedAt": {
+        "#bigint": "124802"
+      },
+      "timeAdvanced": {
+        "#bigint": "176802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 43
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "176802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "176802"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "176802"
+      },
+      "timeAdvanced": {
+        "#bigint": "176802"
+      }
+    },
+    {
+      "#meta": {
+        "index": 44
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "176802"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3600"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "176802"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 45
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 46
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 47
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999998706"
+      },
+      "burnedTotal": {
+        "#bigint": "859"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "1288684238163734138096"
+      },
+      "fillCount": {
+        "#bigint": "7"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "1294"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999999141"
+      },
+      "largeFills": {
+        "#bigint": "1"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "435"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "102025"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 48
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875245"
+      },
+      "burnedTotal": {
+        "#bigint": "83170"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99005"
+      },
+      "costBasis": {
+        "#bigint": "124749176954179783408463"
+      },
+      "fillCount": {
+        "#bigint": "8"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124755"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916830"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "100003"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41585"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "202028"
+      },
+      "startPrice": {
+        "#bigint": "1716913564794691356"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 49
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875245"
+      },
+      "burnedTotal": {
+        "#bigint": "83170"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99005"
+      },
+      "costBasis": {
+        "#bigint": "124749176954179783408463"
+      },
+      "fillCount": {
+        "#bigint": "8"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124755"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916830"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41585"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "202028"
+      },
+      "startPrice": {
+        "#bigint": "1716913564794691356"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 50
+      },
+      "accruedTotal": {
+        "#bigint": "301033"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875245"
+      },
+      "burnedTotal": {
+        "#bigint": "83170"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99005"
+      },
+      "costBasis": {
+        "#bigint": "124749176954179783408463"
+      },
+      "fillCount": {
+        "#bigint": "8"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124755"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916830"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41585"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "202028"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 51
+      },
+      "accruedTotal": {
+        "#bigint": "401036"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875245"
+      },
+      "burnedTotal": {
+        "#bigint": "83170"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "124749176954179783408463"
+      },
+      "fillCount": {
+        "#bigint": "8"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124755"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916830"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "100003"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41585"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "202028"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 52
+      },
+      "accruedTotal": {
+        "#bigint": "401037"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875245"
+      },
+      "burnedTotal": {
+        "#bigint": "83170"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199009"
+      },
+      "costBasis": {
+        "#bigint": "124749176954179783408463"
+      },
+      "fillCount": {
+        "#bigint": "8"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124755"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916830"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41585"
+      },
+      "smallFills": {
+        "#bigint": "6"
+      },
+      "soldTotal": {
+        "#bigint": "202028"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 53
+      },
+      "accruedTotal": {
+        "#bigint": "401037"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875243"
+      },
+      "burnedTotal": {
+        "#bigint": "83171"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "124750411522069906865252"
+      },
+      "fillCount": {
+        "#bigint": "9"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124757"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916829"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41586"
+      },
+      "smallFills": {
+        "#bigint": "7"
+      },
+      "soldTotal": {
+        "#bigint": "202029"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 54
+      },
+      "accruedTotal": {
+        "#bigint": "401037"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875243"
+      },
+      "burnedTotal": {
+        "#bigint": "83171"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "124750411522069906865252"
+      },
+      "fillCount": {
+        "#bigint": "9"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124757"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916829"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41586"
+      },
+      "smallFills": {
+        "#bigint": "7"
+      },
+      "soldTotal": {
+        "#bigint": "202029"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 55
+      },
+      "accruedTotal": {
+        "#bigint": "401037"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875243"
+      },
+      "burnedTotal": {
+        "#bigint": "83171"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "124750411522069906865252"
+      },
+      "fillCount": {
+        "#bigint": "9"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124757"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916829"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41586"
+      },
+      "smallFills": {
+        "#bigint": "7"
+      },
+      "soldTotal": {
+        "#bigint": "202029"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 56
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875243"
+      },
+      "burnedTotal": {
+        "#bigint": "83171"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200017"
+      },
+      "costBasis": {
+        "#bigint": "124750411522069906865252"
+      },
+      "fillCount": {
+        "#bigint": "9"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124757"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916829"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1009"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41586"
+      },
+      "smallFills": {
+        "#bigint": "7"
+      },
+      "soldTotal": {
+        "#bigint": "202029"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 57
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875243"
+      },
+      "burnedTotal": {
+        "#bigint": "83171"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200017"
+      },
+      "costBasis": {
+        "#bigint": "124750411522069906865252"
+      },
+      "fillCount": {
+        "#bigint": "9"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124757"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916829"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41586"
+      },
+      "smallFills": {
+        "#bigint": "7"
+      },
+      "soldTotal": {
+        "#bigint": "202029"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 58
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875243"
+      },
+      "burnedTotal": {
+        "#bigint": "83171"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200017"
+      },
+      "costBasis": {
+        "#bigint": "124750411522069906865252"
+      },
+      "fillCount": {
+        "#bigint": "9"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124757"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916829"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41586"
+      },
+      "smallFills": {
+        "#bigint": "7"
+      },
+      "soldTotal": {
+        "#bigint": "202029"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 59
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999875243"
+      },
+      "burnedTotal": {
+        "#bigint": "83171"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200017"
+      },
+      "costBasis": {
+        "#bigint": "124750411522069906865252"
+      },
+      "fillCount": {
+        "#bigint": "9"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "124757"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999916829"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "41586"
+      },
+      "smallFills": {
+        "#bigint": "7"
+      },
+      "soldTotal": {
+        "#bigint": "202029"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 60
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999873997"
+      },
+      "burnedTotal": {
+        "#bigint": "84001"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "125996090523204474765353"
+      },
+      "fillCount": {
+        "#bigint": "10"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "126003"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999915999"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1009"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "42002"
+      },
+      "smallFills": {
+        "#bigint": "8"
+      },
+      "soldTotal": {
+        "#bigint": "203038"
+      },
+      "startPrice": {
+        "#bigint": "1239259248105925924"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 61
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999873997"
+      },
+      "burnedTotal": {
+        "#bigint": "84001"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "199008"
+      },
+      "costBasis": {
+        "#bigint": "125996090523204474765353"
+      },
+      "fillCount": {
+        "#bigint": "10"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "126003"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999915999"
+      },
+      "largeFills": {
+        "#bigint": "2"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "42002"
+      },
+      "smallFills": {
+        "#bigint": "8"
+      },
+      "soldTotal": {
+        "#bigint": "203038"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 62
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750536"
+      },
+      "burnedTotal": {
+        "#bigint": "166312"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99005"
+      },
+      "costBasis": {
+        "#bigint": "249456583239220524035720"
+      },
+      "fillCount": {
+        "#bigint": "11"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249464"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833688"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "100003"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83152"
+      },
+      "smallFills": {
+        "#bigint": "8"
+      },
+      "soldTotal": {
+        "#bigint": "303041"
+      },
+      "startPrice": {
+        "#bigint": "1716913564794691356"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 63
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750536"
+      },
+      "burnedTotal": {
+        "#bigint": "166312"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99005"
+      },
+      "costBasis": {
+        "#bigint": "249456583239220524035720"
+      },
+      "fillCount": {
+        "#bigint": "11"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249464"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833688"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83152"
+      },
+      "smallFills": {
+        "#bigint": "8"
+      },
+      "soldTotal": {
+        "#bigint": "303041"
+      },
+      "startPrice": {
+        "#bigint": "1716913564794691356"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 64
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750534"
+      },
+      "burnedTotal": {
+        "#bigint": "166313"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "99004"
+      },
+      "costBasis": {
+        "#bigint": "249458300152785318727076"
+      },
+      "fillCount": {
+        "#bigint": "12"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249466"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833687"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83153"
+      },
+      "smallFills": {
+        "#bigint": "9"
+      },
+      "soldTotal": {
+        "#bigint": "303042"
+      },
+      "startPrice": {
+        "#bigint": "1716913564794691356"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 65
+      },
+      "accruedTotal": {
+        "#bigint": "402046"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "98997"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "buy",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1716913564794691356"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 66
+      },
+      "accruedTotal": {
+        "#bigint": "403055"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100006"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1009"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1716913564794691356"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 67
+      },
+      "accruedTotal": {
+        "#bigint": "403055"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100006"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1716913564794691356"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 68
+      },
+      "accruedTotal": {
+        "#bigint": "403055"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100006"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 69
+      },
+      "accruedTotal": {
+        "#bigint": "403062"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100013"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 70
+      },
+      "accruedTotal": {
+        "#bigint": "403069"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "100020"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 71
+      },
+      "accruedTotal": {
+        "#bigint": "503072"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200023"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "100003"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "180402"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "180402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 72
+      },
+      "accruedTotal": {
+        "#bigint": "503072"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200023"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "50000"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "230402"
+      },
+      "paused": true,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "230402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 73
+      },
+      "accruedTotal": {
+        "#bigint": "503072"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200023"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "230402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "230402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 74
+      },
+      "accruedTotal": {
+        "#bigint": "503073"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200024"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "230402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "230402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 75
+      },
+      "accruedTotal": {
+        "#bigint": "503080"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200031"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "accrueFees",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "230402"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "230402"
+      }
+    },
+    {
+      "#meta": {
+        "index": 76
+      },
+      "accruedTotal": {
+        "#bigint": "503080"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200031"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "180402"
+      },
+      "lotEnabled": false,
+      "mbt::actionTaken": "wait",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "7300"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "237702"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "180402"
+      },
+      "timeAdvanced": {
+        "#bigint": "237702"
+      }
+    },
+    {
+      "#meta": {
+        "index": 77
+      },
+      "accruedTotal": {
+        "#bigint": "503080"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200031"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "237702"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "237702"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "237702"
+      },
+      "timeAdvanced": {
+        "#bigint": "237702"
+      }
+    },
+    {
+      "#meta": {
+        "index": 78
+      },
+      "accruedTotal": {
+        "#bigint": "503080"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200031"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "237702"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setPaused",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "237702"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "237702"
+      },
+      "timeAdvanced": {
+        "#bigint": "237702"
+      }
+    },
+    {
+      "#meta": {
+        "index": 79
+      },
+      "accruedTotal": {
+        "#bigint": "503080"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200031"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "237702"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "237702"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "237702"
+      },
+      "timeAdvanced": {
+        "#bigint": "237702"
+      }
+    },
+    {
+      "#meta": {
+        "index": 80
+      },
+      "accruedTotal": {
+        "#bigint": "503080"
+      },
+      "bidderGov": {
+        "#bigint": "99999999999999999750521"
+      },
+      "burnedTotal": {
+        "#bigint": "166321"
+      },
+      "burnerGovBal": {
+        "#bigint": "0"
+      },
+      "burnerTokenBal": {
+        "#bigint": "200031"
+      },
+      "costBasis": {
+        "#bigint": "249470318547738881566568"
+      },
+      "fillCount": {
+        "#bigint": "13"
+      },
+      "flatDecays": {
+        "#bigint": "0"
+      },
+      "flatRatchets": {
+        "#bigint": "0"
+      },
+      "govInTotal": {
+        "#bigint": "249479"
+      },
+      "govSupply": {
+        "#bigint": "999999999999999999999833679"
+      },
+      "largeFills": {
+        "#bigint": "3"
+      },
+      "lastTouchAt": {
+        "#bigint": "237702"
+      },
+      "lotEnabled": true,
+      "mbt::actionTaken": "setLot",
+      "mbt::nondetPicks": {
+        "p": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "minPrice": {
+        "#bigint": "400000000000000"
+      },
+      "nowTs": {
+        "#bigint": "237702"
+      },
+      "paused": false,
+      "ratchetViolations": {
+        "#bigint": "0"
+      },
+      "secondaryGov": {
+        "#bigint": "83158"
+      },
+      "smallFills": {
+        "#bigint": "10"
+      },
+      "soldTotal": {
+        "#bigint": "303049"
+      },
+      "startPrice": {
+        "#bigint": "1234567890123456789"
+      },
+      "startedAt": {
+        "#bigint": "237702"
+      },
+      "timeAdvanced": {
+        "#bigint": "237702"
+      }
+    }
+  ]
+}

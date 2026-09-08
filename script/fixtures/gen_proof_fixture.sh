@@ -18,13 +18,13 @@
 #
 # Fetch them first (they are not in the npm tarball):
 #
-#   gh release download v0.12.1 --repo lelantos-org/circuits -D <dir> \
+#   gh release download v0.14.0 --repo lelantos-org/circuits -D <dir> \
 #     -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
 #
 # then point RELEASE at <dir> and CIRCUITS at a circuits checkout (for the
 # vectors and the snarkjs binary):
 #
-#   RELEASE=/path/to/rel0112 CIRCUITS=../circuits \
+#   RELEASE=/path/to/rel0140 CIRCUITS=../circuits \
 #     script/fixtures/gen_proof_fixture.sh tree_update_batch
 #
 # Groth16 proving is randomized, so a refresh produces a different but equally
@@ -60,7 +60,7 @@ esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CIRCUITS="$(cd "${CIRCUITS:-$HERE/../circuits}" && pwd)"
-RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of v0.12.1 release assets}" && pwd)"
+RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of v0.14.0 release assets}" && pwd)"
 
 VECTOR="$CIRCUITS/vectors/$VECTOR_NAME"
 SNARKJS="$CIRCUITS/node_modules/.bin/snarkjs"
@@ -102,10 +102,17 @@ trap 'rm -rf "$TMP"' EXIT
 COUNT="$(python3 -c "import json;print(len(json.load(open('$VECTOR'))['vectors']))")"
 
 for ((i = 0; i < COUNT; i++)); do
+    # The published witness carries the logical public inputs the circuit does
+    # NOT declare as signals — the address words, the FMD clue triples and the
+    # aux digest, which bind through the Fiat-Shamir challenge instead. The
+    # witness calculator rejects an undeclared key ("Too many values for input
+    # signal"), so drop exactly the set the vector names.
     python3 -c "
 import json
 d = json.load(open('$VECTOR'))
-json.dump(d['vectors'][$i]['witness'], open('$TMP/in_$i.json', 'w'))
+drop = set(d['circuit'].get('challengeOnly', []))
+w = {k: v for k, v in d['vectors'][$i]['witness'].items() if k not in drop}
+json.dump(w, open('$TMP/in_$i.json', 'w'))
 "
     # The release ships the bare .wasm without the generated CommonJS witness
     # builder, so use snarkjs rather than generate_witness.js.

@@ -8,38 +8,44 @@ import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { uniformBps } from "./FeeArrays.sol";
+import { deployBehindProxy, poolInitCalldata } from "./PoolDeployer.sol";
 
 /// Test-only subclass that lets a test seed the commitment-tree state
 /// directly (root + committedCount) without going through the
 /// `deposit` + `flushBatch` chain. Used by `MASP.transferSnark.t.sol`
 /// to verify the spend-side Groth16 pair against a pre-populated tree.
+/// The pool is deployable only behind a proxy, so this takes no constructor
+/// arguments; `deploySpendHarness` initializes it behind one.
 contract MASPSpendHarness is MASP {
-    constructor(
-        IVerifier treeUpdateBatchVerifier_,
-        IBatchVerifier batchVerifier_,
-        ISignatureTransfer permit2_,
-        uint64[] memory ids,
-        IERC20[] memory tokens,
-        uint256[] memory scales,
-        address treasury_,
-        address owner_
-    )
-        MASP(
-            treeUpdateBatchVerifier_,
-            batchVerifier_,
-            permit2_,
-            ids,
-            tokens,
-            scales,
-            uniformBps(ids.length, 0),
-            uniformBps(ids.length, 0),
-            treasury_,
-            owner_
-        )
-    { }
-
     /// Seed the tree to a known root + committedCount without proof.
     function seedRoot(bytes32 newRoot, uint64 inserted) external {
         _advanceRoot(newRoot, inserted, currentRoot());
     }
+}
+
+/// Deploys `MASPSpendHarness` behind the standard test proxy, at zero fees.
+function deploySpendHarness(
+    IVerifier treeUpdateBatchVerifier_,
+    IBatchVerifier batchVerifier_,
+    ISignatureTransfer permit2_,
+    uint64[] memory ids,
+    IERC20[] memory tokens,
+    uint256[] memory scales,
+    address treasury_,
+    address owner_
+) returns (MASPSpendHarness) {
+    MASPSpendHarness impl = new MASPSpendHarness();
+    bytes memory initData = poolInitCalldata(
+        treeUpdateBatchVerifier_,
+        batchVerifier_,
+        permit2_,
+        ids,
+        tokens,
+        scales,
+        uniformBps(ids.length, 0),
+        uniformBps(ids.length, 0),
+        treasury_,
+        owner_
+    );
+    return MASPSpendHarness(deployBehindProxy(address(impl), initData));
 }

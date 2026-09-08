@@ -20,7 +20,9 @@ import { MockERC4626 } from "../mocks/MockERC4626.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
-import { uniformBps } from "../utils/FeeArrays.sol";
+import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
+import { Stubs } from "../utils/Stubs.sol";
+import { TestConstants } from "../utils/TestConstants.sol";
 
 /// Drives random sequences over one plain id and one yield id sharing a single
 /// ERC-20, across the whole surface: shield, escrow flush and cancel, unshield,
@@ -36,12 +38,12 @@ import { uniformBps } from "../utils/FeeArrays.sol";
 contract YieldHandler is Test {
     uint64 internal constant PLAIN_ID = 1;
     uint64 internal constant YIELD_ID = 9;
-    uint256 internal constant SCALE = 1e10;
-    uint16 internal constant FEE_BPS = 25;
+    uint256 internal constant SCALE = TestConstants.SCALE;
+    uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
 
     address internal constant YIELD_RECIPIENT = address(0xF00D);
     address internal constant PLAIN_RECIPIENT = address(0xBEEF);
-    address internal constant TREASURY = address(0xfee);
+    address internal constant TREASURY = TestConstants.TREASURY;
 
     MASP public masp;
     MockERC20 public token;
@@ -215,7 +217,10 @@ contract YieldHandler is Test {
         tpi.cms[0] = bytes32(e.seed);
         tpi.cms[1] = bytes32(e.seed + 1);
         tpi.leafAsset[0] = e.assetId;
-        tpi.leafAsset[1] = e.assetId;
+        // leafPublicIn[1] stays 0, so the fee leaf's asset must be 0 too:
+        // `tree_update_batch.circom` step 7a canonicalises the asset of a leaf
+        // whose Pedersen binding cannot see it.
+        tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[0] = e.publicIn;
         tpi.isDeposit[0] = 1;
         tpi.isDeposit[1] = 1;
@@ -379,9 +384,9 @@ contract YieldHandler is Test {
 abstract contract YieldInvariantBase is Test {
     uint64 internal constant PLAIN_ID = 1;
     uint64 internal constant YIELD_ID = 9;
-    uint256 internal constant SCALE = 1e10;
-    uint16 internal constant FEE_BPS = 25;
-    address internal constant TREASURY = address(0xfee);
+    uint256 internal constant SCALE = TestConstants.SCALE;
+    uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
+    address internal constant TREASURY = TestConstants.TREASURY;
 
     MASP internal masp;
     MockERC20 internal token;
@@ -400,32 +405,18 @@ abstract contract YieldInvariantBase is Test {
         MockBatchVerifier bv = new MockBatchVerifier();
         address permit2 = new DeployPermit2().deployPermit2();
 
-        uint64[] memory ids = new uint64[](1);
-        IERC20[] memory tokens = new IERC20[](1);
-        uint256[] memory scales = new uint256[](1);
-        ids[0] = PLAIN_ID;
-        tokens[0] = IERC20(address(token));
-        scales[0] = SCALE;
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
+            singleAsset(IERC20(address(token)), PLAIN_ID, SCALE);
 
-        masp = new MASP(
-            tub,
-            bv,
-            ISignatureTransfer(permit2),
-            ids,
-            tokens,
-            scales,
-            uniformBps(1, FEE_BPS),
-            uniformBps(1, FEE_BPS),
-            TREASURY,
-            address(this)
+        masp = deployPoolUniform(
+            tub, bv, ISignatureTransfer(permit2), ids, tokens, scales, FEE_BPS, TREASURY, address(this)
         );
 
         vault = new MockERC4626(IERC20(address(token)));
         venue = new ERC4626Venue(address(masp), address(vault), address(token));
         masp.addYieldAsset(YIELD_ID, IERC20(address(token)), SCALE, FEE_BPS, FEE_BPS, address(venue), 500, _perfBps());
 
-        bv.setResult(true);
-        vm.mockCall(address(tub), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        Stubs.acceptAllProofs(tub, bv);
 
         address payer = address(0xa11ce);
         vm.prank(payer);

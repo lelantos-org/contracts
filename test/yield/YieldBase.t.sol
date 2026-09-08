@@ -20,7 +20,9 @@ import { MockERC4626 } from "../mocks/MockERC4626.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
-import { uniformBps } from "../utils/FeeArrays.sol";
+import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
+import { Stubs } from "../utils/Stubs.sol";
+import { TestConstants } from "../utils/TestConstants.sol";
 
 /// Shared rig for the yield-index tests.
 ///
@@ -43,17 +45,17 @@ contract YieldBase is Test {
     uint256 internal constant FINE_SCALE = 1;
     /// 1e10, matching the deployed WETH rows. USDC's `scale = 1` would let an
     /// index formula that drops `scale` pass; this one will not.
-    uint256 internal constant SCALE = 1e10;
-    uint16 internal constant FEE_BPS = 25;
+    uint256 internal constant SCALE = TestConstants.SCALE;
+    uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
     uint16 internal constant BUFFER_BPS = 500; // 5% kept unlent
     uint16 internal constant PERF_BPS = 1000; // 10% of yield
     uint256 internal constant RAY = 1e27;
 
     address internal constant RELAYER = address(0xCA11);
     address internal constant SPEND_PAYER = address(0xBEEF);
-    address internal constant RECIPIENT = address(0xF00D);
-    address internal constant TREASURY = address(0xfee);
-    address internal constant OWNER = address(0x0117e7);
+    address internal constant RECIPIENT = TestConstants.RECIPIENT;
+    address internal constant TREASURY = TestConstants.TREASURY;
+    address internal constant OWNER = TestConstants.OWNER;
 
     MockERC20 internal token;
     MockERC4626 internal vault;
@@ -73,22 +75,17 @@ contract YieldBase is Test {
         batchVerifier = new MockBatchVerifier();
         permit2 = new DeployPermit2().deployPermit2();
 
-        uint64[] memory ids = new uint64[](1);
-        IERC20[] memory tokens = new IERC20[](1);
-        uint256[] memory scales = new uint256[](1);
-        ids[0] = PLAIN_ID;
-        tokens[0] = IERC20(address(token));
-        scales[0] = SCALE;
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
+            singleAsset(IERC20(address(token)), PLAIN_ID, SCALE);
 
-        masp = new MASP(
+        masp = deployPoolUniform(
             tubVerifier,
             batchVerifier,
             ISignatureTransfer(address(permit2)),
             ids,
             tokens,
             scales,
-            uniformBps(ids.length, FEE_BPS),
-            uniformBps(ids.length, FEE_BPS),
+            FEE_BPS,
             TREASURY,
             OWNER
         );
@@ -109,8 +106,7 @@ contract YieldBase is Test {
             FINE_ID, IERC20(address(token)), FINE_SCALE, FEE_BPS, FEE_BPS, address(venueFine), BUFFER_BPS, PERF_BPS
         );
 
-        batchVerifier.setResult(true);
-        vm.mockCall(address(tubVerifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        Stubs.acceptAllProofs(tubVerifier, batchVerifier);
 
         vm.prank(payer);
         token.approve(permit2, type(uint256).max);

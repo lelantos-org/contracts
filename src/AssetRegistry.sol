@@ -2,16 +2,16 @@
 pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-
 import { Fees } from "./libs/Fees.sol";
+import { OwnableInit } from "./OwnableInit.sol";
+import { UpgradeStorage } from "./UpgradeStorage.sol";
 
 /// Owner-managed registry of supported assets. Each `id` (the SNARK
 /// `publicAssetId`) binds to an ERC-20 and a public-amount to base-units
 /// `scale`. Add-only: an asset can be disabled but never removed, and a disabled
 /// asset blocks new deposits while staying spendable, so notes and escrows can
 /// exit.
-abstract contract AssetRegistry is Ownable {
+abstract contract AssetRegistry is OwnableInit {
     /// `token`, `disabled` and both rates share slot 0 (26 of 32 bytes);
     /// `scale` is slot 1. `_getAsset` loads both slots, so the rates cost
     /// nothing extra; a field spilling into a third slot would add a cold SLOAD
@@ -46,6 +46,7 @@ abstract contract AssetRegistry is Ownable {
     error LengthMismatch();
     error AssetDisabled(uint64 id);
     error AssetFeeTooHigh();
+    error WithdrawFeeRaisedDuringUpgradeWindow();
 
     function asset(uint64 id) external view returns (AssetEntry memory) {
         AssetEntry memory a = _assets[id];
@@ -56,6 +57,24 @@ abstract contract AssetRegistry is Ownable {
     /// Owner-only single-asset add. Reverts if `id` is already registered.
     /// Rates are required rather than defaulted: there is nothing to inherit, so
     /// an omitted rate would register the asset as free.
+    ///
+    /// `id` is an arbitrary caller-chosen `uint64` and nothing on-chain
+    /// constrains the id space, but the deposit path does not treat all id sets
+    /// alike. `tree_update_batch.circom` pins a deposit leaf with the single
+    /// equality `cvDep == leafPublicIn * V^leafAsset + rcv*H`, and
+    /// `HashToAssetGen` is a circomlib Pedersen over a 72-bit message, so
+    /// `V^a = m(a)*BASE0` for a publicly computable `m(a)`. The equality
+    /// therefore pins the product `value * m(a)`, not the pair: two registered
+    /// ids collide when `v*m(a) == v'*m(a')` has a solution with both values
+    /// inside the 64-bit range, letting a depositor pay `v` of the cheap asset
+    /// and later spend the leaf as the expensive one. `cms[k]` is
+    /// depositor-chosen and carries no transact proof, so nothing else catches
+    /// it.
+    ///
+    /// Run `just asset-ids <ids>` in the circuits repo over every id a
+    /// deployment intends to register, BEFORE registering it. Small sequential
+    /// ids are separated by a wide margin; unstructured or hash-like ids are
+    /// where this bites.
     function addAsset(uint64 id, IERC20 token, uint256 scale, uint16 depositBps, uint16 withdrawBps)
         external
         onlyOwner
@@ -70,10 +89,19 @@ abstract contract AssetRegistry is Ownable {
     /// pending deposit or its cancellation. The withdraw leg carries no such
     /// binding and is read at execution, so raising `withdrawBps` reaches spends
     /// already proven but not yet mined.
+    /// While an upgrade is queued the withdraw rate may only fall.
+    ///
+    /// The withdraw leg is read at execution and capped at 20%, so without this
+    /// an exit fee could be raised against holders leaving during the window.
+    /// The deposit leg is unrestricted: it is snapshotted into the escrow digest
+    /// at submit and so cannot reach existing positions.
     function setAssetFee(uint64 id, uint16 depositBps, uint16 withdrawBps) external onlyOwner {
         if (depositBps > Fees.MAX_FEE_BPS || withdrawBps > Fees.MAX_FEE_BPS) revert AssetFeeTooHigh();
         AssetEntry storage a = _assets[id];
         if (address(a.token) == address(0)) revert UnknownAsset(id);
+        if (UpgradeStorage.upgradePending() && withdrawBps > a.withdrawBps) {
+            revert WithdrawFeeRaisedDuringUpgradeWindow();
+        }
         a.depositBps = depositBps;
         a.withdrawBps = withdrawBps;
         emit AssetFeeSet(id, depositBps, withdrawBps);

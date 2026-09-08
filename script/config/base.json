@@ -1,11 +1,29 @@
 {
   "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
   "wrappedNative": "0x4200000000000000000000000000000000000006",
-  "depositBps": [20, 20, 20, 20, 20],
-  "withdrawBps": [20, 20, 20, 20, 20],
+  "depositBps": [
+    20,
+    20,
+    20,
+    20,
+    20
+  ],
+  "withdrawBps": [
+    20,
+    20,
+    20,
+    20,
+    20
+  ],
   "treasury": "0x5bd6FF58B6E4ad4bBe14dBA26F387Ea89C598323",
   "owner": "0x5bd6FF58B6E4ad4bBe14dBA26F387Ea89C598323",
-  "ids": [1, 2, 3, 4, 5],
+  "ids": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
   "tokens": [
     "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     "0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34",
@@ -19,5 +37,8 @@
     "1",
     "10000000000",
     "1"
-  ]
+  ],
+  "proxyAdmin": "0x5bd6FF58B6E4ad4bBe14dBA26F387Ea89C598323",
+  "upgradeDelay": 2592000,
+  "maxPause": 604800
 }

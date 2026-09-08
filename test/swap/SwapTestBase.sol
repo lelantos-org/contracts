@@ -15,6 +15,7 @@ import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockSwapAdapter } from "./mocks/MockSwapAdapter.sol";
 import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
+import { TestConstants } from "../utils/TestConstants.sol";
 
 /// Deployment and payload scaffolding shared by the `SwapWrapper` suites.
 ///
@@ -29,10 +30,10 @@ import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
 abstract contract SwapTestBase is Test {
     uint64 internal constant ASSET_A = 1;
     uint64 internal constant ASSET_B = 2;
-    uint256 internal constant SCALE = 1e10;
-    uint16 internal constant FEE_BPS = 25;
+    uint256 internal constant SCALE = TestConstants.SCALE;
+    uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
     address internal constant OWNER = address(0xC0FFEE);
-    address internal constant TREASURY = address(0xFEE);
+    address internal constant TREASURY = TestConstants.TREASURY;
 
     MockERC20 internal tokenA;
     MockERC20 internal tokenB;

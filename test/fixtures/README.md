@@ -39,8 +39,9 @@ copy is verifiable against the release.
 
 Read by [PubInputs.vector4x6.t.sol](../PubInputs.vector4x6.t.sol), which drives
 `PubInputs.Transact` from the circuit's own witness and compares against the
-`(y, z)` the compiled circuit produced. This pins all 69 coefficient slots
-against an artifact generated outside this repo — the other layout tests only
+`(y, z)` the compiled circuit produced. This pins all 46 coefficient slots and
+the 69-word challenge preimage they are the leading span of, against an artifact
+generated outside this repo — the other layout tests only
 compare the contract to reference code written alongside it.
 
 Refresh by re-copying from `../../circuits/vectors/transact-4x6.json` and
@@ -54,10 +55,20 @@ the copy is verifiable against the release.
 
 Read by [PubInputs.vectorTub.t.sol](../PubInputs.vectorTub.t.sol), the batch
 counterpart to the 4x6 layout test: it drives `PubInputs.TreeUpdateBatch` from
-the circuit's own witness and pins all 52 coefficient slots against the
-`(y, z)` the compiled circuit produced. Unlike the transact vector there is no
-substituted slot — the batch circuit takes every coefficient as a public input,
-so the published `(y, z)` is asserted directly.
+the circuit's own witness and pins all 52 slots against the `(y, z)` the
+compiled circuit produced.
+
+Unlike the transact vector, the preimage and the coefficient vector coincide
+here: every one of the 52 words is pinned by a constraint of its own, so every
+one is evaluated. `leafAsset`, `leafPublicIn` and `isDeposit` are circuit
+signals, and hashing a signal into `z` binds nothing — the prover reads `z`
+first and may pick a witness that disagrees with the calldata it was hashed
+from. The deposit binding pins `leafPublicIn` and `leafAsset` against `cvDep`,
+and step 7a of `tree_update_batch.circom` closes the case it degenerates in:
+`ValueTimesGen(0, gen)` is the identity for every `gen`, so a zero-value leaf
+would leave `leafAsset` holding only a 64-bit range check. The circuit instead
+requires `leafAsset == 0` exactly when `leafPublicIn == 0`. See
+`PubInputs.sol :: BATCH_COEFFS`.
 
 Also read by
 [TreeUpdateBatchVerifier.vector.t.sol](../TreeUpdateBatchVerifier.vector.t.sol)
@@ -96,8 +107,8 @@ Regenerate with `script/fixtures/gen_proof_fixture.sh transact_4x6`.
 
 ### `verification_key_4x6.json`, `verification_key_tree_update_batch.json`
 
-The two published verification keys, copied verbatim from the v0.12.1 release
-(SHA-256 `01be83fc…68f69a` and `de18f5fd…def3d0`). Read by
+The two published verification keys, copied verbatim from the v0.14.0 release
+(SHA-256 `04c41618…9ef193e4` and `4733ebfd…59d7a3e3b8`). Read by
 [VerifyingKeys.t.sol](../VerifyingKeys.t.sol), which pins every constant in
 `src/verifiers/VerifyingKeys.sol` against them. The codegen verifiers' own
 constants are contract-scoped and non-public, so Solidity cannot compare against
@@ -123,9 +134,9 @@ verifier before proving anything, so a mismatched artifact set fails there
 rather than as an unexplained rejection in a test.
 
 ```
-gh release download v0.12.1 --repo lelantos-org/circuits -D /tmp/rel0121 \
+gh release download v0.14.0 --repo lelantos-org/circuits -D /tmp/rel0140 \
   -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
-RELEASE=/tmp/rel0121 CIRCUITS=../circuits \
+RELEASE=/tmp/rel0140 CIRCUITS=../circuits \
   script/fixtures/gen_proof_fixture.sh transact_4x6
 ```
 

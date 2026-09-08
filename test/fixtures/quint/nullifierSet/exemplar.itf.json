@@ -1,0 +1,895 @@
+{
+  "#meta": {
+    "format": "ITF",
+    "format-description": "https://apalache-mc.org/docs/adr/015adr-trace.html",
+    "source": "spec/nullifier_set.qnt",
+    "status": "ok",
+    "description": "Created by Quint; regenerate with `quint-sol-connect gen`",
+    "exemplarOf": "trace-000.json"
+  },
+  "vars": [
+    "consumeCount",
+    "mbt::actionTaken",
+    "mbt::nondetPicks",
+    "spentSet",
+    "mbt::actionTaken",
+    "mbt::nondetPicks"
+  ],
+  "states": [
+    {
+      "#meta": {
+        "index": 0
+      },
+      "consumeCount": {
+        "#bigint": "0"
+      },
+      "mbt::actionTaken": "init",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "spentSet": {
+        "#set": []
+      }
+    },
+    {
+      "#meta": {
+        "index": 1
+      },
+      "consumeCount": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "consume",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "511"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "511"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 2
+      },
+      "consumeCount": {
+        "#bigint": "2"
+      },
+      "mbt::actionTaken": "consume",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "257"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 3
+      },
+      "consumeCount": {
+        "#bigint": "2"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "511"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 4
+      },
+      "consumeCount": {
+        "#bigint": "2"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "257"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 5
+      },
+      "consumeCount": {
+        "#bigint": "2"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "511"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 6
+      },
+      "consumeCount": {
+        "#bigint": "2"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "511"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 7
+      },
+      "consumeCount": {
+        "#bigint": "2"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "511"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 8
+      },
+      "consumeCount": {
+        "#bigint": "3"
+      },
+      "mbt::actionTaken": "consume",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 9
+      },
+      "consumeCount": {
+        "#bigint": "4"
+      },
+      "mbt::actionTaken": "consume",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "512"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 10
+      },
+      "consumeCount": {
+        "#bigint": "5"
+      },
+      "mbt::actionTaken": "consume",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "256"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 11
+      },
+      "consumeCount": {
+        "#bigint": "5"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "512"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 12
+      },
+      "consumeCount": {
+        "#bigint": "5"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "257"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 13
+      },
+      "consumeCount": {
+        "#bigint": "6"
+      },
+      "mbt::actionTaken": "consume",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "255"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 14
+      },
+      "consumeCount": {
+        "#bigint": "6"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "257"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 15
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consume",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 16
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "255"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 17
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "512"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 18
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "256"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 19
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "257"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 20
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "256"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 21
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "255"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 22
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "256"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 23
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "256"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    },
+    {
+      "#meta": {
+        "index": 24
+      },
+      "consumeCount": {
+        "#bigint": "7"
+      },
+      "mbt::actionTaken": "consumeSpent",
+      "mbt::nondetPicks": {
+        "nf": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "spentSet": {
+        "#set": [
+          {
+            "#bigint": "0"
+          },
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "255"
+          },
+          {
+            "#bigint": "256"
+          },
+          {
+            "#bigint": "257"
+          },
+          {
+            "#bigint": "511"
+          },
+          {
+            "#bigint": "512"
+          }
+        ]
+      }
+    }
+  ]
+}

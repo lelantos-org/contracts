@@ -1,19 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
-import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
-
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
-import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
-import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 
-import { MockERC20 } from "../mocks/MockERC20.sol";
-import { MockSwapAdapter } from "./mocks/MockSwapAdapter.sol";
-import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
 import { SwapTestBase } from "./SwapTestBase.sol";
 
 /// Additional negative tests for `SwapWrapper` not covered by `SwapWrapper.t.sol`.

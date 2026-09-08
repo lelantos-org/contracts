@@ -82,7 +82,7 @@ contract YieldEscrowTest is YieldBase {
         tpi.leafAsset[0] = YIELD_ID;
         tpi.leafPublicIn[0] = N;
         tpi.isDeposit[0] = 1;
-        tpi.leafAsset[1] = YIELD_ID;
+        tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[1] = 0;
         tpi.isDeposit[1] = 1;
 

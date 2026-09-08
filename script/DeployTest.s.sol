@@ -110,6 +110,11 @@ contract DeployTest is BaseDeploy {
         }
         p.treasury = vm.envOr("MASP_TREASURY", 0x000000000000000000000000000000000000dEaD);
         p.owner = vm.envOr("MASP_OWNER", tx.origin);
+        // Local defaults: the deployer administers the proxy, and the window is
+        // short enough to exercise an upgrade within a test run.
+        p.proxyAdmin = vm.envOr("MASP_PROXY_ADMIN", tx.origin);
+        p.upgradeDelay = vm.envOr("MASP_UPGRADE_DELAY", uint256(1 days));
+        p.maxPause = vm.envOr("MASP_MAX_PAUSE", uint256(1 hours));
 
         MaspCore memory core = _deployMaspCore(p);
 

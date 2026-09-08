@@ -1,0 +1,19 @@
+{
+  "tokenName": "Lelantos",
+  "tokenSymbol": "LNT",
+  "totalSupply": "1000000000000000000000000000",
+  "tokenRecipient": "0x0000000000000000000000000000000000000000",
+  "timelockMinDelay": 259200,
+  "votingDelay": 172800,
+  "votingPeriod": 604800,
+  "proposalThreshold": "2500000000000000000000000",
+  "quorumNumerator": 3,
+  "guardian": "0x0000000000000000000000000000000000000000",
+  "masp": "0x2fC0681F6631eebaCA9720F5c4b1353B18466467",
+  "swapWrapper": "0xc7b4a8af898872dd80440bda265d91d944823118",
+  "burnBps": 10000,
+  "secondaryTreasury": "0x0000000000000000000000000000000000000000",
+  "auctionHalfLife": 3600,
+  "auctionMaxHalvings": 12,
+  "auctionRestartMultBps": 20000
+}

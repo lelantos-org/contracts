@@ -9,34 +9,40 @@ import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { uniformBps } from "../utils/FeeArrays.sol";
+import { deployBehindProxy, poolInitCalldata } from "../utils/PoolDeployer.sol";
 
 /// Test-only subclass exposing internal entrypoints so invariant handlers can
 /// drive state transitions without going through the SNARK pipeline. The full
 /// `transact` flow requires valid Groth16 proofs, which Foundry cannot
 /// synthesize; this harness exercises the storage layer in isolation.
+/// The pool is deployable only behind a proxy, so this takes no constructor
+/// arguments; `deployHarness` initializes it behind one.
 contract MASPHarness is MASP {
-    constructor(
-        IVerifier treeUpdateBatchVerifier_,
-        IBatchVerifier batchVerifier_,
-        ISignatureTransfer permit2_,
-        address treasury_,
-        address owner_
-    )
-        MASP(
-            treeUpdateBatchVerifier_,
-            batchVerifier_,
-            permit2_,
-            new uint64[](0),
-            new IERC20[](0),
-            new uint256[](0),
-            uniformBps(0, 0),
-            uniformBps(0, 0),
-            treasury_,
-            owner_
-        )
-    { }
-
     function consumeNullifierExternal(bytes32 nf) external {
         _consumeNullifier(nf);
     }
+}
+
+/// Deploys `MASPHarness` behind the standard test proxy, with an empty registry.
+function deployHarness(
+    IVerifier treeUpdateBatchVerifier_,
+    IBatchVerifier batchVerifier_,
+    ISignatureTransfer permit2_,
+    address treasury_,
+    address owner_
+) returns (MASPHarness) {
+    MASPHarness impl = new MASPHarness();
+    bytes memory initData = poolInitCalldata(
+        treeUpdateBatchVerifier_,
+        batchVerifier_,
+        permit2_,
+        new uint64[](0),
+        new IERC20[](0),
+        new uint256[](0),
+        uniformBps(0, 0),
+        uniformBps(0, 0),
+        treasury_,
+        owner_
+    );
+    return MASPHarness(deployBehindProxy(address(impl), initData));
 }

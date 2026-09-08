@@ -104,7 +104,12 @@ contract NativeAdapter is MaspEscrowSatellite {
 
         // The wrap credits `msg.value` to this contract before the pool pulls,
         // so the pull is measured against the pre-wrap balance plus it.
+        // `depositNative` is `nonReentrant`, and both calls below are on the
+        // immutable wrapped-native contract rather than caller-supplied code, so
+        // the escrow write cannot be observed mid-flight.
+        // aderyn-fp-next-line(reentrancy-state-change)
         uint256 baseline = WRAPPED_NATIVE.balanceOf(address(this)) + msg.value;
+        // aderyn-fp-next-line(reentrancy-state-change)
         WRAPPED_NATIVE.deposit{ value: msg.value }();
 
         // The pull is the escrowed total (amount plus fee at submit) and must

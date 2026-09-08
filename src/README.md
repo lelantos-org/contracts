@@ -24,6 +24,7 @@ For build instructions, gas figures, and deployed sizes, see the [repository REA
   - [Spend: transfer and withdraw](#spend-transfer-and-withdraw)
   - [Fee accounting](#fee-accounting)
 - [Yield](#yield)
+- [Governance and upgrades](#governance-and-upgrades)
 - [Escrow satellites](#escrow-satellites)
 - [Shielded Swap](#shielded-swap)
 - [Native coin](#native-coin)
@@ -35,7 +36,7 @@ For build instructions, gas figures, and deployed sizes, see the [repository REA
 
 The pool holds ERC-20 balances on behalf of a set of shielded *notes*. A note is a commitment `cm` inserted as a leaf of a quaternary Merkle tree; spending it publishes a nullifier `nf` and produces new commitments. Ownership, value conservation, and Merkle membership are proven in zero knowledge — the chain sees only commitments, nullifiers, and the public deposit/withdraw legs.
 
-Two design choices drive most of the contract structure:
+Three design choices drive most of the contract structure:
 
 1. **Merkle insertion is proven, not computed.** The contract never hashes a Merkle path. A relayer computes the new root off-chain and submits a `tree_update_batch` proof; the contract verifies it and swaps the root. Per-transaction cost is therefore flat in tree depth.
 2. **Public inputs are compressed before pairing.** Both circuits expose dozens of logical public signals. Each set is folded into a single pair `(y, z)` via a Fiat–Shamir challenge and a Horner evaluation, so every `verifyProof` call takes exactly two field elements regardless of the logical signal count.
@@ -72,7 +73,7 @@ flowchart LR
 
 ## Module Map
 
-`MASP` is a single deployed contract composed by inheritance from five abstract state modules, plus four stateless libraries and one external library reached by `delegatecall`.
+`MASP` is composed by inheritance from five abstract state modules, plus four stateless libraries and one external library reached by `delegatecall`. It is deployed behind `DelayedUpgradeProxy` and cannot be initialized without one.
 
 ```mermaid
 classDiagram
@@ -151,7 +152,31 @@ classDiagram
     +isOnCurve()
     +isLowOrder()
   }
+  class OwnableInit {
+    <<abstract>>
+    -address _owner
+    +owner()
+    +transferOwnership()
+    #_initOwner()
+  }
+  class DelayedUpgradeProxy {
+    +uint256 UPGRADE_DELAY
+    +queueUpgrade()
+    +cancelUpgrade()
+    +activateUpgrade()
+    +pauseSpends()
+  }
+  class UpgradeStorage {
+    <<library>>
+    +upgradePending()
+    +spendsPausedUntil()
+  }
 
+  DelayedUpgradeProxy ..> MASP : delegatecall
+  DelayedUpgradeProxy ..> UpgradeStorage
+  MASP ..> UpgradeStorage
+  AssetRegistry --|> OwnableInit
+  FeeConfig --|> OwnableInit
   MASP --|> CommitmentTree
   MASP --|> NullifierSet
   MASP --|> AssetRegistry
@@ -167,8 +192,11 @@ classDiagram
 
 | File | Role |
 | --- | --- |
-| [MASP.sol](MASP.sol) | Pool entry points, escrow ledger, proof cross-binding, token movement. |
-| [CommitmentTree.sol](CommitmentTree.sol) | Lazy-root quaternary tree and 64-slot known-root ring buffer. |
+| [MASP.sol](MASP.sol) | Pool entry points, escrow ledger, proof cross-binding, token movement. Deployed behind [DelayedUpgradeProxy](DelayedUpgradeProxy.sol); its constructor calls `_disableInitializers()`, so setup runs in `initialize`. |
+| [DelayedUpgradeProxy.sol](DelayedUpgradeProxy.sol) | The pool's proxy. A queued upgrade activates only after `UPGRADE_DELAY`, which is immutable; the current implementation serves throughout. A pause defers activation by its own duration. |
+| [UpgradeStorage.sol](UpgradeStorage.sol) | Exit-window state at a fixed ERC-7201 slot, written by the proxy and read by the pool under `delegatecall`. One slot. |
+| [OwnableInit.sol](OwnableInit.sol) | Initializer-assigned ownership. `renounceOwnership` is not declared; `transferOwnership` is owner-gated and used by `ProtocolAdmin.migrateAdmin`. |
+| [CommitmentTree.sol](CommitmentTree.sol) | Lazy-root quaternary tree and 64-slot known-root ring buffer. Genesis root seeded from an initializer. |
 | [NullifierSet.sol](NullifierSet.sol) | Packed-bitmap spent-nullifier set. |
 | [AssetRegistry.sol](AssetRegistry.sol) | Owner-managed `assetId → (ERC-20, scale)` mapping. |
 | [FeeConfig.sol](FeeConfig.sol) | Fee basis points, treasury, per-token accrual, permissionless `sweep`. |
@@ -185,9 +213,13 @@ classDiagram
 | [verifiers/TreeUpdateBatchVerifier.sol](verifiers/TreeUpdateBatchVerifier.sol) | snarkJS codegen for `tree_update_batch` (`TreeUpdateBatchGroth16Verifier`). |
 | [verifiers/VerifyingKeys.sol](verifiers/VerifyingKeys.sol) | The thirty verifying-key constants, lifted verbatim from the two codegen files, plus the `BATCH_DOMAIN` transcript separator. |
 | [verifiers/BatchedGroth16Verifier.sol](verifiers/BatchedGroth16Verifier.sol) | Hand-written assembly verifying both spend proofs in one pairing call. |
-| [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both adapters call, pinned to `MASP`'s selectors by `IMASPPool.t.sol`. |
+| [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both adapters call, pinned to `MASP`'s selectors by `IMASPPool.t.sol` — and `IProtocolAdmin`, the admin surfaces `ProtocolAdmin` drives. |
 | [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) | Abstract base for peripherals that escrow as their own `payer`: Permit2 arming, balance-delta escrow measurement, escrow record, cancel-and-verify. |
 | [native/](native/) | `NativeAdapter`: wraps native coin into the deposit path and unwraps it out of the withdraw path. The pool itself is ERC-20 only. |
+| [governance/LelantosToken.sol](governance/LelantosToken.sol) | Governance token: `ERC20` + `Burnable` + `Permit` + `Votes`. Fixed supply minted once; no mint function and no owner. Timestamp clock (ERC-6372). |
+| [governance/LelantosGovernor.sol](governance/LelantosGovernor.sol) | OZ `Governor` executing through a `TimelockController`. Inherits the token's clock through `GovernorVotes`. |
+| [governance/ProtocolAdmin.sol](governance/ProtocolAdmin.sol) | Owner of `MASP` and `SwapWrapper`. The Timelock reaches everything through `execute`, which rejects both ownership selectors; the guardian holds four one-way switches. `migrateAdmin` is the only ownership exit. |
+| [burn/FeeBurner.sol](burn/FeeBurner.sol) | The pool's `treasury`. Auctions accrued fee tokens for the governance token and burns the proceeds. Prices from stored state and `block.timestamp` only. |
 | [swap/](swap/) | Atomic unshield → swap → re-shield wrapper, plus the Uniswap v3 and v4 adapters. |
 
 `NativeAdapter` and `SwapWrapper` both extend `MaspEscrowSatellite`; see [Escrow satellites](#escrow-satellites).
@@ -268,7 +300,11 @@ On a yield asset the same invariant holds in normalized units. The treasury's cu
 
 ### SnarkCompression
 
-`evaluatePolyAt(coefficients, z)` evaluates the coefficient vector as a polynomial at `z` by Horner's method over the BN254 scalar field `R`. Soundness rests on Schwartz–Zippel: because `z` is drawn by Fiat–Shamir *after* the prover has committed to the coefficients, a prover substituting a different public-input vector succeeds with probability at most `deg(p) / R`.
+`evaluatePolyAt(coefficients, z)` evaluates the coefficient vector as a polynomial at `z` by Horner's method over the BN254 scalar field `R`.
+
+**Schwartz–Zippel does not carry the soundness argument here.** It needs `z` drawn *after* the prover commits to the coefficients. `z` is a circuit input derived from calldata the prover authored, so the prover reads it first. What makes the compression binding is that the circuit pins every coefficient it evaluates: `PolyEval` is affine in each with slope `z^k`, so an unconstrained coefficient is one linear equation in one unknown, and solving it matches any `y` the contract derives with a proof of an unrelated transaction. See `TRANSACT_COEFFS` in `PubInputs` for the membership rule and what it excludes.
+
+`evaluatePolyAtRawFrom` is the same evaluation seeded with a running accumulator, which lets one polynomial span two disjoint memory runs without copying them together. No caller passes a non-zero `acc` today: `Transact` orders the four address words last, so its coefficients are one contiguous prefix and `evaluatePolyAtRaw` seeds with 0. The seam is kept because a demotion that is not a suffix would need it back.
 
 The inner loop is unrolled by two and reverts `CoefficientOutOfField` in place on any word `>= R`. Both operands of a pair are range-checked before either is folded in, so an out-of-field coefficient can never influence the result.
 
@@ -276,11 +312,13 @@ The inner loop is unrolled by two and reverts `CoefficientOutOfField` in place o
 
 Defines the three public-input structs and the compression that turns each into the `(y, z)` pair the verifiers consume.
 
-| Struct | Circuit | Coefficients |
-| --- | --- | --- |
-| `Transact` | `4x6` | 69 = 50 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest |
-| `TreeUpdateBatch` | `tree_update_batch` | 52 = `4 + 6 × MAX_L_BATCH` |
-| `DepositRequest` | — (Permit2 witness only) | n/a |
+| Struct | Circuit | Hashed into `z` | Evaluated into `y` |
+| --- | --- | --- | --- |
+| `Transact` | `4x6` | 69 = 50 calldata words + `3 × TRANSACT_OUT` clue words + 1 aux digest | 46 = `4 + 3 × TRANSACT_IN + 5 × TRANSACT_OUT` |
+| `TreeUpdateBatch` | `tree_update_batch` | 52 = `4 + 6 × MAX_L_BATCH` | the same 52 |
+| `DepositRequest` | — (Permit2 witness only) | n/a | n/a |
+
+The two differ for `Transact` and that is a soundness requirement, not a saving. The four address words, the clue triples and the aux digest are constrained nowhere in `4x6.circom`; as coefficients they were 23 free variables in `y = Σ c[k]·z^k`, which the prover solves after reading `z`. Hashing them without evaluating them binds them completely — move one and `z` moves, so `y` moves — and needs no constraint. Every batch coefficient is pinned, so that vector is one list.
 
 ```mermaid
 flowchart TD
@@ -288,20 +326,20 @@ flowchart TD
   A2["aux[0..2]:<br/>clueRx, clueRy, clueBits"] --> B
   A3["auxDigest(aux)<br/>keccak of dynamic tuple[] mod R"] --> B
   B --> C["re-clean sub-word members<br/>(mask uint64 / address)"]
-  C --> D["z = keccak256(image) mod R"]
-  D --> E["y = HornerEval(coefficients, z)"]
+  C --> D["z = keccak256(all 69 words) mod R"]
+  D --> E["y = HornerEval(the 46 pinned words, z)<br/>two spans: [0,34) and [38,50)"]
   E --> F["verifyProof(a, b, c, [y, z])"]
 ```
 
 Three details are load-bearing:
 
-- **Static layout.** Both structs are fully static, so their ABI calldata block is word-for-word identical to the coefficient vector. Compression is a single `calldatacopy` plus a few masks — no ABI decode, no second copy.
+- **Static layout.** Both structs are fully static, so their ABI calldata block is word-for-word identical to the challenge preimage. Compression is a single `calldatacopy` plus a few masks — no ABI decode, no second copy. The coefficients are the leading span of that same image, so `y` costs no copy either.
 - **Re-cleaning.** Raw calldata may carry dirty high bits that a typed member read would have masked. Each sub-word field (`uint64`, `address`, `uint8`) is masked in place before hashing, so a caller cannot smuggle a different preimage past a value the contract already validated.
-- **The aux digest.** The per-output clue fields enter the coefficient vector individually, but `ephPub` and `ciphertext` would otherwise be unconstrained — a relayer could corrupt the payload beyond recovery while leaving the proof valid and the recipient's FMD scan still flagging the note. The final coefficient binds the whole aux array, recomputed on-chain rather than read from calldata. It is encoded as a *dynamic* `tuple[]` so the array length joins the preimage and arrays of different arity cannot collide.
+- **The aux digest.** The per-output clue fields enter the challenge preimage individually, but `ephPub` and `ciphertext` would otherwise be unbound — a relayer could corrupt the payload beyond recovery while leaving the proof valid and the recipient's FMD scan still flagging the note. The final challenge word binds the whole aux array, recomputed on-chain rather than read from calldata. It is encoded as a *dynamic* `tuple[]` so the array length joins the preimage and arrays of different arity cannot collide.
 
 `compressRef` mirrors each layout as a straight-line cursor walk, implemented independently of the assembly fast path. It is never used on-chain; the test suite fuzzes `compressRef == compress` to detect drift between the two.
 
-> **Circuit coupling.** The coefficient order here must match the circuit-side PolyEval order byte-for-byte. Changing `TRANSACT_IN`, `TRANSACT_OUT`, or `MAX_L_BATCH` requires a new circuit, a new ceremony, and a new verifier.
+> **Circuit coupling.** Both orders here must match the circuit side byte-for-byte: the coefficient order against `TransactCompressN`, the preimage order against the SDK's `flatten`. Changing `TRANSACT_IN`, `TRANSACT_OUT`, or `MAX_L_BATCH` requires a new circuit, a new ceremony, and a new verifier — and so does moving a word between the two vectors.
 
 ### AuxValidation and BabyJubJub
 
@@ -386,7 +424,12 @@ Each deposit occupies `LEAVES_PER_DEPOSIT` = 2 adjacent leaves — its principal
 
 `cancelDeposit` pays only the digest-bound `payer`, and only after `cancelDelay` blocks (default 7200, owner-tunable within `[3600, 50400]`). Because `submittedAt` is part of the digest, the delay check runs on a value the caller cannot forge. The escrow slot is cleared before the transfer (checks-effects-interactions).
 
-Who may call depends on the payer. An **EOA payer** can be cancelled by anyone: `deposit` is Permit2-signature based, so the payer may be an address that never sends a transaction and depends on a relayer to cancel for it. A **contract payer** may only cancel its own deposit (`payer.code.length != 0 && msg.sender != payer` reverts `PayerNotSender`). A contract can always transact for itself, and it is the party that must observe the refund, since the coin returns to it rather than to whoever funded it — settled by a third party, an adapter's refund lands with nothing on-chain left to distinguish it from a flushed deposit, stranding the funder's claim. Note an EIP-7702 delegated EOA carries code and is classified as a contract payer.
+Who may call depends on the payer:
+
+- **EOA payer** — anyone may cancel. `deposit` is Permit2-signature based, so the payer may be an address that never sends a transaction and relies on a relayer to cancel for it.
+- **Contract payer** — only the payer may cancel (`payer.code.length != 0 && msg.sender != payer` reverts `PayerNotSender`). A contract can always transact for itself, and it must observe the refund: the coin returns to it rather than to whoever funded it, and a refund settled by a third party is indistinguishable on-chain from a flushed deposit, stranding the funder's claim.
+
+An EIP-7702 delegated EOA carries code and is classified as a contract payer.
 
 ### Spend: transfer and withdraw
 
@@ -551,6 +594,71 @@ Registration verifies the binding on-chain rather than trusting a deploy config:
 
 ---
 
+## Governance and upgrades
+
+### Authority chain
+
+`LelantosToken` → `LelantosGovernor` → `TimelockController` → `ProtocolAdmin` → `MASP` and `SwapWrapper`.
+
+`LelantosToken` is a fixed-supply `ERC20Votes` minted once in its constructor. It declares no owner, minter or pauser, so supply is monotonically non-increasing and `INITIAL_SUPPLY - totalSupply()` is the cumulative burn. It uses a timestamp clock (ERC-6372); `LelantosGovernor` does not restate its own clock, reading it from the token through `GovernorVotes` so the two cannot diverge.
+
+Quorum is a fraction of **total** supply, not delegated supply: `Votes` checkpoints the total only on mint and burn, so undelegated and unclaimed tokens count toward the denominator, and burns reduce it.
+
+Vote weight is read at `proposalSnapshot`, and the proposal threshold at `clock() - 1`. Both are past timepoints, so tokens borrowed and delegated inside one transaction carry no weight.
+
+### ProtocolAdmin
+
+| Function | Caller | Effect |
+| --- | --- | --- |
+| `execute(target, data)` | Timelock | Arbitrary call as owner of `POOL` or `WRAPPER`. Rejects both `Ownable` ownership selectors and self-calls. |
+| `migrateAdmin(newAdmin)` | Timelock | The only route by which ownership leaves this contract. Moves pool and wrapper together. |
+| `disableAsset(id)` | guardian | `setAssetDisabled(id, true)` |
+| `haltYield(id)` | guardian | `setHalted(id, true)` |
+| `emergencyUnwind(id)` | guardian | Withdraws the venue position to idle |
+| `disallowAdapter(a)` | guardian | `setAdapterAllowed(a, false)` |
+
+Each guardian function fixes its argument in bytecode, so the role can only reduce protocol capability; re-enabling requires a proposal. `POOL` and `WRAPPER` are immutable, so a compromised proposal cannot re-point this contract while keeping its role table.
+
+`migrateAdmin` checks that the successor has code, reports the same `POOL` and `WRAPPER`, and is administered by the calling Timelock. These reject misconfiguration, not a hostile successor, which controls its own getters; the timelock delay and the guardian's `CANCELLER_ROLE` bound that case. Migrating to a new Timelock therefore requires the current one to hold `DEFAULT_ADMIN_ROLE` on the successor at the time of the call.
+
+### The exit window
+
+`DelayedUpgradeProxy` queues an upgrade rather than applying it. Activation is possible only after `UPGRADE_DELAY`, which is `immutable` and has no setter; until then the current implementation serves every call.
+
+| Function | Caller | Effect |
+| --- | --- | --- |
+| `queueUpgrade(impl)` | proxy admin | Sets `pendingImplementation` and `activationAt`. One at a time. |
+| `cancelUpgrade()` | proxy admin | Clears the queue. |
+| `activateUpgrade()` | **anyone** | Promotes the queued implementation once `activationAt` has passed. |
+| `pauseSpends(d)` | proxy admin | Halts proof-dependent entry points for `d` and defers `activationAt` by `d`. |
+| `resetGuardianPause()` | proxy admin | Re-arms the one-shot pause. |
+| `changeProxyAdmin(a)` | proxy admin | Hands administration over. Required because `ProtocolAdmin` holds the pool address as an immutable and cannot precede the proxy. |
+
+Two rules keep the window meaningful:
+
+- **A pause cannot consume it.** `pauseSpends` defers `activationAt` by exactly its duration, so the window measures unpaused time. `cancelDeposit` and `sweep` remain open while paused, keeping escrowed funds recoverable.
+- **The exit price cannot be raised.** While an upgrade is pending, `setAssetFee` may only lower `withdrawBps`. The withdraw leg is read at execution and capped at `MAX_FEE_BPS`, so without this an exit fee could be raised against holders leaving during the window. The deposit leg is unrestricted: it is snapshotted into the escrow digest at submit and cannot reach existing positions.
+
+`activateUpgrade` is permissionless, so activation depends on no keeper; while uncalled, the current implementation continues to serve.
+
+### Storage
+
+Exit-window state lives at a fixed ERC-7201 slot (`UpgradeStorage`), written by the proxy in its own context and read by the implementation under `delegatecall`. It occupies one slot — `address` + two `uint40` + `bool` = 31 bytes — because the pool reads it on every proof-dependent entry point.
+
+The pool's own storage stays sequential. `StorageLayout.t.sol` pins it slot by slot, since inserting or reordering a variable in any base shifts everything below it and no compiler can detect that across separately-compiled implementations. **Upgrades may only append.**
+
+`MASP`'s constructor calls `_disableInitializers()`, so the implementation cannot be initialized outside a proxy. `CommitmentTree` seeds the genesis root from an initializer for the same reason: a constructor writes the implementation's storage, never the proxy's.
+
+### Fee burn
+
+`FeeBurner` is the pool's `treasury`. All three fee paths — `FeeConfig.sweep`, `YieldOps.sweepNormalized` and `SwapWrapper`'s dust push — are permissionless `safeTransfer`s to that address, so no protocol contract required modification and the burner holds no allowances.
+
+It sells accrued fee tokens for the governance token in a descending-price auction. `priceOf` is a pure function of `(startPrice, startedAt, halfLife, block.timestamp)` and reads no external state, so the price cannot be moved by manipulating a market. Each fill ratchets the start price up in proportion to the fraction of the lot taken, which keeps the curve tracking the market without letting repeated dust fills stall it. Proceeds are burned; `burnBps` may direct a share to a secondary treasury instead.
+
+Decay is bounded on both sides: `maxHalvings` stops the halving and `minPrice` floors the result, so an unsold lot becomes stuck rather than free.
+
+---
+
 ## Escrow satellites
 
 `MASP` has no privileged peripheral position. A peripheral that wants to shield funds it is holding calls `depositAuthorized` with `d.payer = address(this)` and lets the pool pull against its own Permit2 allowance. Both current peripherals do this, and the pattern comes with a fixed set of consequences, so it lives once in [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) rather than per contract.
@@ -627,7 +735,14 @@ An escrow the wrapper creates is owned by the wrapper: MASP refunds the digest-b
 
 `UniV3Adapter` is a thin pull-then-push adapter: the wrapper pre-transfers `amountIn`, the adapter approves the router, swaps to itself, resets the approval to zero (keeping tokens such as USDT, which reject non-zero-to-non-zero approval changes, usable on the next call), and pushes the output to `msg.sender`. Like `UniV4Adapter`, it reports the output as a balance delta across the router call rather than the router's own return value: the wrapper hands that number to `_escrowMeasured` as the pull ceiling, so it has to be what the venue actually delivered. A 64-byte `route` is decoded as `(uint24 fee, uint160 sqrtPriceLimitX96)` and routed single-hop; any other length is treated as a packed multi-hop path. `swap` is restricted to the pinned `WRAPPER`, without which any caller could drain donated tokens by routing output to themselves.
 
-`UniV4Adapter` is the same shape against the UniversalRouter's `V4_SWAP` command, with three differences worth naming. It needs **no approval at all**: it transfers `amountIn` to the router and settles with `payerIsUser = false`, which pays out of the router's own balance and keeps the flow off Permit2. The settled amount is the exact `amountIn`, deliberately not `ActionConstants.CONTRACT_BALANCE`: the UniversalRouter is a shared public contract, so settling its whole balance would over-pay the PoolManager debt and leave an unclaimed credit, reverting the unlock with `CurrencyNotSettled` — a 1 wei donation would brick every swap for that token. It **measures its own balance delta**, because `execute` returns nothing where `SwapRouter02.exactInputSingle` returns `amountOut`. And it **forwards `deadline`** to the router, which enforces it, where SwapRouter02 takes none. Its 64-byte `route` is `(uint24 fee, int24 tickSpacing)`; currency ordering is derived from the token addresses and `hooks` is pinned to `address(0)`, so neither can be named by the caller — `route` is unauthenticated calldata, and an attacker-chosen hook would otherwise be invoked by the PoolManager mid-swap.
+`UniV4Adapter` is the same shape against the UniversalRouter's `V4_SWAP` command, with four differences:
+
+- **No approval.** It transfers `amountIn` to the router and settles with `payerIsUser = false`, paying from the router's own balance and keeping the flow off Permit2.
+- **Settles the exact `amountIn`, not `ActionConstants.CONTRACT_BALANCE`.** The UniversalRouter is shared, so settling its whole balance would over-pay the PoolManager debt and leave an unclaimed credit, reverting the unlock with `CurrencyNotSettled`; a 1 wei donation would then block every swap for that token.
+- **Measures its own balance delta**, since `execute` returns nothing where `SwapRouter02.exactInputSingle` returns `amountOut`.
+- **Forwards `deadline`**, which the router enforces; SwapRouter02 takes none.
+
+Its 64-byte `route` is `(uint24 fee, int24 tickSpacing)`. Currency ordering is derived from the token addresses and `hooks` is pinned to `address(0)`, so neither can be named by the caller: `route` is unauthenticated calldata, and an attacker-chosen hook would otherwise run inside the PoolManager mid-swap.
 
 Adding a venue is additive: a new `ISwapAdapter`, `setAdapterAllowed`, and nothing else. `SwapWrapper` never decodes `route` and its safety argument does not depend on the venue.
 
@@ -663,8 +778,9 @@ On the spend side the destination is `pi.payer`, a public input of the withdraw 
 | `TRANSACT_IN` / `TRANSACT_OUT` | 4 / 6 — the `4x6` of the circuit name | `PubInputs` |
 | `MAX_L_BATCH` | 8 | `PubInputs` |
 | `LEAVES_PER_DEPOSIT` | 2 (principal + relayer note) | `PubInputs` |
-| `TRANSACT_COEFFS` | 69 (`50 + 3 × 6 + 1`) | `PubInputs` |
-| batch coefficients | 52 (`4 + 6 × 8`) | `PubInputs` |
+| `TRANSACT_CHALLENGE_WORDS` | 69 (`50 + 3 × 6 + 1`) — hashed into `z` | `PubInputs` |
+| `TRANSACT_COEFFS` | 46 (`4 + 3 × 4 + 5 × 6`) — evaluated into `y` | `PubInputs` |
+| batch coefficients | 52 (`4 + 6 × 8`) — hashed and evaluated both | `PubInputs` |
 | `MAX_FEE_BPS` | 2 000 (20%) | `Fees`, re-exported by `FeeConfig` |
 | `BPS_DENOMINATOR` | 10 000 | `Fees`, re-exported by `FeeConfig` |
 | `RAY` | `1e27` (yield index fixed point) | `YieldOps` |

@@ -20,7 +20,10 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 ///     "depositBps":  [0, 0, 0],       parallel to ids
 ///     "withdrawBps": [20, 20, 20],    parallel to ids
 ///     "treasury": "0x...",
-///     "owner":    "0x...",
+///     "owner":       "0x...",   pool owner (ProtocolAdmin in production)
+///     "proxyAdmin":  "0x...",   may queue/cancel/activate upgrades and pause
+///     "upgradeDelay": 2592000,  30d exit window; IMMUTABLE once deployed
+///     "maxPause":     604800,   7d ceiling on a single guardian pause
 ///     "ids":      [1, 2, 3],
 ///     "tokens":   ["0x...", ...], parallel to ids, must have code
 ///     "scales":   ["1e10", "1", "1"]  parallel to ids
@@ -60,6 +63,14 @@ contract Deploy is BaseDeploy {
         p.wrappedNative = vm.parseJsonAddress(j, ".wrappedNative");
         p.treasury = vm.parseJsonAddress(j, ".treasury");
         p.owner = vm.parseJsonAddress(j, ".owner");
+        p.proxyAdmin = vm.parseJsonAddress(j, ".proxyAdmin");
+        p.upgradeDelay = vm.parseJsonUint(j, ".upgradeDelay");
+        p.maxPause = vm.parseJsonUint(j, ".maxPause");
+        // The exit window is immutable once deployed, so a zero or very short
+        // value ships a pool whose upgrades are effectively immediate.
+        require(p.upgradeDelay >= 7 days, "upgradeDelay too short");
+        require(p.maxPause > 0 && p.maxPause <= 30 days, "maxPause out of range");
+        require(p.proxyAdmin != address(0), "proxyAdmin unset");
 
         uint256[] memory rawIds = vm.parseJsonUintArray(j, ".ids");
         address[] memory tokenList = vm.parseJsonAddressArray(j, ".tokens");

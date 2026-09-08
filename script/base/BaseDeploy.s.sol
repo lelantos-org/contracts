@@ -9,6 +9,7 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import { MASP } from "../../src/MASP.sol";
+import { DelayedUpgradeProxy } from "../../src/DelayedUpgradeProxy.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 import { NativeAdapter } from "../../src/native/NativeAdapter.sol";
@@ -36,7 +37,17 @@ abstract contract BaseDeploy is Script {
         uint16[] depositBps;
         uint16[] withdrawBps;
         address treasury;
+        /// Pool owner (`ProtocolAdmin` in production), set by the initializer.
         address owner;
+        /// Admin of the pool proxy: the only address that may queue, cancel or
+        /// activate an upgrade, or pause. Distinct from `owner`; see
+        /// `DelayedUpgradeProxy`.
+        address proxyAdmin;
+        /// The exit window. Immutable on the proxy once deployed and cannot be
+        /// shortened afterwards.
+        uint256 upgradeDelay;
+        /// Ceiling on a single guardian pause.
+        uint256 maxPause;
     }
 
     /// The contracts one core deploy produces. A struct rather than a return
@@ -45,6 +56,10 @@ abstract contract BaseDeploy is Script {
     struct MaspCore {
         TreeUpdateBatchGroth16Verifier tubVerifier;
         BatchedGroth16Verifier spendVerifier;
+        /// The logic contract. Addressed only by the proxy.
+        MASP implementation;
+        DelayedUpgradeProxy proxy;
+        /// The pool as callers address it: the proxy, typed as `MASP`.
         MASP masp;
         /// address(0) when the chain configures no wrapped-native token.
         NativeAdapter nativeAdapter;
@@ -57,18 +72,28 @@ abstract contract BaseDeploy is Script {
     function _deployMaspCore(MaspParams memory p) internal returns (MaspCore memory core) {
         core.tubVerifier = new TreeUpdateBatchGroth16Verifier();
         core.spendVerifier = new BatchedGroth16Verifier();
-        core.masp = new MASP(
-            IVerifier(address(core.tubVerifier)),
-            IBatchVerifier(address(core.spendVerifier)),
-            ISignatureTransfer(p.permit2),
-            p.ids,
-            p.tokens,
-            p.scales,
-            p.depositBps,
-            p.withdrawBps,
-            p.treasury,
-            p.owner
+        // The pool is deployable only behind a proxy: its constructor calls
+        // `_disableInitializers()`. Deploy the logic, then initialize it through
+        // the proxy.
+        core.implementation = new MASP();
+        bytes memory initData = abi.encodeCall(
+            MASP.initialize,
+            (
+                IVerifier(address(core.tubVerifier)),
+                IBatchVerifier(address(core.spendVerifier)),
+                ISignatureTransfer(p.permit2),
+                p.ids,
+                p.tokens,
+                p.scales,
+                p.depositBps,
+                p.withdrawBps,
+                p.treasury,
+                p.owner
+            )
         );
+        core.proxy =
+            new DelayedUpgradeProxy(address(core.implementation), initData, p.proxyAdmin, p.upgradeDelay, p.maxPause);
+        core.masp = MASP(address(core.proxy));
         // Native coin never touches the pool: the adapter wraps on the way in
         // and unwraps on the way out. Skipped when no wrapped-native token is
         // configured for the chain.
@@ -85,6 +110,7 @@ abstract contract BaseDeploy is Script {
         console2.log(string.concat("TREE_UPDATE_BATCH_VERIFIER=", vm.toString(address(core.tubVerifier))));
         console2.log(string.concat("SPEND_VERIFIER=", vm.toString(address(core.spendVerifier))));
         console2.log(string.concat("MASP=", vm.toString(address(core.masp))));
+        console2.log(string.concat("MASP_IMPLEMENTATION=", vm.toString(address(core.implementation))));
         console2.log(string.concat("PERMIT2=", vm.toString(p.permit2)));
         for (uint256 i; i < p.ids.length; ++i) {
             console2.log(string.concat("TOKEN_", vm.toString(uint256(p.ids[i])), "=", vm.toString(tokenAddrs[i])));

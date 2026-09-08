@@ -27,3 +27,171 @@ jobs:
       - run: just version
       - name: Heavy fuzz + invariant sweep
         run: just test-fuzz
+
+  # The committed Quint traces run on a pinned seed so CI is deterministic and
+  # regeneration is a no-op diff. That determinism is also a ceiling: the same
+  # 14 traces every time. This job trades it away once a night for volume and
+  # real randomness, writing to scratch paths so the committed suite is
+  # untouched either way.
+  quint-fresh:
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Keep in step with .github/workflows/ci.yml.
+          version: v1.8.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: extractions/setup-just@v2
+      - run: just quint-install
+      - name: Fresh-seed Quint sweep
+        run: just quint-fresh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: quint-fresh-traces
+          path: test/fixtures/quint-fresh/
+
+  # Echidna covers the same MASP state machine as the invariant sweep above,
+  # with an engine that keeps its corpus and a set of properties the Foundry
+  # handlers cannot express — see test/echidna/README.md. Foundry restarts from
+  # a fixed seed every night, so a rare sequence has to be rediscovered from
+  # scratch each time, while Echidna mutates a corpus restored from the
+  # previous run. Value compounds across nights rather than resetting — which
+  # only holds if the cache below actually round-trips.
+  echidna:
+    runs-on: [ubuntu-latest]
+    # Longer than the other jobs because `seqLen: 400` makes each sequence
+    # deep: locally the suite runs ~5k transactions a minute, so the two
+    # sweeps below come to roughly 110 minutes.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Keep in step with .github/workflows/ci.yml.
+          version: v1.8.1
+      - uses: extractions/setup-just@v2
+      # Both of these have to happen on the host. echidna-action runs Echidna
+      # inside the trailofbits/echidna container, which carries Echidna,
+      # Slither and crytic-compile but no Foundry — so it cannot produce the
+      # build itself. The `crytic-args` below point crytic-compile at the
+      # `out/build-info` written here instead.
+      #
+      # The build must be the [profile.echidna] one: it pre-links the YieldOps
+      # library, without which Echidna aborts with "Unlinked libraries detected
+      # in bytecode of contract src/MASP.sol:MASP".
+      #
+      # `--force` is required, not a precaution. crytic-compile reads
+      # `out/build-info`, and an incremental Foundry build rewrites entries
+      # only for what it recompiled, leaving it to fail on a missing
+      # `<hash>.output.json`. A fresh checkout builds everything anyway; this
+      # keeps the step correct if the cache ever changes that.
+      - run: FOUNDRY_PROFILE=echidna forge build --build-info --force --skip script
+      # Both configs up front, before any Echidna run. crytic-compile
+      # re-runs `forge build` scoped to whichever target it is compiling and
+      # Foundry prunes artifacts outside that dependency graph, so generating
+      # the second config after the first sweep fails on a missing ABI.
+      - run: |
+          just _echidna-config EchidnaMasp
+          just _echidna-config EchidnaMaspYield
+      # Append-only cache: the key is unique per run so this job always writes
+      # a fresh entry, and `restore-keys` picks up the newest previous one. A
+      # fixed key would restore the first night's corpus forever and never save
+      # again, quietly turning the run into a from-scratch fuzz — the one
+      # failure mode that looks identical to success in the logs.
+      - uses: actions/cache@v4
+        with:
+          path: test/echidna/corpus
+          key: echidna-corpus-${{ github.run_id }}
+          restore-keys: echidna-corpus-
+      # Two targets: the plain-asset state machine and the indexed-asset
+      # (yield) accounting. Separate contracts because their setups and
+      # properties have nothing in common — see test/echidna/README.md.
+      - name: Echidna property sweep (EchidnaMasp)
+        uses: crytic/echidna-action@v2
+        with:
+          files: test/echidna/EchidnaMasp.sol
+          contract: EchidnaMasp
+          config: test/echidna/EchidnaMasp.generated.yaml
+          echidna-version: v2.3.3
+          test-limit: 400000
+          format: text
+          crytic-args: --compile-force-framework foundry --ignore-compile
+          # Pinned to the version the justfile recipes are developed against;
+          # the action's default is `latest`, which would make a new Echidna
+          # release land as a failure on an unrelated night.
+          #
+          # On `crytic-args`: it restates the config's `cryticArgs` because a
+          # CLI value replaces it rather than extending it, and dropping the
+          # platform pin would put crytic-compile back on the solc platform it
+          # cannot read back. Worth watching on the first run — Echidna shells
+          # out to Slither for the constant extraction that seeds its
+          # mutations, and under `--ignore-compile` that step is sensitive to
+          # the Slither/crytic-compile pair in use: locally the versions
+          # Homebrew installs alongside Echidna (0.11.6 with crytic-compile
+          # 0.4.2 — a pair Slither 0.11.5 does not permit, since it caps
+          # crytic-compile below 0.4.0) crash in constants folding, while the
+          # same Slither succeeds compiling the target itself. The container
+          # ships a matched pair, so this is expected to be fine, but it could
+          # not be verified outside it. Look for "Running slither on ...
+          # Done!"; the failure announces itself as "Running slither failed.
+          # Echidna will continue, however fuzzing will likely be less
+          # effective" — a mutation-quality regression, not a correctness one.
+      - name: Echidna property sweep (EchidnaMaspYield)
+        uses: crytic/echidna-action@v2
+        with:
+          files: test/echidna/EchidnaMaspYield.sol
+          contract: EchidnaMaspYield
+          config: test/echidna/EchidnaMaspYield.generated.yaml
+          echidna-version: v2.3.3
+          test-limit: 250000
+          format: text
+          crytic-args: --compile-force-framework foundry --ignore-compile
+      - name: Echidna optimization sweep (EchidnaMasp)
+        uses: crytic/echidna-action@v2
+        # Echidna exits non-zero in optimization mode no matter what it finds:
+        # an optimization target is never "solved", so it is reported as an
+        # open test. Measured — property mode exits 0 on the same contract,
+        # optimization mode exits 1 with every maximum at 0. Without this the
+        # job would fail every night for reporting good news. The property
+        # sweeps above are what gate.
+        continue-on-error: true
+        with:
+          files: test/echidna/EchidnaMasp.sol
+          contract: EchidnaMasp
+          config: test/echidna/EchidnaMasp.optimize.generated.yaml
+          echidna-version: v2.3.3
+          test-limit: 150000
+          format: text
+          crytic-args: --compile-force-framework foundry --ignore-compile
+      - name: Echidna optimization sweep (EchidnaMaspYield)
+        uses: crytic/echidna-action@v2
+        # Echidna exits non-zero in optimization mode no matter what it finds:
+        # an optimization target is never "solved", so it is reported as an
+        # open test. Measured — property mode exits 0 on the same contract,
+        # optimization mode exits 1 with every maximum at 0. Without this the
+        # job would fail every night for reporting good news. The property
+        # sweeps above are what gate.
+        continue-on-error: true
+        with:
+          files: test/echidna/EchidnaMaspYield.sol
+          contract: EchidnaMaspYield
+          config: test/echidna/EchidnaMaspYield.optimize.generated.yaml
+          echidna-version: v2.3.3
+          test-limit: 150000
+          format: text
+          crytic-args: --compile-force-framework foundry --ignore-compile
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: echidna-corpus
+          path: test/echidna/corpus/
+          if-no-files-found: warn

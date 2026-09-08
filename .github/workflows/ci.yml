@@ -16,6 +16,8 @@ concurrency:
 env:
   FOUNDRY_PROFILE: default
   FOUNDRY_VERSION: v1.8.1
+  ADERYN_VERSION: "0.6.8"
+  HALMOS_VERSION: "0.3.3"
 
 jobs:
   test:
@@ -74,6 +76,30 @@ jobs:
       # release tag does.
       - run: just abi
 
+  quint:
+    name: Quint spec & trace drift
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: extractions/setup-just@v2
+      - run: just quint-install
+      - run: just quint-spec
+      # Cheap gate: re-derives the schema hash from the config and compares it
+      # against the committed fixtures, without running quint.
+      - run: just quint-check
+      # Expensive gate: actually regenerate and prove it changed nothing. The
+      # seed is pinned, so a diff here means either a spec edit that was not
+      # regenerated, or something in the pipeline that is not deterministic.
+      - run: just quint-diff
+
   slither:
     name: Slither
     runs-on: [ubuntu-latest]
@@ -110,3 +136,44 @@ jobs:
           # balance-delta measurement in SwapWrapper. Bump this on purpose,
           # with the findings reviewed, rather than discovering them mid-PR.
           slither-version: 0.11.5
+
+  symbolic:
+    name: Symbolic (halmos)
+    runs-on: [ubuntu-latest]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - uses: extractions/setup-just@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pipx install halmos==${{ env.HALMOS_VERSION }}
+      - run: just halmos
+
+  aderyn:
+    name: Aderyn
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: extractions/setup-just@v2
+      - name: Install Aderyn ${{ env.ADERYN_VERSION }}
+        run: |
+          curl -sSfL "https://github.com/Cyfrin/aderyn/releases/download/aderyn-v${ADERYN_VERSION}/aderyn-installer.sh" \
+            | ADERYN_UNMANAGED_INSTALL="$HOME/.aderyn/bin" sh
+          echo "$HOME/.aderyn/bin" >> "$GITHUB_PATH"
+      - run: just aderyn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aderyn-report
+          path: |
+            aderyn-report.md
+            aderyn-report.json
+          if-no-files-found: warn

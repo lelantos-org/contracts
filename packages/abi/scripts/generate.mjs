@@ -15,7 +15,7 @@
 // dropped contract would otherwise leave a stale module behind — and the `./*`
 // subpath export would keep it importable and publishable.
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,6 +27,10 @@ const outDir = join(repoRoot, "out");
  * @type {Array<{ source: string, contract: string, export: string }>}
  * `source` is the path under the repo root; `contract` the name inside it;
  * `export` the camelCase symbol the package exposes.
+ *
+ * `UpgradeStorage` is omitted: it declares only internal functions, so its
+ * artifact carries an empty ABI. `TimelockController` is omitted because it is
+ * unmodified OpenZeppelin and ships with that package.
  */
 const CONTRACTS = [
     { source: "src/MASP.sol", contract: "MASP", export: "maspAbi" },
@@ -34,6 +38,17 @@ const CONTRACTS = [
     { source: "src/CommitmentTree.sol", contract: "CommitmentTree", export: "commitmentTreeAbi" },
     { source: "src/FeeConfig.sol", contract: "FeeConfig", export: "feeConfigAbi" },
     { source: "src/NullifierSet.sol", contract: "NullifierSet", export: "nullifierSetAbi" },
+    { source: "src/DelayedUpgradeProxy.sol", contract: "DelayedUpgradeProxy", export: "delayedUpgradeProxyAbi" },
+    { source: "src/OwnableInit.sol", contract: "OwnableInit", export: "ownableInitAbi" },
+    { source: "src/governance/LelantosToken.sol", contract: "LelantosToken", export: "lelantosTokenAbi" },
+    { source: "src/governance/LelantosGovernor.sol", contract: "LelantosGovernor", export: "lelantosGovernorAbi" },
+    { source: "src/governance/ProtocolAdmin.sol", contract: "ProtocolAdmin", export: "protocolAdminAbi" },
+    { source: "src/burn/FeeBurner.sol", contract: "FeeBurner", export: "feeBurnerAbi" },
+    { source: "src/yield/YieldIndex.sol", contract: "YieldIndex", export: "yieldIndexAbi" },
+    { source: "src/yield/YieldOps.sol", contract: "YieldOps", export: "yieldOpsAbi" },
+    { source: "src/yield/IYieldVenue.sol", contract: "IYieldVenue", export: "yieldVenueAbi" },
+    { source: "src/yield/ERC4626Venue.sol", contract: "ERC4626Venue", export: "erc4626VenueAbi" },
+    { source: "src/MaspEscrowSatellite.sol", contract: "MaspEscrowSatellite", export: "maspEscrowSatelliteAbi" },
     { source: "src/native/NativeAdapter.sol", contract: "NativeAdapter", export: "nativeAdapterAbi" },
     { source: "src/swap/SwapWrapper.sol", contract: "SwapWrapper", export: "swapWrapperAbi" },
     { source: "src/swap/UniV3Adapter.sol", contract: "UniV3Adapter", export: "uniV3AdapterAbi" },
@@ -55,6 +70,71 @@ const CONTRACTS = [
         export: "batchedGroth16VerifierAbi",
     },
 ];
+
+/**
+ * Contracts under `src/` that are intentionally not published, and why.
+ *
+ * Every other `src/` contract with a non-empty ABI must appear in `CONTRACTS`;
+ * `assertNoDrift` fails the build otherwise. Without that check a newly added
+ * contract is simply absent from the package, which is not visible until a
+ * consumer needs it.
+ */
+const EXCLUDED = new Map([
+    ["src/UpgradeStorage.sol:UpgradeStorage", "internal-only library; empty ABI"],
+    ["src/SnarkCompression.sol:SnarkCompression", "proof plumbing; not a consumer surface"],
+    ["src/libs/AuxValidation.sol:AuxValidation", "proof plumbing; not a consumer surface"],
+    ["src/burn/FeeBurner.sol:IFeeSweeper", "helper interface declared alongside its consumer"],
+    ["src/interfaces/IProtocolAdmin.sol:IProtocolAdmin", "admin plumbing; not a consumer surface"],
+    ["src/interfaces/IProtocolAdmin.sol:IPoolAdmin", "admin plumbing; not a consumer surface"],
+    ["src/interfaces/IProtocolAdmin.sol:IWrapperAdmin", "admin plumbing; not a consumer surface"],
+    ["src/swap/UniV3Adapter.sol:ISwapRouter02", "external router surface, transcribed locally"],
+    ["src/swap/UniV4Adapter.sol:IUniversalRouter", "external router surface, transcribed locally"],
+    ["src/yield/YieldOps.sol:IERC4626Asset", "helper interface declared alongside its consumer"],
+]);
+
+/** Duplicate names silently overwrite an output file or break the barrel. */
+function assertUnique() {
+    for (const key of ["contract", "export"]) {
+        const seen = new Set();
+        for (const entry of CONTRACTS) {
+            if (seen.has(entry[key])) throw new Error(`duplicate ${key} "${entry[key]}" in CONTRACTS`);
+            seen.add(entry[key]);
+        }
+    }
+}
+
+/**
+ * Fails when a `src/` contract with a non-empty ABI is neither published nor
+ * listed in `EXCLUDED`. Walks the Foundry build rather than the source tree, so
+ * it sees exactly what solc produced.
+ */
+function assertNoDrift() {
+    const known = new Set([...CONTRACTS.map((e) => `${e.source}:${e.contract}`), ...EXCLUDED.keys()]);
+    const missing = [];
+    for (const dir of readdirSync(outDir, { withFileTypes: true })) {
+        if (!dir.isDirectory()) continue;
+        for (const file of readdirSync(join(outDir, dir.name))) {
+            if (!file.endsWith(".json")) continue;
+            let artifact;
+            try {
+                artifact = JSON.parse(readFileSync(join(outDir, dir.name, file), "utf8"));
+            } catch {
+                continue;
+            }
+            if (!artifact.abi?.length) continue;
+            for (const [source, contract] of Object.entries(artifact.metadata?.settings?.compilationTarget ?? {})) {
+                if (!source.startsWith("src/")) continue;
+                if (!known.has(`${source}:${contract}`)) missing.push(`${source}:${contract}`);
+            }
+        }
+    }
+    if (missing.length) {
+        throw new Error(
+            `these src/ contracts are neither published nor excluded:\n  ${[...new Set(missing)].sort().join("\n  ")}\n` +
+                "add them to CONTRACTS, or to EXCLUDED with a reason",
+        );
+    }
+}
 
 function artifactPath({ source, contract }) {
     return join(outDir, source.split("/").pop(), `${contract}.json`);
@@ -78,6 +158,9 @@ function loadAbi(entry) {
     if (!Array.isArray(artifact.abi)) throw new Error(`${path} has no abi array`);
     return { abi: artifact.abi, solc: artifact.metadata?.compiler?.version ?? "unknown" };
 }
+
+assertUnique();
+assertNoDrift();
 
 const srcDir = join(pkgDir, "src");
 const abisDir = join(srcDir, "abis");

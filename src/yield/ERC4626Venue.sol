@@ -45,6 +45,9 @@ contract ERC4626Venue is IYieldVenue {
     constructor(address pool, address vault, address underlying) {
         if (pool == address(0)) revert PoolZero();
         if (vault == address(0)) revert VaultZero();
+        // Constructor: the "state change" is the immutable assignment below, which
+        // no re-entrant call can reach before deployment completes.
+        // aderyn-fp-next-line(reentrancy-state-change)
         address vaultAsset = IERC4626(vault).asset();
         if (vaultAsset != underlying) revert VaultAssetMismatch(underlying, vaultAsset);
         POOL = pool;

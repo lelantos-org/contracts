@@ -25,7 +25,10 @@ abstract contract CommitmentTree {
 
     event RootAdvanced(uint64 indexed startIndex, uint64 inserted, bytes32 oldRoot, bytes32 newRoot);
 
-    constructor() {
+    /// Seeds the empty-tree root. Called once from the pool's initializer; the
+    /// pool runs behind a proxy, where a constructor would write the
+    /// implementation's storage.
+    function _initCommitmentTree() internal {
         roots[0] = EMPTY_ROOT;
         isKnownRoot[EMPTY_ROOT] = true;
     }

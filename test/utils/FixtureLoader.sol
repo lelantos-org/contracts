@@ -6,7 +6,6 @@ import { Vm } from "forge-std/Vm.sol";
 import { MASP } from "../../src/MASP.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { SpendFixture } from "./SpendFixture.sol";
 
 /// JSON fixture loading helpers, kept off the test inheritance chain so unit

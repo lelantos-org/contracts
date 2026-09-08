@@ -5,22 +5,17 @@ import { Test } from "forge-std/Test.sol";
 import { NullifierSet } from "../../src/NullifierSet.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
-import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
-import { MockERC20 } from "../mocks/MockERC20.sol";
-import { MASPHarness } from "../invariant/MASPHarness.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
-import { MASP } from "../../src/MASP.sol";
+import { MASPHarness, deployHarness } from "../invariant/MASPHarness.sol";
+import { mockVerifierStack } from "../utils/PoolDeployer.sol";
 
 /// Property-based tests for the packed-bitmap nullifier set.
 contract NullifierSetFuzzTest is Test {
     MASPHarness harness;
 
     function setUp() public {
-        IVerifier v = IVerifier(address(new MockERC20("v", "v", 18)));
-        IVerifier tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
-        MockBatchVerifier bv = new MockBatchVerifier();
-        address permit2 = new DeployPermit2().deployPermit2();
-        harness = new MASPHarness(tub, bv, ISignatureTransfer(address(permit2)), address(0xfee), address(this));
+        (IVerifier tub, MockBatchVerifier bv, ISignatureTransfer permit2) = mockVerifierStack();
+        harness = deployHarness(tub, bv, permit2, address(0xfee), address(this));
     }
 
     // --- Core properties ---------------------------------------------------

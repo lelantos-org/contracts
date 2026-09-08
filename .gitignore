@@ -16,6 +16,11 @@ docs/
 lcov.info
 coverage/
 
+# Aderyn (`just aderyn`; `/report.md` is the default name of a bare `aderyn` run)
+aderyn-report.md
+aderyn-report.json
+/report.md
+
 # IDE
 .vscode/
 .idea/
@@ -29,3 +34,24 @@ Thumbs.db
 # Node (if any tooling)
 node_modules/
 .claude
+# Scratch output of `just quint-fresh`: nightly traces generated with a random
+# seed. The committed traces live in test/fixtures/quint/ and test/quint/generated/.
+test/fixtures/quint-fresh/
+test/quint/fresh/
+
+# Quint trace fixtures: the ABI blobs are committed (replay must need neither
+# node nor quint), but only one readable ITF companion per spec is. The rest are
+# derivable from the pinned seed and run parameters, and `just quint-diff` proves
+# that regeneration is byte-identical - so they are build output, not source.
+# `quint-sol-connect gen --itf <n>` rewrites one into .itf/ for triage.
+test/fixtures/quint/*/*.itf.json
+!test/fixtures/quint/*/exemplar.itf.json
+test/fixtures/quint/*/.itf/
+
+# Echidna: the config `just echidna` generates (base echidna.yaml plus the
+# YieldOps bytecode placement, rebuilt from the current artifact every  run), and
+# the corpus. The corpus is cached by CI rather than committed — see the
+# `echidna` job in .github/workflows/fuzz.yml.
+test/echidna/*.generated.yaml
+test/echidna/corpus/
+crytic-export/

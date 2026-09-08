@@ -7,6 +7,12 @@ import { CommitmentTree } from "../../src/CommitmentTree.sol";
 /// abstract because `MASP` mixes it with access control and SNARK gating; this
 /// harness exercises the ring-buffer/known-root bookkeeping in isolation.
 contract CommitmentTreeHarness is CommitmentTree {
+    /// The base seeds the genesis root from an initializer, since in production
+    /// it runs behind a proxy. This harness has none, so it seeds itself.
+    constructor() {
+        _initCommitmentTree();
+    }
+
     /// Re-export the ring-buffer size so tests do not redeclare the constant;
     /// kept in sync with `CommitmentTree.ROOT_HISTORY` by inheritance.
     uint256 public constant ROOT_HISTORY_SIZE = ROOT_HISTORY;

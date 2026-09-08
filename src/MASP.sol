@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Initializable } from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
@@ -11,6 +11,7 @@ import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.so
 import { CommitmentTree } from "./CommitmentTree.sol";
 import { AssetRegistry } from "./AssetRegistry.sol";
 import { NullifierSet } from "./NullifierSet.sol";
+import { UpgradeStorage } from "./UpgradeStorage.sol";
 import { YieldIndex } from "./yield/YieldIndex.sol";
 import { YieldOps } from "./yield/YieldOps.sol";
 import { IVerifier } from "./interfaces/IVerifier.sol";
@@ -30,23 +31,26 @@ import { Fees } from "./libs/Fees.sol";
 /// Token movement binds to `payer` (signature- or SNARK-bound), not
 /// `msg.sender`, so any relayer may submit on a user's behalf. ERC-20 only;
 /// native-coin wrapping lives in `NativeAdapter`.
-contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
+contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
     using SafeERC20 for IERC20;
     using PubInputs for PubInputs.Transact;
     using PubInputs for PubInputs.TreeUpdateBatch;
 
+    /// Casing is retained because `IMASPPool`, the peripherals and the SDK read
+    /// these accessors by name.
+    ///
     /// Verifier for `tree_update_batch.circom` (MAX_L = `PubInputs.MAX_L_BATCH`).
     /// Used by `flushBatch`, which carries a lone tree-update proof; a spend's
     /// tree-update proof is checked by `SPEND_VERIFIER`. "Batch" denotes a batch
     /// of leaves, not a batched pairing.
-    IVerifier public immutable TREE_UPDATE_BATCH_VERIFIER;
+    IVerifier public TREE_UPDATE_BATCH_VERIFIER;
 
     /// Checks the `(4x6, tree_update_batch)` proof pair a spend carries in one
     /// BN254 pairing call. Argument order is significant: transact first,
     /// tree-update second. This is the whole of a spend's proof check; the pool
     /// holds no standalone `4x6` verifier, and a rejection is not attributable
     /// to either proof on-chain.
-    IBatchVerifier public immutable SPEND_VERIFIER;
+    IBatchVerifier public SPEND_VERIFIER;
 
     /// Width of the per-token fee accumulators in `flushBatch`: one slot per
     /// deposit, since a batch drains at most `MAX_L_BATCH / LEAVES_PER_DEPOSIT`
@@ -64,7 +68,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
     /// `PubInputs.compress` and `AuxValidation.validate`.
     uint64 private constant TRANSACT_OUT_LEAVES = uint64(PubInputs.TRANSACT_OUT);
     /// Uniswap Permit2. Constructor reverts if the address holds no code.
-    ISignatureTransfer public immutable PERMIT2;
+    ISignatureTransfer public PERMIT2;
 
     struct Proof {
         uint256[2] a;
@@ -220,8 +224,40 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
     error BadDepositMode();
     /// Caller-supplied digest preimage mismatch on flush/cancel.
     error DigestMismatch(uint256 id);
+    /// Spends, flushes and new deposits are halted; see `whenNotPaused`.
+    error SpendsPaused(uint256 until);
 
-    constructor(
+    /// Halts every entry point that verifies a proof or accepts new funds, for
+    /// the duration of a guardian pause.
+    ///
+    /// A pause also blocks exits, so `DelayedUpgradeProxy` defers any pending
+    /// upgrade by the pause duration and the window continues to measure
+    /// unpaused time.
+    ///
+    /// `cancelDeposit` and `sweep` remain open: neither verifies a proof, and
+    /// escrowed funds must stay recoverable.
+    modifier whenNotPaused() {
+        _requireNotPaused();
+        _;
+    }
+
+    /// Held outside the modifier: the check guards five entry points.
+    function _requireNotPaused() private view {
+        uint256 until = UpgradeStorage.spendsPausedUntil();
+        if (block.timestamp < until) revert SpendsPaused(until);
+    }
+
+    /// Locks the implementation, preventing it from being initialized outside a
+    /// proxy.
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /// Runs once, against the proxy's storage. A constructor would write the
+    /// implementation's storage instead, leaving the proxy unowned,
+    /// unconfigured and without a seeded root.
+    function initialize(
         IVerifier treeUpdateBatchVerifier_,
         IBatchVerifier spendVerifier_,
         ISignatureTransfer permit2_,
@@ -232,7 +268,9 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
         uint16[] memory withdrawBps,
         address treasury_,
         address owner_
-    ) Ownable(owner_) {
+    ) external initializer {
+        _initOwner(owner_);
+        _initCommitmentTree();
         if (address(treeUpdateBatchVerifier_).code.length == 0) revert ZeroVerifier();
         if (address(spendVerifier_).code.length == 0) revert ZeroVerifier();
         _probeSpendVerifier(spendVerifier_);
@@ -302,7 +340,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
         AuxValidation.Output[6] calldata aux
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         if (pi.publicIn != 0) revert MustNotHaveDeposit();
         if (pi.publicOut == 0) revert MustHaveWithdraw();
         AssetEntry memory a = _preflight(pi, tpi, aux);
@@ -327,7 +365,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi,
         AuxValidation.Output[6] calldata aux
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         if (pi.publicIn != 0) revert MustNotHaveDeposit();
         if (pi.publicOut != 0) revert MustNotHaveWithdraw();
         _validateRequest(pi, tpi, aux);
@@ -348,7 +386,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
         Permit2Sig calldata sig,
         AuxValidation.Output calldata aux,
         AuxValidation.Output calldata feeAux
-    ) external nonReentrant returns (uint256 id) {
+    ) external nonReentrant whenNotPaused returns (uint256 id) {
         AssetEntry memory a = _validateDeposit(d, aux, feeAux);
         Shield memory s = _quoteShield(d, a);
         _permit2Pull(a.token, d.payer, sig, s.total, keccak256(abi.encode(d, aux, feeAux)));
@@ -364,7 +402,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
         PubInputs.DepositRequest calldata d,
         AuxValidation.Output calldata aux,
         AuxValidation.Output calldata feeAux
-    ) external nonReentrant returns (uint256 id) {
+    ) external nonReentrant whenNotPaused returns (uint256 id) {
         AssetEntry memory a = _validateDeposit(d, aux, feeAux);
         if (msg.sender != d.payer) revert PayerNotSender();
 
@@ -517,7 +555,7 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
         DepositMeta[] calldata meta,
         Proof calldata tp,
         PubInputs.TreeUpdateBatch calldata tpi
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         uint256 n = ids.length;
         if (meta.length != n) revert BadBatchSize();
         _validateBatchHeader(n, tpi);
@@ -598,9 +636,19 @@ contract MASP is CommitmentTree, AssetRegistry, NullifierSet, YieldIndex {
         if (tpi.isDeposit[p] != 1 || tpi.isDeposit[f] != 1) revert BadDepositMode();
         if (tpi.leafPublicIn[p] > type(uint48).max) revert PublicInTooLarge();
         if (tpi.leafPublicIn[f] > type(uint48).max) revert PublicInTooLarge();
-        // The fee note is in the deposit's own asset, so one registry lookup
-        // serves both leaves and a mismatched fee asset fails the digest.
-        if (tpi.leafAsset[f] != tpi.leafAsset[p]) revert DigestMismatch(id);
+        // The fee note's asset, which the circuit constrains by cases.
+        //
+        // `tree_update_batch.circom` step 7a: a deposit leaf carrying value has
+        // its asset pinned by the Pedersen binding and must be non-zero, while a
+        // ZERO-value leaf has an asset the binding cannot see — `cv_dep` is
+        // `rcv*H` whatever it says — so the circuit canonicalises it to 0 rather
+        // than leave it a free coefficient. A worthless fee note declaring any
+        // other asset is unprovable.
+        //
+        // A valued fee note is in the deposit's own asset, so one registry
+        // lookup serves both leaves.
+        uint64 wantFeeAsset = tpi.leafPublicIn[f] == 0 ? 0 : tpi.leafAsset[p];
+        if (tpi.leafAsset[f] != wantFeeAsset) revert DigestMismatch(id);
 
         // Reconstruct the submit-time digest; one equality binds all fields.
         uint64 assetId = tpi.leafAsset[p];

@@ -24,18 +24,19 @@ types from it:
 ```ts
 import { maspAbi } from "@lelantos-org/contracts";
 
-const fee = await client.readContract({
+const [depositBps, withdrawBps] = await client.readContract({
     address: masp,
     abi: maspAbi,
-    functionName: "feeBps",
-}); // number
+    functionName: "assetFees",
+    args: [assetId],
+}); // readonly [number, number]
 ```
 
 The barrel re-exports every ABI. The package is ESM and marked
 `sideEffects: false`, so a bundler drops the ones you do not reference.
 
 Without a bundler — Node, Deno, a plain `<script type="module">` — the barrel
-is not free: importing it parses all 13 modules (~137 KB) even if you use one.
+is not free: importing it parses all 28 modules (~356 KB) even if you use one.
 Import the contract directly to pay only for what you need:
 
 ```ts
@@ -64,9 +65,21 @@ import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json"
 | `commitmentTreeAbi` | `src/CommitmentTree.sol:CommitmentTree` |
 | `feeConfigAbi` | `src/FeeConfig.sol:FeeConfig` |
 | `nullifierSetAbi` | `src/NullifierSet.sol:NullifierSet` |
+| `delayedUpgradeProxyAbi` | `src/DelayedUpgradeProxy.sol:DelayedUpgradeProxy` |
+| `ownableInitAbi` | `src/OwnableInit.sol:OwnableInit` |
+| `lelantosTokenAbi` | `src/governance/LelantosToken.sol:LelantosToken` |
+| `lelantosGovernorAbi` | `src/governance/LelantosGovernor.sol:LelantosGovernor` |
+| `protocolAdminAbi` | `src/governance/ProtocolAdmin.sol:ProtocolAdmin` |
+| `feeBurnerAbi` | `src/burn/FeeBurner.sol:FeeBurner` |
+| `yieldIndexAbi` | `src/yield/YieldIndex.sol:YieldIndex` |
+| `yieldOpsAbi` | `src/yield/YieldOps.sol:YieldOps` |
+| `yieldVenueAbi` | `src/yield/IYieldVenue.sol:IYieldVenue` |
+| `erc4626VenueAbi` | `src/yield/ERC4626Venue.sol:ERC4626Venue` |
+| `maspEscrowSatelliteAbi` | `src/MaspEscrowSatellite.sol:MaspEscrowSatellite` |
 | `nativeAdapterAbi` | `src/native/NativeAdapter.sol:NativeAdapter` |
 | `swapWrapperAbi` | `src/swap/SwapWrapper.sol:SwapWrapper` |
 | `uniV3AdapterAbi` | `src/swap/UniV3Adapter.sol:UniV3Adapter` |
+| `uniV4AdapterAbi` | `src/swap/UniV4Adapter.sol:UniV4Adapter` |
 | `swapAdapterAbi` | `src/swap/ISwapAdapter.sol:ISwapAdapter` |
 | `imaspPoolAbi` | `src/interfaces/IMASPPool.sol:IMASPPool` |
 | `verifierInterfaceAbi` | `src/interfaces/IVerifier.sol:IVerifier` |
@@ -77,7 +90,11 @@ import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json"
 | `batchedGroth16VerifierAbi` | `src/verifiers/BatchedGroth16Verifier.sol:BatchedGroth16Verifier` |
 
 To add a contract, extend `CONTRACTS` in
-[`scripts/generate.mjs`](scripts/generate.mjs).
+[`scripts/generate.mjs`](scripts/generate.mjs). The generator refuses to run if a
+`src/` contract with a non-empty ABI is neither published nor listed in
+`EXCLUDED`, so a new contract cannot be silently left out; `EXCLUDED` records why
+each omission is intentional. `TimelockController` is absent because it is
+unmodified OpenZeppelin and ships with that package.
 
 ## Release
 

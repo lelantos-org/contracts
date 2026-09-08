@@ -7,3 +7,9 @@
 [submodule "lib/permit2"]
 	path = lib/permit2
 	url = https://github.com/Uniswap/permit2
+[submodule "lib/halmos-cheatcodes"]
+	path = lib/halmos-cheatcodes
+	url = https://github.com/a16z/halmos-cheatcodes
+[submodule "lib/quint-sol-connect"]
+	path = lib/quint-sol-connect
+	url = https://github.com/lelantos-org/quint-sol-connect

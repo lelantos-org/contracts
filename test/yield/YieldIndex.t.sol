@@ -3,7 +3,6 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { MASP } from "../../src/MASP.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { YieldIndex } from "../../src/yield/YieldIndex.sol";
 import { YieldOps } from "../../src/yield/YieldOps.sol";

@@ -1,0 +1,58 @@
+# Halmos (bounded symbolic execution) configuration.
+#
+# Halmos proves a property for EVERY input in a bounded state space, where
+# `forge test`'s fuzzer samples it. It complements the fuzz and invariant
+# suites rather than replacing them: the tests under `test/symbolic/` restate
+# properties already fuzzed and turn them into proofs, so a regression that a
+# 256-run fuzz would only sometimes catch fails deterministically here.
+#
+# Only a `[global]` section is read — halmos rejects a file with any other
+# top-level table. Per-test overrides go in NatSpec on the test itself:
+#     /// @custom:halmos --loop 4
+#
+# Run with `just halmos`, which sets FOUNDRY_PROFILE=halmos.
+
+[global]
+# Halmos shells out to `forge build --ast` itself, inheriting FOUNDRY_PROFILE
+# from the environment. This must name the same directory as
+# `[profile.halmos].out` in foundry.toml, or halmos parses the via-ir artifacts
+# the default profile leaves behind.
+forge-build-out = "out/halmos"
+
+# Only test/symbolic/ is symbolic. Without this, halmos also walks every
+# `check_`-prefixed function it can find in the fuzz/invariant suites — there
+# are none today, but the default would silently pick up any that appear.
+match-contract = "Symbolic"
+
+# The solver is left at the default (yices). It is the one halmos ships as a
+# Python dependency; bitwuzla and cvc5 are downloaded from GitHub on first use,
+# behind an interactive confirmation prompt, which would make a CI run depend on
+# a third-party release URL and on `HALMOS_ALLOW_DOWNLOAD`. Yices handles the
+# bitvector-heavy queries here (shift/mask bitmap reasoning in NullifierSet,
+# ceil-division in Fees) without trouble.
+
+# Lower than the 60s default, deliberately. Every property in the suite solves
+# in well under a second, so a query that runs for 30s is not a slow proof — it
+# is a badly shaped one, and the fix is to restate the property, not to raise
+# the budget. `unitFee`'s bound and monotonicity properties were dropped for
+# exactly this reason: they make the solver reason about a division rather than
+# carry it, and they stay intractable at every argument width. See the note in
+# Fees.symbolic.t.sol and the matrix in test/symbolic/README.md.
+solver-timeout-assertion = "30s"
+
+# Unrolling bound for loops, and it is load-bearing: the spend path loops over
+# the transact shape (`TRANSACT_OUT` = 6 outputs, `TRANSACT_IN` = 4 nullifiers
+# checked pairwise) and over `MAX_L_BATCH` = 8 batch slots. At the default of 2,
+# and at 4, halmos reports "paths have not been fully explored due to the loop
+# unrolling bound" and the affected proofs cover only a prefix of each array —
+# they pass while proving less than they claim.
+#
+# 16 clears the widest of those with headroom. Every one of these bounds is a
+# compile-time constant, so full unrolling terminates; this is not a bound the
+# proofs are weakened by, and a `[PASS]` accompanied by a loop-bound warning
+# should be treated as a failure and the bound raised.
+loop = 16
+
+# Report path/solver counts, so a test that silently stops covering anything
+# (e.g. an over-strong `vm.assume` leaving zero feasible paths) is visible.
+statistics = true

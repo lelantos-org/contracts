@@ -347,7 +347,12 @@ library YieldOps {
         if (perfBps > Fees.MAX_FEE_BPS || bufferBps > Fees.BPS_DENOMINATOR) revert BadYieldParams();
         // The venue must be pinned to this pool, and its vault must hold this
         // token.
+        // Reached only through `MASP.addYieldAsset` (`onlyOwner`), and these are
+        // view probes on the venue being bound. `_addAsset` reverts on a duplicate
+        // id, so the write below happens at most once per id under any ordering.
+        // aderyn-fp-next-line(reentrancy-state-change)
         if (IYieldVenue(venue).POOL() != address(this)) revert VenueNotPinned();
+        // aderyn-fp-next-line(reentrancy-state-change)
         if (IERC4626Asset(IYieldVenue(venue).VAULT()).asset() != token) revert VenueAssetMismatch();
 
         y.params[id] = YieldParams({ venue: venue, bufferBps: bufferBps, perfBps: perfBps, halted: false });
@@ -409,10 +414,16 @@ library YieldOps {
         YieldParams memory q = _requireYield(y, id);
         y.params[id].halted = true;
 
+        // `YieldIndex.emergencyUnwind` is `onlyOwner nonReentrant`, `halted` is set
+        // before these calls, and the venue is the one fixed at registration rather
+        // than caller-supplied. `idle` cannot be credited twice.
+        // aderyn-fp-next-line(reentrancy-state-change)
         uint256 held = IYieldVenue(q.venue).totalAssets();
+        // aderyn-fp-next-line(reentrancy-state-change)
         uint256 avail = IYieldVenue(q.venue).maxWithdraw();
         recovered = held < avail ? held : avail;
         if (recovered != 0) {
+            // aderyn-fp-next-line(reentrancy-state-change)
             IYieldVenue(q.venue).withdraw(recovered);
             y.idle[id] += recovered;
         }

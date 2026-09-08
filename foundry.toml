@@ -30,6 +30,8 @@ remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",
     "permit2/=lib/permit2/",
+    "halmos-cheatcodes/=lib/halmos-cheatcodes/src/",
+    "quint-sol-connect/=lib/quint-sol-connect/solidity/",
 ]
 
 fs_permissions = [
@@ -55,33 +57,6 @@ runs = 256
 depth = 64
 fail_on_revert = false
 
-# Iteration profile: drops SMT model checker + tames optimizer runs for
-# fast local rebuilds. CI keeps the default profile.
-# Use: `FOUNDRY_PROFILE=fast forge build` / `... forge test`.
-[profile.fast]
-src = "src"
-out = "out"
-libs = ["lib"]
-test = "test"
-script = "script"
-auto_detect_solc = true
-optimizer = true
-optimizer_runs = 200
-via_ir = false
-evm_version = "cancun"
-remappings = [
-    "@openzeppelin/=lib/openzeppelin-contracts/",
-    "forge-std/=lib/forge-std/src/",
-    "permit2/=lib/permit2/",
-]
-fs_permissions = [
-    { access = "read", path = "test/fixtures" },
-    { access = "read", path = "out" },
-    { access = "read", path = "script/config" },
-]
-ignored_warnings_from = ["lib"]
-chain_id = 31337
-
 [fuzz]
 runs = 256
 
@@ -101,12 +76,27 @@ fail_on_revert = false
 # snarkjs-generated verifier files use lowercase constants by codegen; regenerated on circuit change.
 # unsafe-cheatcode (`vm.readFile`) is intentional for fixture loading in tests/scripts.
 exclude_lints = ["unsafe-cheatcode"]
-ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.sol"]
+# test/symbolic/ is listed because halmos only collects functions prefixed
+# `check_` (or `invariant_`), and forge-lint's `mixed-case-function` rejects
+# every one of them; suppressing that per function would mean a disable comment
+# on every test in the directory.
+#
+# Note that `[lint].ignore` is inert: neither forge 1.5.1 nor 1.8.1 (the pinned
+# CI version) applies it, and `forge lint` reports the verifier files below just
+# as it does test/symbolic/. That is pre-existing rather than new, and it costs
+# nothing — lint findings are warnings and no CI job reads them. The entry
+# states the intent and takes effect if a release starts applying it.
+ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.sol", "test/symbolic/**"]
 
 # Deploy profile: keeps via_ir (avoids stack-too-deep) but lowers
 # optimizer_runs so MASP fits under EIP-170 (24576 B) on Arbitrum/L1/etc.
 # Use: `FOUNDRY_PROFILE=deploy forge script ...`. Default profile keeps
 # optimizer_runs = 1_000_000 for best hot-path gas in tests.
+#
+# 1k rather than 10k: the pool runs behind a proxy, so its whole initializer is
+# runtime code rather than initcode (a constructor cannot reach proxy storage),
+# which costs ~2.5 KB. Proof verification dominates a spend's gas and is
+# hand-written assembly, so it is largely insensitive to this.
 [profile.deploy]
 src = "src"
 out = "out"
@@ -115,13 +105,15 @@ test = "test"
 script = "script"
 auto_detect_solc = true
 optimizer = true
-optimizer_runs = 10_000
+optimizer_runs = 1_000
 via_ir = true
 evm_version = "cancun"
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",
     "permit2/=lib/permit2/",
+    "halmos-cheatcodes/=lib/halmos-cheatcodes/src/",
+    "quint-sol-connect/=lib/quint-sol-connect/solidity/",
 ]
 fs_permissions = [
     { access = "read", path = "test/fixtures" },
@@ -130,19 +122,121 @@ fs_permissions = [
 ]
 ignored_warnings_from = ["lib"]
 
-# Default profile: NO SMT model checker. SMT is opt-in via
-# `FOUNDRY_PROFILE=smt forge build` so day-to-day `forge build` /
-# `forge test` is fast. Heavy SMT lives in `[profile.smt.model_checker]`
-# below and runs in CI's dedicated SMT job.
 
-[profile.smt.model_checker]
-contracts = { "src/MASP.sol" = ["MASP"], "src/AssetRegistry.sol" = ["AssetRegistry"], "src/CommitmentTree.sol" = ["CommitmentTree"], "src/FeeConfig.sol" = ["FeeConfig"], "src/NullifierSet.sol" = ["NullifierSet"], "src/swap/SwapWrapper.sol" = ["SwapWrapper"], "src/swap/UniV3Adapter.sol" = ["UniV3Adapter"], "src/swap/UniV4Adapter.sol" = ["UniV4Adapter"], "src/yield/YieldOps.sol" = ["YieldOps"], "src/yield/ERC4626Venue.sol" = ["ERC4626Venue"] }
-engine = "all"
-timeout = 120000
-targets = ["assert", "underflow", "overflow", "divByZero", "constantCondition", "popEmptyArray", "outOfBounds", "balance", "assertions"]
-invariants = ["contract", "reentrancy"]
-show_unproved = true
-solvers = ["z3"]
+# Halmos profile: the build the symbolic tests under test/symbolic/ are explored
+# against. Halmos shells out to `forge build --ast` itself, inheriting
+# FOUNDRY_PROFILE from the environment, so this profile is what shapes the
+# bytecode it reasons about. `just halmos` sets it.
+#
+# Turning via_ir and the optimizer off would suit symbolic execution better —
+# the IR pipeline rewrites arithmetic into equivalent but much wider forms that
+# inflate the SMT encoding — but neither is optional here: MASP.sol does not
+# compile through legacy codegen (stack too deep), and via_ir without the
+# optimizer fails the same way inside the Yul backend. So this profile keeps
+# both and differs from `default` only in `optimizer_runs`, at the 1_000 the
+# `deploy` profile ships: less inlining than 1M, so the code halmos walks is
+# closer to the source, and it is a configuration known to compile.
+#
+# Separate out/cache paths: halmos builds
+# with `--ast --extra-output storageLayout metadata`, which is a different
+# output selection from the plain `forge build` the test/ABI/size jobs use, so
+# sharing `out/` would make every switch a full recompile in both directions.
+# `halmos.toml` points `forge-build-out` at the directory named here.
+[profile.halmos]
+src = "src"
+out = "out/halmos"
+cache_path = "cache/halmos"
+# Required, not a preference. Foundry 1.8 turned dynamic test linking on by
+# default, which compiles `new Contract()` in a test into `vm.deployCode`.
+# Halmos does not implement that cheatcode, so every test whose `setUp` deploys
+# a contract that way dies with "Unsupported cheat code: deployCode(string,
+# bytes)" — the DelayedUpgradeProxy and NativeAdapter suites failed wholesale
+# under forge 1.8.1 until this was set. The `slither` recipe passes
+# `--no-dynamic-test-linking` for its own version of the same problem.
+dynamic_test_linking = false
+libs = ["lib"]
+test = "test"
+script = "script"
+auto_detect_solc = true
+optimizer = true
+optimizer_runs = 1_000
+via_ir = true
+evm_version = "cancun"
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "forge-std/=lib/forge-std/src/",
+    "permit2/=lib/permit2/",
+    "halmos-cheatcodes/=lib/halmos-cheatcodes/src/",
+    "quint-sol-connect/=lib/quint-sol-connect/solidity/",
+]
+fs_permissions = [
+    { access = "read", path = "test/fixtures" },
+    { access = "read", path = "out" },
+    { access = "read", path = "script/config" },
+]
+ignored_warnings_from = ["lib"]
+chain_id = 31337
+
+# Echidna profile: the build `just echidna` explores. Echidna shells out to
+# crytic-compile, which shells out to `forge build`, so this profile is what
+# shapes the bytecode it fuzzes.
+#
+# Two settings are load-bearing:
+#
+# `libraries` pre-links YieldOps at a fixed address. MASP links against it (12
+# call sites), and Foundry normally deploys and links it on the fly inside the
+# test EVM — a step Echidna has no equivalent of, so it aborts with "Unlinked
+# libraries detected in bytecode of contract src/MASP.sol:MASP". Pinning the
+# address here makes solc bake it into MASP's bytecode; `just echidna` then
+# places YieldOps' runtime code at that same address via Echidna's
+# `deployBytecodes`, so the calls land on real code. The address is arbitrary
+# and used by nothing else; it must stay in step with `ECHIDNA_YIELDOPS_ADDR`
+# in the justfile.
+#
+# `dynamic_test_linking = false` for the same reason the `slither` recipe
+# passes `--no-dynamic-test-linking`: foundry 1.8 turned it on by default,
+# which injects synthetic `foundry-pp/DeployHelperN.sol` sources that have no
+# file on disk, and crytic-compile aborts on `Unknown file: foundry-pp/...`.
+#
+# Shares `out/` with the default profile, unlike `[profile.halmos]`. That is
+# not a preference: Echidna runs Slither for the constant extraction that seeds
+# its mutations, and Slither reaches the build through crytic-compile's Foundry
+# platform under `--ignore-compile`, which resolves the build-info directory
+# from `[profile.default].out` and ignores `FOUNDRY_PROFILE`. Point this
+# profile at its own `out/` and that step dies with `FileNotFoundError:
+# out/build-info/<hash>.output.json` — reported only as "Running slither
+# failed. Echidna will continue, however fuzzing will likely be less
+# effective", which is a silent quality regression rather than a failure.
+#
+# The cost is that switching between this profile and the default one is a full
+# recompile each way, since `libraries` changes the bytecode. `just echidna`
+# absorbs that; it is the reason the recipe always builds before it runs.
+[profile.echidna]
+src = "src"
+libs = ["lib"]
+test = "test"
+script = "script"
+auto_detect_solc = true
+optimizer = true
+optimizer_runs = 1_000
+via_ir = true
+evm_version = "cancun"
+dynamic_test_linking = false
+libraries = ["src/yield/YieldOps.sol:YieldOps:0x000000000000000000000000000000000000eC1d"]
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "forge-std/=lib/forge-std/src/",
+    "permit2/=lib/permit2/",
+    "halmos-cheatcodes/=lib/halmos-cheatcodes/src/",
+    "quint-sol-connect/=lib/quint-sol-connect/solidity/",
+]
+fs_permissions = [
+    { access = "read", path = "test/fixtures" },
+    { access = "read", path = "out" },
+    { access = "read", path = "script/config" },
+]
+ignored_warnings_from = ["lib"]
+chain_id = 31337
 
 [fmt]
 line_length = 120

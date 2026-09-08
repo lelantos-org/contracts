@@ -1,0 +1,67 @@
+# Echidna configuration for test/echidna/.
+#
+# Complements rather than replaces the Foundry invariant suite: the properties
+# are the same ones test/invariant/ asserts, but Echidna keeps a corpus on
+# disk between runs, so the nightly job compounds instead of restarting from a
+# fixed seed every time. See test/echidna/EchidnaMasp.sol for what that buys
+# and where the handlers had to diverge from the Foundry ones.
+
+testMode: property
+# Every property here is a pure state check, so a reverting handler call is a
+# normal outcome (an early cancel, a flush of nothing) rather than a finding.
+# `cancelOne` in particular relies on this: it leaves the cancelDelay guard
+# live, so calls made too early are meant to revert.
+testLimit: 50000
+# Long by Echidna's standards, and it has to be. State resets between
+# sequences, so anything needing many successful calls in a row has to fit
+# inside one: the root ring holds ROOT_HISTORY = 64 entries and only starts
+# evicting once full, which means 64+ landed root advances — spread across
+# ~20 handlers, most of which early-return — before the eviction properties
+# stop being vacuous. At seqLen 100 they never fired once in 40k calls.
+seqLen: 400
+
+# `cancelDeposit` unlocks CANCEL_DELAY_DEFAULT (7_200) blocks after submit.
+# The per-call block delay has to be able to clear that or the cancel path is
+# unreachable and three of the four properties never see a Cancelled id. The
+# ceiling is ~3.5x the delay so sequences land on both sides of the guard.
+maxBlockDelay: 25000
+# Deliberately far shorter than the block delay above, because the two are
+# drawn independently and the pause properties need both at once: a paused
+# pool (timestamp-bounded) holding a deposit whose cancelDelay of 7_200
+# *blocks* has elapsed. At 300_000s — 3.5 days against a pause of at most
+# 7 — essentially any single call ended the pause before a block jump could
+# cross the cancel delay, and `pausedCancelHonoured` never once reached the
+# pool. Keeping time slow relative to blocks makes the overlap reachable.
+maxTimeDelay: 15000
+
+# `corpusDir` is NOT set here. It is emitted per contract by
+# `just _echidna-config`, because a corpus is a set of call sequences against
+# one ABI: pointing both targets at one directory would have each replaying
+# the other's sequences, every one of which decodes to nothing it can call.
+# The handlers do not branch on msg.sender — the payer originates its own
+# privileged calls through EchidnaMaspPayer — so multiple senders only add
+# noise here. One sender keeps sequences shorter and the corpus denser.
+sender: ["0x0000000000000000000000000000000000010000"]
+
+# Pin the platform. Left to auto-detection, crytic-compile tries its
+# `solc` platform first on a .sol path and writes a combined_solc.json that
+# nothing can read back ("Failed to parse combined JSON file
+# crytic-export/combined_solc.json"). Echidna itself recovers — it falls
+# through to the Foundry platform — but the Slither pass it runs for constant
+# extraction uses `--ignore-compile` and reads that same broken export, so it
+# fails with "Running slither failed. Echidna will continue, however fuzzing
+# will likely be less effective." Losing Slither costs the seeded constants
+# that make the mutations hit guards, which is a silent quality regression
+# rather than an error.
+cryticArgs: ["--compile-force-framework", "foundry"]
+
+# Note what is deliberately NOT here: `--ignore-compile`. CI adds it, because
+# echidna-action runs Echidna in a container with no Foundry and cannot
+# compile at all. Locally it would make `just echidna` unusable: consuming a
+# prebuilt `out/build-info` requires that build-info be complete, and an
+# incremental `forge build` rewrites entries only for what it recompiled,
+# leaving crytic-compile to die on a missing `<hash>.output.json`. The
+# `slither` recipe hits the same wall and answers it with a preceding `forge
+# clean` — a full via_ir rebuild, which is tolerable once a night and not
+# every time someone runs the fuzzer. So locally crytic-compile drives the
+# build itself, incrementally.

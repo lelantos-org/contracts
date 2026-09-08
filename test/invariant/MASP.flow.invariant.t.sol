@@ -5,19 +5,17 @@ import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
-import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
-import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
+import { SnarkCompression } from "../../src/SnarkCompression.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
-import { MockERC1271 } from "../mocks/MockERC1271.sol";
-import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
-import { uniformBps } from "../utils/FeeArrays.sol";
+import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
+import { Stubs } from "../utils/Stubs.sol";
 
 /// Whole-flow invariant for the MASP deposit / batch / cancel / sweep
 /// state machine. The existing per-slice invariants
@@ -137,13 +135,33 @@ contract MaspFlowHandler is Test {
         // The SNARK is mocked, so the new-root value is arbitrary. It is
         // still bound to (current count, current root) so the handler ghost
         // tracks `committedCount` advancement accurately.
-        tpi.newRoot = keccak256(abi.encode("flushed", id, block.number));
+        //
+        // Reduced mod R because `flushBatch` compresses the batch header
+        // through `SnarkCompression.evaluatePolyAt`, which rejects any
+        // coefficient >= R. A raw keccak clears the BN254 scalar field about
+        // 78% of the time, so leaving it unreduced made flush fail for a
+        // reason that has nothing to do with the state machine under test.
+        tpi.newRoot = bytes32(uint256(keccak256(abi.encode("flushed", id, block.number))) % SnarkCompression.R);
         tpi.startIndex = masp.committedCount();
-        tpi.actualCount = 1;
+        // A deposit occupies PubInputs.LEAVES_PER_DEPOSIT (= 2) adjacent
+        // leaves: its principal, then the note paying the flusher.
+        // `_validateBatchHeader` requires `actualCount == n * LEAVES_PER_DEPOSIT`
+        // and `_drainDeposit` rebuilds the escrow digest from leaf `p + 1`'s
+        // (publicIn, cm, cvDep) as the fee note. `submit` escrows that note as
+        // (0, 0xfee, [0, 0]) via `d.feeCm`, so both leaves must be populated
+        // here or the call reverts `BatchMisaligned` before touching state.
+        tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
         tpi.cms[0] = preimageCm0[id];
         tpi.leafAsset[0] = ASSET_ID;
         tpi.leafPublicIn[0] = uint64(preimagePublicIn[id]);
         tpi.isDeposit[0] = 1;
+        tpi.cms[1] = bytes32(uint256(0xfee));
+        // Zero value, so asset 0: the circuit canonicalises the asset of a
+        // leaf whose Pedersen binding cannot see it (step 7a), and
+        // `_drainDeposit` requires the match.
+        tpi.leafAsset[1] = 0;
+        tpi.leafPublicIn[1] = 0;
+        tpi.isDeposit[1] = 1;
 
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
@@ -160,7 +178,7 @@ contract MaspFlowHandler is Test {
         ghostPendingFee -= feeAt[id];
         ghostShieldedPrincipal += principalAt[id];
         lastNewRoot = tpi.newRoot;
-        ghostInserted += 1;
+        ghostInserted += uint64(PubInputs.LEAVES_PER_DEPOSIT);
         flushCount += 1;
     }
 
@@ -173,6 +191,13 @@ contract MaspFlowHandler is Test {
         vm.roll(block.number + masp.cancelDelay());
 
         uint256[2] memory zCv;
+        // The payer is `vm.etch`ed with MockERC1271 so Permit2's ERC-1271
+        // check passes at submit. That gives it code, and MASP restricts
+        // cancel to the payer itself whenever `payer.code.length != 0` (a
+        // contract payer must observe its own refund). Without this prank
+        // every real cancel reverts `PayerNotSender`, and the early return
+        // above absorbs the rest, so `cancelCount` never leaves 0.
+        vm.prank(payer);
         // forge-lint: disable-next-line(unsafe-typecast)
         masp.cancelDeposit(
             id,
@@ -222,8 +247,8 @@ contract MaspFlowHandler is Test {
 }
 
 contract MaspFlowInvariantTest is Test {
-    TreeUpdateBatchGroth16Verifier tubVerifier;
-    BatchedGroth16Verifier batchVerifier;
+    IVerifier tubVerifier;
+    IBatchVerifier batchVerifier;
     address permit2;
     MockERC20 token;
     MASP masp;
@@ -232,38 +257,20 @@ contract MaspFlowInvariantTest is Test {
     address payer = address(0xface);
 
     function setUp() public {
-        tubVerifier = new TreeUpdateBatchGroth16Verifier();
-        batchVerifier = new BatchedGroth16Verifier();
-        permit2 = new DeployPermit2().deployPermit2();
+        ISignatureTransfer p2;
+        (tubVerifier, batchVerifier, p2) = realVerifierStack();
+        permit2 = address(p2);
         token = new MockERC20("M", "M", 18);
 
-        uint64[] memory ids = new uint64[](1);
-        IERC20[] memory tokens = new IERC20[](1);
-        uint256[] memory scales = new uint256[](1);
-        ids[0] = 1;
-        tokens[0] = IERC20(address(token));
-        scales[0] = 1e10;
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
+            singleAsset(IERC20(address(token)), 1, 1e10);
 
-        masp = new MASP(
-            IVerifier(address(tubVerifier)),
-            IBatchVerifier(address(batchVerifier)),
-            ISignatureTransfer(address(permit2)),
-            ids,
-            tokens,
-            scales,
-            uniformBps(ids.length, 25),
-            uniformBps(ids.length, 25),
-            address(0xfee),
-            address(this)
-        );
+        masp = deployPoolUniform(tubVerifier, batchVerifier, p2, ids, tokens, scales, 25, address(0xfee), address(this));
 
-        // Permit2 ERC-1271 stub: any sig passes.
-        MockERC1271 stub = new MockERC1271();
-        vm.etch(payer, address(stub).code);
+        Stubs.installPermissiveERC1271(payer);
 
-        // Mock the tree-update SNARK verifier — flushBatch's only real
-        // dependency that requires a depth-10 proof.
-        vm.mockCall(address(tubVerifier), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        // flushBatch's only real dependency that requires a depth-10 proof.
+        Stubs.acceptTreeUpdateProofs(tubVerifier, true);
 
         handler = new MaspFlowHandler(masp, permit2, token, payer, masp.currentRoot());
         targetContract(address(handler));
@@ -319,5 +326,35 @@ contract MaspFlowInvariantTest is Test {
         assertEq(masp.currentRoot(), handler.lastNewRoot(), "currentRoot drift");
         assertTrue(masp.isKnownRoot(masp.currentRoot()), "currentRoot not known");
         assertEq(masp.committedCount(), handler.ghostInserted(), "committedCount delta");
+    }
+
+    /// Every handler path must actually land at least once.
+    ///
+    /// `flushOne` silently reverted for the whole life of this suite: it built
+    /// a one-leaf batch where `_validateBatchHeader` demands
+    /// `n * PubInputs.LEAVES_PER_DEPOSIT`. With `fail_on_revert = false` the
+    /// call and its ghost updates rolled back leaving no trace, so
+    /// `ghostShieldedPrincipal`, `flushCount` and `ghostInserted` stayed 0 and
+    /// `invariant_rootCoherence` was comparing 0 to 0. The invariant runner
+    /// cannot distinguish "this path is hard to reach" from "this path is
+    /// dead", so the distinction is drawn here instead.
+    ///
+    /// Mirrors `YieldSolvencyInvariantTest.test_handlerReachesEveryPath`.
+    function test_handlerReachesEveryPath() public {
+        handler.submit(100);
+        handler.submit(200);
+        assertEq(handler.idsLen(), 2, "submit path");
+
+        handler.flushOne(0);
+        assertEq(handler.flushCount(), 1, "flush path");
+        // Not just "a flush landed": it inserted the principal *and* the fee
+        // note. A one-leaf flush is exactly the bug this test exists for.
+        assertEq(masp.committedCount(), uint64(PubInputs.LEAVES_PER_DEPOSIT), "flush inserted both leaves");
+
+        handler.cancelOne(0);
+        assertEq(handler.cancelCount(), 1, "cancel path");
+
+        handler.sweep();
+        handler.advanceBlocks(10);
     }
 }

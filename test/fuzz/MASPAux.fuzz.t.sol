@@ -5,19 +5,17 @@ import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
-import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../../src/MASP.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
-import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
 import { uniformBps } from "../utils/FeeArrays.sol";
+import { deployPool, mockVerifierStack, noAssets } from "../utils/PoolDeployer.sol";
 
 /// Fuzz `_validateAux`: bounds-check on every output ciphertext + clue-bits
 /// prefix mask. Aux validation runs before the SNARK call — a downstream
@@ -34,21 +32,10 @@ contract MASPAuxFuzzTest is Test {
     address recipient = address(0xAA03);
 
     function setUp() public {
-        IVerifier v = IVerifier(address(new MockERC20("v", "v", 18)));
-        IVerifier tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
-        MockBatchVerifier bv = new MockBatchVerifier();
-        address permit2 = new DeployPermit2().deployPermit2();
-        masp = new MASP(
-            tub,
-            bv,
-            ISignatureTransfer(address(permit2)),
-            new uint64[](0),
-            new IERC20[](0),
-            new uint256[](0),
-            uniformBps(0, 0),
-            uniformBps(0, 0),
-            address(0xfee),
-            address(this)
+        (IVerifier tub, MockBatchVerifier bv, ISignatureTransfer permit2) = mockVerifierStack();
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = noAssets();
+        masp = deployPool(
+            tub, bv, permit2, ids, tokens, scales, uniformBps(0, 0), uniformBps(0, 0), address(0xfee), address(this)
         );
     }
 

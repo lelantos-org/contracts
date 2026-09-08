@@ -24,7 +24,9 @@ import { MockWETH9 } from "../mocks/MockWETH9.sol";
 import { MockERC4626 } from "../mocks/MockERC4626.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
-import { uniformBps } from "../utils/FeeArrays.sol";
+import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
+import { Stubs } from "../utils/Stubs.sol";
+import { TestConstants } from "../utils/TestConstants.sol";
 
 /// `NativeAdapter` against a **yield** asset, end to end.
 ///
@@ -41,14 +43,14 @@ import { uniformBps } from "../utils/FeeArrays.sol";
 contract YieldNativeAdapterTest is Test {
     uint64 internal constant ASSET_ERC20 = 1;
     uint64 internal constant ASSET_WETH = 2; // yield-bearing
-    uint256 internal constant SCALE = 1e10;
-    uint16 internal constant FEE_BPS = 25;
+    uint256 internal constant SCALE = TestConstants.SCALE;
+    uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
     uint16 internal constant BUFFER_BPS = 500;
     uint16 internal constant PERF_BPS = 1000;
 
     address internal constant DEPOSITOR = address(0xBEEF);
-    address internal constant RECIPIENT = address(0xF00D);
-    address internal constant OWNER = address(0x0117e7);
+    address internal constant RECIPIENT = TestConstants.RECIPIENT;
+    address internal constant OWNER = TestConstants.OWNER;
 
     MockERC20 internal token;
     MockWETH9 internal weth;
@@ -67,24 +69,11 @@ contract YieldNativeAdapterTest is Test {
         IVerifier tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
         bv = new MockBatchVerifier();
 
-        uint64[] memory ids = new uint64[](1);
-        IERC20[] memory tokens = new IERC20[](1);
-        uint256[] memory scales = new uint256[](1);
-        ids[0] = ASSET_ERC20;
-        tokens[0] = IERC20(address(token));
-        scales[0] = SCALE;
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
+            singleAsset(IERC20(address(token)), ASSET_ERC20, SCALE);
 
-        masp = new MASP(
-            tub,
-            bv,
-            ISignatureTransfer(permit2),
-            ids,
-            tokens,
-            scales,
-            uniformBps(1, FEE_BPS),
-            uniformBps(1, FEE_BPS),
-            address(0xfee),
-            OWNER
+        masp = deployPoolUniform(
+            tub, bv, ISignatureTransfer(permit2), ids, tokens, scales, FEE_BPS, address(0xfee), OWNER
         );
 
         // WETH is registered as a yield asset, which is only possible after the
@@ -99,8 +88,7 @@ contract YieldNativeAdapterTest is Test {
         adapter =
             new NativeAdapter(IMASPPool(address(masp)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
 
-        bv.setResult(true);
-        vm.mockCall(address(tub), abi.encodeWithSelector(IVerifier.verifyProof.selector), abi.encode(true));
+        Stubs.acceptAllProofs(tub, bv);
     }
 
     // --- helpers ------------------------------------------------------------
