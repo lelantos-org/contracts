@@ -17,6 +17,9 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 /// the vault exactly as it does in production.
 contract MockERC4626 {
     IERC20 public immutable UNDERLYING;
+    /// The vault label the indexer publishes as `vaultName`, so a local stack
+    /// exercises the same path a real ERC-4626 vault does.
+    string public constant name = "Mock Vault";
 
     mapping(address => uint256) public balanceOf;
     uint256 public totalSupply;
