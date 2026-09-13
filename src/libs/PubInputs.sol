@@ -200,7 +200,7 @@ library PubInputs {
     /// range check is not a pin, and four such leaves would be 4 x 64 = 256 bits
     /// of free dial against a 254-bit modulus.
     ///
-    /// `tree_update_batch.circom` step 7a closes that per slot, with no
+    /// `tree_update_batch.circom` step 6a closes that per slot, with no
     /// reference to a neighbour: on an active deposit leaf `leafAsset` is 0
     /// exactly when `leafPublicIn` is 0, so a worthless leaf's asset is pinned to
     /// a constant and a valued one's is pinned by the binding. That is what makes

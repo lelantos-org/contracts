@@ -218,7 +218,7 @@ contract YieldHandler is Test {
         tpi.cms[1] = bytes32(e.seed + 1);
         tpi.leafAsset[0] = e.assetId;
         // leafPublicIn[1] stays 0, so the fee leaf's asset must be 0 too:
-        // `tree_update_batch.circom` step 7a canonicalises the asset of a leaf
+        // `tree_update_batch.circom` step 6a canonicalises the asset of a leaf
         // whose Pedersen binding cannot see it.
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[0] = e.publicIn;

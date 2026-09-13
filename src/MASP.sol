@@ -638,7 +638,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         if (tpi.leafPublicIn[f] > type(uint48).max) revert PublicInTooLarge();
         // The fee note's asset, which the circuit constrains by cases.
         //
-        // `tree_update_batch.circom` step 7a: a deposit leaf carrying value has
+        // `tree_update_batch.circom` step 6a: a deposit leaf carrying value has
         // its asset pinned by the Pedersen binding and must be non-zero, while a
         // ZERO-value leaf has an asset the binding cannot see — `cv_dep` is
         // `rcv*H` whatever it says — so the circuit canonicalises it to 0 rather

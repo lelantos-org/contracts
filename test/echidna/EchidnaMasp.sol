@@ -453,7 +453,7 @@ contract EchidnaMasp {
         tpi.leafPublicIn[pIdx] = uint64(preimagePublicIn[id]);
         tpi.isDeposit[pIdx] = 1;
         tpi.cms[pIdx + 1] = bytes32(uint256(0xfee));
-        // Zero-value leaves declare asset 0: `tree_update_batch.circom` step 7a
+        // Zero-value leaves declare asset 0: `tree_update_batch.circom` step 6a
         // canonicalises the asset of a leaf whose Pedersen binding cannot see
         // it, and `_drainDeposit` requires the match.
         tpi.leafAsset[pIdx + 1] = relayerFeeIn[id] == 0 ? 0 : ASSET_ID;
@@ -1063,7 +1063,7 @@ contract EchidnaMasp {
         tpi.leafPublicIn[0] = uint64(preimagePublicIn[id]);
         tpi.isDeposit[0] = 1;
         tpi.cms[1] = bytes32(uint256(0xfee));
-        // Zero-value leaves declare asset 0: `tree_update_batch.circom` step 7a
+        // Zero-value leaves declare asset 0: `tree_update_batch.circom` step 6a
         // canonicalises the asset of a leaf whose Pedersen binding cannot see
         // it, and `_drainDeposit` requires the match.
         tpi.leafAsset[1] = relayerFeeIn[id] == 0 ? 0 : ASSET_ID;

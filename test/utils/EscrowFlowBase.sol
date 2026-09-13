@@ -148,7 +148,7 @@ abstract contract EscrowFlowBase is Test {
         tpi.leafPublicIn[0] = publicIn;
         tpi.isDeposit[0] = 1;
         // Zero value, so asset 0: the circuit canonicalises the asset of a
-        // leaf whose Pedersen binding cannot see it (step 7a), and
+        // leaf whose Pedersen binding cannot see it (step 6a), and
         // `_drainDeposit` requires the match.
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[1] = 0;

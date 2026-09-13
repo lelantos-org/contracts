@@ -197,7 +197,7 @@ abstract contract MaspReplay is MaspSpecReplay {
 
         tpi.cms[1] = FEE_CM;
         // Zero value, so asset 0: the circuit canonicalises the asset of a
-        // leaf whose Pedersen binding cannot see it (step 7a), and
+        // leaf whose Pedersen binding cannot see it (step 6a), and
         // `_drainDeposit` requires the match.
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[1] = 0;

@@ -64,7 +64,7 @@ one is evaluated. `leafAsset`, `leafPublicIn` and `isDeposit` are circuit
 signals, and hashing a signal into `z` binds nothing — the prover reads `z`
 first and may pick a witness that disagrees with the calldata it was hashed
 from. The deposit binding pins `leafPublicIn` and `leafAsset` against `cvDep`,
-and step 7a of `tree_update_batch.circom` closes the case it degenerates in:
+and step 6a of `tree_update_batch.circom` closes the case it degenerates in:
 `ValueTimesGen(0, gen)` is the identity for every `gen`, so a zero-value leaf
 would leave `leafAsset` holding only a 64-bit range check. The circuit instead
 requires `leafAsset == 0` exactly when `leafPublicIn == 0`. See
@@ -107,8 +107,8 @@ Regenerate with `script/fixtures/gen_proof_fixture.sh transact_4x6`.
 
 ### `verification_key_4x6.json`, `verification_key_tree_update_batch.json`
 
-The two published verification keys, copied verbatim from the v0.14.0 release
-(SHA-256 `04c41618…9ef193e4` and `4733ebfd…59d7a3e3b8`). Read by
+The two published verification keys, copied verbatim from the v0.15.0 release
+(SHA-256 `ac220632…1826966d` and `b5c9dcd1…18933c4798`). Read by
 [VerifyingKeys.t.sol](../VerifyingKeys.t.sol), which pins every constant in
 `src/verifiers/VerifyingKeys.sol` against them. The codegen verifiers' own
 constants are contract-scoped and non-public, so Solidity cannot compare against
@@ -134,9 +134,9 @@ verifier before proving anything, so a mismatched artifact set fails there
 rather than as an unexplained rejection in a test.
 
 ```
-gh release download v0.14.0 --repo lelantos-org/circuits -D /tmp/rel0140 \
+gh release download v0.15.0 --repo lelantos-org/circuits -D /tmp/rel0150 \
   -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
-RELEASE=/tmp/rel0140 CIRCUITS=../circuits \
+RELEASE=/tmp/rel0150 CIRCUITS=../circuits \
   script/fixtures/gen_proof_fixture.sh transact_4x6
 ```
 
