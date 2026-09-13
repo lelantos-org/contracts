@@ -19,7 +19,7 @@ Notes are commitments in a quaternary Merkle tree. Deposits are escrowed on subm
 
 Every spend carries two Groth16 proofs: a transaction proof (`4x6`) and a tree-update proof that advances the root. Public inputs are compressed to a single pair `(y, z)` by Fiat–Shamir before pairing, making verification cost independent of the logical public-input count.
 
-Both proofs are checked in one BN254 pairing call. The circuits share a trusted setup and therefore `alpha`, `beta` and `gamma`, letting the residuals fold into six pairing terms rather than two independent four-term checks. `flushBatch` carries only a tree-update proof and uses the single-proof verifier.
+Both proofs are checked in one BN254 pairing call. The two circuits' setups start from the same Hermez powers-of-tau ceremony (`4x6` at 2^17, `tree_update_batch` at 2^16) and therefore share `alpha`, `beta` and `gamma`, letting the residuals fold into six pairing terms rather than two independent four-term checks. `flushBatch` carries only a tree-update proof and uses the single-proof verifier.
 
 An asset id may route its idle custody into an ERC-4626 vault; notes under such an id are denominated in normalized units, leaving the circuit and value conservation unchanged. See [Yield](#yield).
 
@@ -134,6 +134,8 @@ A venue that cannot service a draw reverts `VenueDrained` with the spend's nulli
 | `verifiers/VerifyingKeys.sol` | The thirty verifying-key constants and the `BATCH_DOMAIN` transcript separator. |
 | `interfaces/` | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool`, `IProtocolAdmin`. |
 
+The two codegen verifiers and the verification keys behind `VerifyingKeys.sol` are copied from the [`@lelantos-org/circuits` v0.15.0 release](https://github.com/lelantos-org/circuits/releases/tag/v0.15.0), never from a local circuits build: every ceremony draws fresh randomness, so only the release's keys match its published zkeys. A circuit release that changes either key means replacing both verifiers, regenerating `VerifyingKeys.sol` and re-proving the fixtures — see [test/fixtures/README.md](test/fixtures/README.md#generating-proof-fixtures).
+
 ## Gas and contract size
 
 Proof verification dominates a spend. A single codegen `verifyProof` costs 195 026 gas on its accepting path, independent of the logical public-input count. Checking a spend's two proofs together costs less than checking them separately, measured by `BatchedGroth16VerifierTest::test_batchedIsCheaperThanTwoSingleVerifications`:
@@ -156,24 +158,24 @@ Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 
 | Contract | Runtime (B) | Margin (B) |
 | --- | --- | --- |
-| `MASP` | 22 331 | 2 245 |
+| `MASP` | 22 166 | 2 410 |
 | `LelantosGovernor` | 16 373 | 8 203 |
 | `LelantosToken` | 7 823 | 16 753 |
 | `SwapWrapper` | 7 814 | 16 762 |
 | `YieldOps` | 6 921 | 17 655 |
 | `FeeBurner` | 6 536 | 18 040 |
-| `NativeAdapter` | 6 008 | 18 568 |
+| `NativeAdapter` | 6 012 | 18 564 |
 | `ProtocolAdmin` | 4 133 | 20 443 |
 | `DelayedUpgradeProxy` | 3 183 | 21 393 |
 | `UniV4Adapter` | 2 443 | 22 133 |
-| `BatchedGroth16Verifier` | 2 170 | 22 406 |
+| `BatchedGroth16Verifier` | 2 167 | 22 409 |
 | `UniV3Adapter` | 1 984 | 22 592 |
 | `ERC4626Venue` | 1 354 | 23 222 |
-| `TreeUpdateBatchGroth16Verifier` | 1 288 | 23 288 |
+| `TreeUpdateBatchGroth16Verifier` | 1 286 | 23 290 |
 
 `Groth16Verifier` is not deployed by the scripts; the batched verifier checks spend proofs. `ERC4626Venue` is deployed once per `(assetId, vault)` by `DeployYield.s.sol`, after the pool, because it is caller-pinned to it.
 
-`MASP` carries its entire initializer as runtime code, since a constructor cannot reach proxy storage. The default profile (`optimizer_runs = 1 000 000`) builds it at 27 927 B, over the limit; the deploy profile (`optimizer_runs = 1 000`) is what ships, enforced by `just size`.
+`MASP` carries its entire initializer as runtime code, since a constructor cannot reach proxy storage. The default profile (`optimizer_runs = 1 000 000`) builds it at 27 578 B, over the limit; the deploy profile (`optimizer_runs = 1 000`) is what ships, enforced by `just size`.
 
 ## Development
 
