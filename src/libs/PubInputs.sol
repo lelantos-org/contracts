@@ -117,11 +117,11 @@ library PubInputs {
         ///
         /// `feeAssetId` is the registered asset the note is denominated in and
         /// the payer is charged in. It may differ from `publicAssetId`, in which
-        /// case the pool pulls two tokens. Only the relayer's note moves to it:
-        /// the treasury's deposit fee stays in the deposit asset. It must be 0
-        /// when `feeIn` is 0, matching the circuit's canonical asset for a
-        /// zero-value leaf; a valued fee note in a yield asset is accepted only
-        /// when that asset is `publicAssetId`.
+        /// case the pool pulls two tokens (see `feeInDepositAsset`). Only the
+        /// relayer's note moves to it: the treasury's deposit fee stays in the
+        /// deposit asset. It must be 0 when `feeIn` is 0, matching the
+        /// circuit's canonical asset for a zero-value leaf; a valued fee note in
+        /// a yield asset is accepted only when that asset is `publicAssetId`.
         uint64 feeAssetId;
         uint64 feeIn;
         bytes32 feeCm;
@@ -131,6 +131,19 @@ library PubInputs {
 
     /// Leaves one deposit occupies: the depositor's note and the relayer's.
     uint256 internal constant LEAVES_PER_DEPOSIT = 2;
+
+    /// Whether a deposit's relayer note is charged in the deposit asset, in one
+    /// pull with the principal, rather than separately in `feeAssetId`'s token.
+    /// A zero-value note charges nothing and counts as in the deposit asset.
+    ///
+    /// The single rule for the deposit's path, applied by `MASP` at submit and
+    /// cancel, mirrored inline by `MaspEscrowSatellite`, and by the SDK to
+    /// choose which permit to sign. Decided by asset id, not token address: a
+    /// plain id and a yield id may share one ERC-20 yet price and book
+    /// differently, and Permit2's batch transfers accept one token named twice.
+    function feeInDepositAsset(uint256 feeIn, uint64 feeAssetId, uint64 publicAssetId) internal pure returns (bool) {
+        return feeIn == 0 || feeAssetId == publicAssetId;
+    }
 
     /// The relayer's leaf as it appears in the escrow digest, and so in every
     /// call that resupplies that preimage: `flushBatch`, `cancelDeposit`, and
@@ -145,8 +158,8 @@ library PubInputs {
     /// `_drainDeposit` fills it from the batch's `leafAsset` of the fee leaf,
     /// and a cancel refunds the note's value in that asset's token.
     ///
-    /// Fully static, so `abi.encode` of this struct yields the same bytes as the
-    /// four fields encoded inline (five words);
+    /// Fully static, so `abi.encode` of this struct yields the same five words
+    /// as its four fields encoded inline;
     /// `MASPDepositTest.test_happy_pullsFundsAndEscrows` pins that encoding.
     struct FeeNote {
         uint48 feeIn;

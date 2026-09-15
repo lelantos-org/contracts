@@ -13,19 +13,21 @@ import { Fees } from "../../src/libs/Fees.sol";
 /// a rate array shorter than `ids` either reverts the deploy or registers an
 /// asset at a rate meant for another.
 contract DeployConfigTest is Test {
-    function _configs() internal pure returns (string[6] memory) {
+    function _configs() internal pure returns (string[8] memory) {
         return [
             "script/config/mainnet.json",
             "script/config/base.json",
             "script/config/arbitrum.json",
+            "script/config/bsc.json",
             "script/config/mainnet.example.json",
             "script/config/base.example.json",
-            "script/config/arbitrum.example.json"
+            "script/config/arbitrum.example.json",
+            "script/config/bsc.example.json"
         ];
     }
 
     function test_feeArraysAreParallelToIdsAndWithinTheCeiling() public view {
-        string[6] memory files = _configs();
+        string[8] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
             string memory j = vm.readFile(files[f]);
             uint256 n = vm.parseJsonUintArray(j, ".ids").length;
@@ -47,7 +49,7 @@ contract DeployConfigTest is Test {
     /// scalar `feeBps` would parse, but the value would be ignored and the pool
     /// deployed at rates other than the one it states.
     function test_noConfigStillCarriesTheRemovedScalar() public view {
-        string[6] memory files = _configs();
+        string[8] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
             string memory j = vm.readFile(files[f]);
             assertFalse(vm.keyExistsJson(j, ".feeBps"), string.concat(files[f], ": stale feeBps key"));
@@ -58,7 +60,7 @@ contract DeployConfigTest is Test {
     /// deploy, so a zero or very short value ships a pool whose upgrades are
     /// effectively instant.
     function test_upgradeWindowIsMeaningfulAndProxyAdminIsSet() public view {
-        string[6] memory files = _configs();
+        string[8] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
             string memory j = vm.readFile(files[f]);
             uint256 upgradeDelay = vm.parseJsonUint(j, ".upgradeDelay");
@@ -78,7 +80,7 @@ contract DeployConfigTest is Test {
     /// and `Deploy.s.sol` both refuse a config that is not; checking here fails
     /// before a broadcast is attempted.
     function test_maxPauseIsShorterThanUpgradeDelay() public view {
-        string[6] memory files = _configs();
+        string[8] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
             string memory j = vm.readFile(files[f]);
             assertLt(
@@ -92,7 +94,7 @@ contract DeployConfigTest is Test {
     /// `tokens` and `scales` are parallel to `ids`. `Deploy.s.sol` requires
     /// this at broadcast; checking here fails before a broadcast is attempted.
     function test_assetArraysAreParallel() public view {
-        string[6] memory files = _configs();
+        string[8] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
             string memory j = vm.readFile(files[f]);
             uint256 n = vm.parseJsonUintArray(j, ".ids").length;

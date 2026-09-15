@@ -8,22 +8,25 @@ import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.so
 
 /// Two-token deposit pulls for `MASP`, deployed as an external library.
 ///
-/// A deposit whose relayer note is in another asset pulls two tokens through
-/// Permit2's batch entry points. That code does not fit the pool under the
-/// EIP-170 limit, so, like `YieldOps`, it is deployed once at its own address
-/// and reached by `delegatecall`. The single-token pulls every other deposit
-/// takes stay inline in the pool, so they pay no library call.
+/// A deposit whose relayer note is charged in another asset pulls two tokens
+/// through Permit2's batch entry points. That code does not fit the pool under
+/// the EIP-170 limit, so, like `YieldOps`, it is deployed once at its own
+/// address and reached by `delegatecall`. The boundary is the token movement
+/// alone: validation, the path decision (`PubInputs.feeInDepositAsset`),
+/// pricing, settlement and the escrow record stay in the pool, as do the
+/// single-token pulls every other deposit takes, so those pay no library call.
 ///
 /// Under `delegatecall` the library runs in the pool's context: `address(this)`
 /// is the pool, so Permit2 sees the pool as spender and delivers to it. The
-/// library holds no state and no privileges of its own; every entry point is
-/// reachable only through the pool, which validates the request, decides the
-/// path (`MASP._sameFeeAsset`) and prices both amounts first.
+/// library holds no state, events or errors of its own; a direct call is
+/// refused by solc's library call guard.
 library DepositOps {
-    /// Permit2 witness binding. `piHash = keccak256(abi.encode(d, aux,
-    /// feeAux))`. The inner `MASPDeposit(bytes32 piHash)` of the type string
-    /// must match the typehash. The type string serves the single and the batch
-    /// permit alike: Permit2 prefixes its own primary-type stub to it.
+    /// Permit2 witness binding, defined here because both the pool's single
+    /// pull and this library's batch pull use it; `MASP` re-exposes both
+    /// constants. `piHash = keccak256(abi.encode(d, aux, feeAux))`. The inner
+    /// `MASPDeposit(bytes32 piHash)` of the type string must match the
+    /// typehash. The type string serves the single and the batch permit alike:
+    /// Permit2 prefixes its own primary-type stub to it.
     bytes32 internal constant DEPOSIT_WITNESS_TYPEHASH = keccak256("MASPDeposit(bytes32 piHash)");
     string internal constant DEPOSIT_WITNESS_TYPE_STRING =
         "MASPDeposit witness)MASPDeposit(bytes32 piHash)TokenPermissions(address token,uint256 amount)";

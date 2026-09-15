@@ -89,14 +89,15 @@ const EXCLUDED = new Map([
     ["src/swap/UniV3Adapter.sol:ISwapRouter02", "external router surface, transcribed locally"],
     ["src/swap/UniV4Adapter.sol:IUniversalRouter", "external router surface, transcribed locally"],
     ["src/yield/YieldOps.sol:IERC4626Asset", "helper interface declared alongside its consumer"],
-    ["src/libs/DepositOps.sol:DepositOps", "delegatecall-only Permit2 pull plumbing; no events or errors of its own"],
-    // Excluded provisionally so the package regenerates; publication of these
-    // not yet decided. `ExitTerms`' event and errors already surface in `maspAbi`.
-    ["src/bundler/Bundler.sol:Bundler", "publication not yet decided"],
-    ["src/bundler/Bundler.sol:IBundlerDeployer", "publication not yet decided"],
-    ["src/bundler/BundlerFactory.sol:BundlerFactory", "publication not yet decided"],
-    ["src/interfaces/IProtocolAdmin.sol:IUpgradeProxyAdmin", "admin plumbing; not a consumer surface"],
-    ["src/libs/ExitTerms.sol:ExitTerms", "internal library; its event and errors surface in maspAbi"],
+
+    // PROVISIONAL — publication not yet decided. These in-progress contracts
+    // are excluded only so `generate` passes while they land; each must be
+    // moved to `CONTRACTS` or given a settled reason here before the next tag.
+    ["src/bundler/Bundler.sol:Bundler", "provisional: publication not yet decided"],
+    ["src/bundler/Bundler.sol:IBundlerDeployer", "provisional: publication not yet decided"],
+    ["src/bundler/BundlerFactory.sol:BundlerFactory", "provisional: publication not yet decided"],
+    ["src/interfaces/IProtocolAdmin.sol:IUpgradeProxyAdmin", "provisional: likely admin plumbing, like its siblings"],
+    ["src/libs/ExitTerms.sol:ExitTerms", "provisional: its event and errors already surface in maspAbi"],
 ]);
 
 /** Rejects duplicate names, which would overwrite an output file or break the barrel. */

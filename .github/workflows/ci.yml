@@ -103,7 +103,6 @@ jobs:
         with:
           node-version: "24"
       - uses: extractions/setup-just@v2
-      # `aderyn` restores this cache too.
       - uses: actions/cache@v4
         with:
           path: |
@@ -212,23 +211,19 @@ jobs:
       # bundled svm release list does not include solc 0.8.36, so on a clean
       # runner it cannot resolve the `=0.8.36` pragma and fails with
       # "No solc version exists that matches the version requirement".
-      # It reads the shared svm store (~/.svm), so a preceding forge build is
-      # sufficient: Foundry downloads 0.8.36 there and Aderyn finds it.
+      # It reads the shared svm store (~/.svm), so a forge build is sufficient:
+      # Foundry downloads 0.8.36 there and Aderyn finds it.
+      #
+      # Only the download is needed, not the artifacts, so this compiles one
+      # small file with `--force` into a throwaway directory (seconds). Do not
+      # restore a build cache here: a cache hit makes the build a no-op, the
+      # compiler is never fetched, and Aderyn fails as above.
       # TODO: remove once an Aderyn release's list includes 0.8.36.
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      # Restore-only: the `abi` job's `forge build` output covers this narrower
-      # build, which then compiles only what changed (seconds when nothing did).
-      - uses: actions/cache/restore@v4
-        with:
-          path: |
-            out
-            cache
-          key: forge-build-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-${{ hashFiles('foundry.lock', 'src/**/*.sol', 'test/**/*.sol', 'script/**/*.sol', 'lib/**/*.sol') }}
-          restore-keys: forge-build-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-
       - name: Populate the svm store with solc 0.8.36
-        run: forge build --skip test --skip script
+        run: forge build --force src/libs/Fees.sol --out "$RUNNER_TEMP/solc-out" --cache-path "$RUNNER_TEMP/solc-cache"
       - name: Install Aderyn ${{ env.ADERYN_VERSION }}
         run: |
           curl -sSfL "https://github.com/Cyfrin/aderyn/releases/download/aderyn-v${ADERYN_VERSION}/aderyn-installer.sh" \

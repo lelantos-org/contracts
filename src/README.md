@@ -422,7 +422,7 @@ For `deposit`, the signed `maxTotal` caps the whole pull — `inAmt + fee + the 
 **Relayer fee asset.** `DepositRequest.feeAssetId` names the registered asset the relayer's note is denominated in and paid with; the treasury's deposit fee always stays in the deposit asset. The rule is by asset id, not token address, because a plain id and a yield id may share one ERC-20:
 
 - `feeIn == 0` requires `feeAssetId == 0` (`FeeAssetMustBeZero`), the circuit's canonical asset for a zero-value leaf.
-- `feeIn == 0 || feeAssetId == publicAssetId` is the **single-token path**: one pull of `inAmt + fee + feeIn·scale`, `Permit2Sig.maxFee` must be 0 (`BadMaxFee`).
+- `feeIn == 0 || feeAssetId == publicAssetId` (`PubInputs.feeInDepositAsset`, which submit and cancel both use) is the **single-token path**: one pull of `inAmt + fee + feeIn·scale`, `Permit2Sig.maxFee` must be 0 (`BadMaxFee`).
 - Otherwise the **two-token path**: `feeAssetId` must be a registered, enabled, plain asset (`UnknownAsset`, `AssetDisabled`, `FeeAssetUnsupported` for 0 or a yield asset). `deposit` pulls through a `PermitBatchWitnessTransferFrom` over `[deposit token: maxTotal, fee token: maxFee]` with the same witness type string; `depositAuthorized` through a two-entry `AllowanceTransfer.transferFrom`. The deposit token's pull is `inAmt + fee` (a yield principal is quoted with `feeIn = 0`, so no fee units enter its supply) and the fee token's is `feeIn · feeScale`.
 
 Nothing at submit opens `feeCvDep`. The asset is bound at flush: the digest carries `feeAssetId`, `_drainDeposit` rebuilds it from the batch's `leafAsset` of the fee leaf, and the circuit pins that leaf's `cvDep` to `(leafPublicIn, leafAsset)`. A cancel refunds the principal in the deposit token and, on the two-token path, `feeIn · feeScale` separately in the fee token (`DepositCanceled.feeRefunded`). Both satellites refuse the two-token path (`FeeAssetMismatch`): they measure one token.
@@ -933,7 +933,7 @@ The log layout of a bundle is what indexers reconstruct leaf indices from, and i
 | `BPS_DENOMINATOR` | 10 000 | `Fees`, re-exported by `FeeConfig` |
 | `RAY` | `1e27` (yield index fixed point) | `YieldOps` |
 | `CANCEL_DELAY_DEFAULT` | 7 200 blocks (~24 h at 12 s) | `MASP` |
-| `CANCEL_DELAY_MIN` / `MAX` | 3 600 / 50 400 blocks | `MASP` |
+| `CANCEL_DELAY_MIN` / `MAX` | 3 600 / 50 400 blocks; on faster chains the wall-clock span shrinks with block time (BSC, ~0.75 s: ~45 min / ~10.5 h) | `MASP` |
 | `DELAY` (exit-term raise notice) | 30 days, plus a full `DELAY` after any pause; bounds `upgradeDelay` from above | `ExitTerms` |
 | `MAX_CIPHERTEXT_LEN` | 256 bytes | `AuxValidation` |
 | `CLUE_BITS_MASK` | `0x3FFF` (14 bits) | `AuxValidation` |

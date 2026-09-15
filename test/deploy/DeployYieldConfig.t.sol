@@ -14,19 +14,24 @@ import { DeployYield } from "../../script/DeployYield.s.sol";
 /// Kept separate from `DeployConfig.t.sol`, which validates the core chain
 /// configs against its own explicit file list.
 contract DeployYieldConfigTest is Test {
-    string[3] internal files = [
+    string[4] internal files = [
         "script/config/mainnet.yield.example.json",
         "script/config/base.yield.example.json",
-        "script/config/arbitrum.yield.example.json"
+        "script/config/arbitrum.yield.example.json",
+        "script/config/bsc.yield.example.json"
     ];
 
     /// Per chain: the yield ids the templates assign, above every id the chain
     /// already registers in its core config (mainnet 1-10, base 1-5, arbitrum
-    /// 1-6) and in the Morpho entries of `{chain}.yield.json` (mainnet 11-15,
-    /// base 6-8, arbitrum 7). BTC carries no yield id on any chain; mainnet 16
-    /// and base 9 are left unassigned.
+    /// 1-6, bsc 1-5) and in the Morpho entries of `{chain}.yield.json` (mainnet
+    /// 11-15, base 6-8, arbitrum 7; bsc has none). BTC carries no yield id on
+    /// any chain; mainnet 16 and base 9 are left unassigned.
     function test_decodesWithFieldsInTheRightSlots() public view {
-        uint64[2][3] memory expectedIds = [[uint64(17), 18], [uint64(10), 11], [uint64(8), 9]];
+        uint64[2][4] memory expectedIds = [[uint64(17), 18], [uint64(10), 11], [uint64(8), 9], [uint64(6), 7]];
+        // BSC's USDC has 18 decimals, so its scale keeps 6-decimal precision
+        // rather than the 1 used for 6-decimal USDC elsewhere.
+        uint256[2][4] memory expectedScales =
+            [[uint256(1), 1e10], [uint256(1), 1e10], [uint256(1), 1e10], [uint256(1e12), 1e10]];
 
         for (uint256 f; f < files.length; ++f) {
             string memory j = vm.readFile(files[f]);
@@ -41,10 +46,10 @@ contract DeployYieldConfigTest is Test {
                 assertLe(a[i].depositBps, 2_000, "depositBps within MAX_FEE_BPS");
                 assertLe(a[i].withdrawBps, 2_000, "withdrawBps within MAX_FEE_BPS");
             }
-            // USDC then WETH; the differing scales are why the index keeps
-            // `scale` in its denominator.
-            assertEq(a[0].scale, 1, "USDC scale");
-            assertEq(a[1].scale, 1e10, "WETH scale");
+            // USDC then the wrapped native token; the differing scales are why
+            // the index keeps `scale` in its denominator.
+            assertEq(a[0].scale, expectedScales[f][0], "USDC scale");
+            assertEq(a[1].scale, expectedScales[f][1], "wrapped native scale");
         }
     }
 

@@ -81,9 +81,9 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
     error PullExceedsMax(uint256 pulled, uint256 maxPull);
     /// The measured pull does not fit `Escrow.amount`; see that struct.
     error EscrowAmountTooLarge(uint256 pulled);
-    /// The relayer note is valued and in another asset than the deposit. A
-    /// satellite measures and refunds one token, so it escrows only deposits
-    /// whose whole pull is in that token.
+    /// The relayer note is charged in another asset than the deposit
+    /// (`PubInputs.feeInDepositAsset` fails). A satellite measures and refunds
+    /// one token, so it escrows only deposits whose whole pull is in that token.
     error FeeAssetMismatch();
 
     constructor(IMASPPool pool, IAllowanceTransfer permit2) {
@@ -117,8 +117,9 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
     /// snapshot plus any amount it credits to itself before the pool pulls.
     /// @param minPull Inclusive floor on the measured pull. A deposit
     /// denominated in another asset moves none of `token` and trips it. A
-    /// relayer note in another asset would move a second token the
-    /// measurement cannot see, so it is rejected up front (`FeeAssetMismatch`).
+    /// relayer note charged in another asset is rejected up front
+    /// (`FeeAssetMismatch`): the pool would pull a second token, possibly one
+    /// held here for other parties, which this measurement cannot see.
     /// @param maxPull Inclusive ceiling on the measured pull. The Permit2
     /// allowance granted to the pool covers this contract's entire balance and
     /// `d` is unauthenticated calldata, so without a ceiling an oversized
@@ -134,9 +135,10 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
         AuxValidation.Output calldata aux,
         AuxValidation.Output calldata feeAux
     ) internal returns (uint256 id, uint256 pulled) {
-        if (d.feeIn != 0 && d.feeAssetId != d.publicAssetId) {
-            revert FeeAssetMismatch();
-        }
+        // `!PubInputs.feeInDepositAsset(...)`, spelled inline: the optimizer
+        // does not inline that call here, and every satellite deposit would
+        // pay for the jump.
+        if (d.feeIn != 0 && d.feeAssetId != d.publicAssetId) revert FeeAssetMismatch();
         id = POOL.depositAuthorized(d, aux, feeAux);
         pulled = baseline - token.balanceOf(address(this));
         if (pulled < minPull) revert PullBelowMin(pulled, minPull);

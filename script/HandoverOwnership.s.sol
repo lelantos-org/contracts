@@ -6,6 +6,7 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 import { MASP } from "../src/MASP.sol";
 import { DelayedUpgradeProxy } from "../src/DelayedUpgradeProxy.sol";
+import { IProtocolAdmin } from "../src/interfaces/IProtocolAdmin.sol";
 import { SwapWrapper } from "../src/swap/SwapWrapper.sol";
 
 /// Moves the pool, the wrapper and the pool proxy under governance. Signed by
@@ -35,6 +36,13 @@ contract HandoverOwnership is Script {
 
         require(protocolAdmin.code.length != 0, "protocolAdmin has no code");
         require(feeBurner.code.length != 0, "feeBurner has no code");
+        // Once handed over, ownership and the proxy admin leave `ProtocolAdmin`
+        // only through `migrateAdmin`, which requires a successor wired to the
+        // same pool and wrapper; `execute` refuses the ownership and
+        // proxy-admin selectors. An admin built for another deployment would
+        // therefore hold both seats for good.
+        require(IProtocolAdmin(protocolAdmin).POOL() == address(masp), "protocolAdmin pool mismatch");
+        require(IProtocolAdmin(protocolAdmin).WRAPPER() == address(wrapper), "protocolAdmin wrapper mismatch");
 
         DelayedUpgradeProxy proxy = DelayedUpgradeProxy(payable(address(masp)));
 

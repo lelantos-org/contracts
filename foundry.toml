@@ -50,8 +50,8 @@ chain_id = 31337
 # profile's 1_000 runs here too, so tests run exactly the bytecode that is
 # deployed while every other source keeps 1_000_000. `YieldOps` and
 # `DepositOps` must share the pool's profile: compiled under both, each produces
-# two library artifacts and linking fails. After changing these settings run `forge clean`, or a stale
-# cache reports the same duplicate-artifact error.
+# two library artifacts and linking fails. After changing these settings run
+# `forge clean`, or a stale cache reports the same duplicate-artifact error.
 [[profile.default.additional_compiler_profiles]]
 name = "pool"
 optimizer_runs = 1_000
@@ -75,6 +75,7 @@ optimizer_runs = 1_000
 base = "${BASE_RPC_URL}"
 mainnet = "${MAINNET_RPC_URL}"
 arbitrum = "${ARBITRUM_RPC_URL}"
+bsc = "${BSC_RPC_URL}"
 
 
 [invariant]
@@ -270,10 +271,11 @@ ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.s
 
 # Verification. Foundry 1.5.1 defaults `--verifier` to sourcify, so real
 # deploys must pass `--verify --verifier etherscan` explicitly. Etherscan's V2
-# unified API lets the single etherscan.io key below cover mainnet, Base and
-# Arbitrum; no separate Basescan or Arbiscan key is used. The key is read from
-# the environment; .env is auto-loaded and gitignored.
+# unified API lets the single etherscan.io key below cover mainnet, Base,
+# Arbitrum and BSC; no separate Basescan, Arbiscan or BscScan key is used. The
+# key is read from the environment; .env is auto-loaded and gitignored.
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}", chain = 1 }
 arbitrum = { key = "${ETHERSCAN_API_KEY}", chain = 42161 }
 base = { key = "${ETHERSCAN_API_KEY}", chain = 8453 }
+bsc = { key = "${ETHERSCAN_API_KEY}", chain = 56 }

@@ -461,10 +461,10 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         (AssetEntry memory a, AssetEntry memory fa) = _validateDeposit(d, aux, feeAux);
         Shield memory s = _quoteShield(d, a, fa);
         bytes32 piHash = keccak256(abi.encode(d, aux, feeAux));
-        // `feePull` is nonzero exactly when `_sameFeeAsset` is false; see
-        // `_quoteShield`. The single-token pull stays inline so the common
-        // deposit pays no library call; the two-token permit runs in
-        // `DepositOps`.
+        // `s.feePull` carries `_quoteShield`'s `feeInDepositAsset` decision:
+        // zero on the single-token path, whose pull stays inline so the common
+        // deposit pays no library call; nonzero on the two-token path, which
+        // runs in `DepositOps`.
         if (s.feePull == 0) {
             if (sig.maxFee != 0) revert BadMaxFee();
             _permit2Pull(a.token, d.payer, sig, s.total, piHash);
@@ -525,10 +525,9 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         /// What the payer is charged in the deposit token: principal and
         /// treasury fee, plus the relayer note when it is in the same asset.
         uint256 total;
-        /// The relayer note's value in the fee token, charged separately.
-        /// Zero when the note is in the deposit's own asset or carries no
-        /// value, which is exactly when the deposit takes the single-token
-        /// path.
+        /// The relayer note's value in the fee asset's token, charged
+        /// separately. Zero exactly when `PubInputs.feeInDepositAsset` holds,
+        /// so the deposit entry points branch on it.
         uint256 feePull;
         /// Principal alone, which is what `AssetMoved` reports.
         uint256 inAmt;
@@ -552,12 +551,13 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     /// kept out of the principal's quote entirely: the yield branch is passed
     /// `feeIn = 0`, so no fee units join the principal's `totalNormalized`, and
     /// the escrow cap `_escrowPulled` covers the principal's pull alone.
+    /// `cancelDeposit` splits the refund the same way.
     function _quoteShield(PubInputs.DepositRequest calldata d, AssetEntry memory a, AssetEntry memory fa)
         private
         returns (Shield memory s)
     {
         uint256 feeIn = d.feeIn;
-        if (!_sameFeeAsset(d.feeIn, d.feeAssetId, d.publicAssetId)) {
+        if (!PubInputs.feeInDepositAsset(feeIn, d.feeAssetId, d.publicAssetId)) {
             s.feePull = _relayerAmount(feeIn, fa.scale);
             feeIn = 0;
         }
@@ -572,15 +572,6 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         }
     }
 
-    /// Whether a deposit's relayer note is charged in the deposit token, on the
-    /// single-token path. Decided by asset id, not token address: a plain id
-    /// and a yield id may share one ERC-20 yet price and book differently, and
-    /// Permit2's batch transfers handle one token named twice. The SDK applies
-    /// the same rule when it chooses which permit to sign.
-    function _sameFeeAsset(uint256 feeIn, uint64 feeAssetId, uint64 publicAssetId) private pure returns (bool) {
-        return feeIn == 0 || feeAssetId == publicAssetId;
-    }
-
     /// Books a pulled shield. A plain asset has nothing to book: its backing is
     /// the pool's balance and its fee does not accrue until flush.
     function _settleShield(uint64 assetId, IERC20 token, Shield memory s) private {
@@ -589,13 +580,12 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     }
 
     /// Shared validation for `deposit*`. Returns the deposit asset's entry and,
-    /// when the relayer note is in another asset, that asset's entry (zeroed
-    /// otherwise).
+    /// when the relayer note is charged in another asset, that asset's entry
+    /// (zeroed otherwise).
     ///
     /// No commitment is opened here, `feeCvDep` included, so nothing at submit
-    /// ties the note to `feeAssetId` beyond the digest. `_drainDeposit` binds
-    /// it: the digest pins the `feeAssetId` accepted here and the circuit pins
-    /// `feeCvDep` to the fee leaf's asset.
+    /// ties the note to `feeAssetId` beyond the digest; `_drainDeposit` binds
+    /// it.
     function _validateDeposit(
         PubInputs.DepositRequest calldata d,
         AuxValidation.Output calldata aux,
@@ -619,9 +609,11 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
 
         // The fee note's asset. A zero-value leaf's asset is canonically 0 in
         // the circuit, so the request must say so too, or flush could not
-        // match the digest. A valued note in another asset must be a live,
-        // plain registry asset: a yield asset would need its units booked into
-        // that asset's `totalNormalized`, which only the deposit asset gets.
+        // match the digest. A note charged in another asset (for a valued
+        // note, `PubInputs.feeInDepositAsset` reduces to the id comparison
+        // below) must be a live, plain registry asset: a yield asset would
+        // need its units booked into that asset's `totalNormalized`, which
+        // only the deposit asset gets.
         if (d.feeIn == 0) {
             if (d.feeAssetId != 0) revert FeeAssetMustBeZero();
         } else if (d.feeAssetId != d.publicAssetId) {
@@ -802,17 +794,17 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         if (tpi.leafPublicIn[f] > type(uint48).max) revert PublicInTooLarge();
         // The fee note's asset, `leafAsset[f]`, enters the digest below as
         // `FeeNote.feeAssetId`, so it must equal the `feeAssetId` validated at
-        // submit or the digest mismatches. The circuit constrains it by cases
-        // (`tree_update_batch.circom` step 6a): a deposit leaf carrying value
-        // has its `cvDep` bound to `(leafPublicIn, leafAsset)` by the Pedersen
-        // binding, so the asset is the one the note commits to and is
-        // non-zero; a zero-value leaf's asset is invisible to the binding
-        // (`cv_dep` is `rcv*H` for any asset), so the circuit canonicalises it
-        // to 0, which submit requires of a zero `feeIn` too.
+        // submit. The circuit constrains it by cases (`tree_update_batch.circom`
+        // step 6a): a deposit leaf carrying value has its `cvDep` bound to
+        // `(leafPublicIn, leafAsset)` by the Pedersen binding, so the asset is
+        // the one the note commits to and is non-zero; a zero-value leaf's
+        // asset is invisible to the binding (`cv_dep` is `rcv*H` for any
+        // asset), so the circuit canonicalises it to 0, as submit requires of a
+        // zero `feeIn`.
         //
-        // The note may be in another asset than the principal. Its tokens,
-        // `feeIn * scale` of that asset's token, were pulled at submit and back
-        // it as plain custody; nothing is accrued or booked for it here.
+        // A note in another asset than the principal was pulled at submit as
+        // `feeIn * scale` of a plain asset's token and backs the note as
+        // custody; nothing is accrued or booked for it here.
 
         // Reconstruct the submit-time digest; one equality binds all fields.
         uint64 assetId = tpi.leafAsset[p];
@@ -962,18 +954,16 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         if (block.number < unlockBlock) revert CancelTooEarly(id, unlockBlock);
 
         // The relayer's portion refunds with the rest: no leaf was minted, so
-        // the fee was never earned. It refunds in the token it was paid in:
-        // with the principal when the note is in the deposit's asset, and
-        // separately otherwise, mirroring the submit-time pull. Submit accepts
-        // only a plain asset for a note in another asset, so its refund is the
+        // the fee was never earned. It refunds in the token it was paid in,
+        // split as `_quoteShield` split the pull: with the principal when the
+        // note is in the deposit asset, separately otherwise. Submit accepts
+        // only a plain asset for a note in another asset, so that refund is the
         // fixed amount pulled.
         uint256 relayerIn = feeNote.feeIn;
-        // `fa` is read only under `feeRefunded != 0`, which is set only on the
-        // branch that assigns `fa`; on every other path it stays zeroed and
-        // unread.
+        // Assigned and read only on the two-token path (`feeRefunded != 0`).
         // slither-disable-next-line uninitialized-local
         AssetEntry memory fa;
-        if (!_sameFeeAsset(relayerIn, feeNote.feeAssetId, publicAssetId)) {
+        if (!PubInputs.feeInDepositAsset(relayerIn, feeNote.feeAssetId, publicAssetId)) {
             fa = _getAsset(feeNote.feeAssetId);
             feeRefunded = _relayerAmount(relayerIn, fa.scale);
             relayerIn = 0;

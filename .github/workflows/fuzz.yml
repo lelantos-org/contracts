@@ -83,8 +83,8 @@ jobs:
       # written here.
       #
       # The build must use [profile.echidna]: it pre-links the YieldOps and
-      # DepositOps libraries, without which Echidna aborts with "Unlinked libraries detected
-      # in bytecode of contract src/MASP.sol:MASP".
+      # DepositOps libraries, without which Echidna aborts with "Unlinked
+      # libraries detected in bytecode of contract src/MASP.sol:MASP".
       #
       # `--force` is required. crytic-compile reads `out/build-info`, and an
       # incremental Foundry build rewrites entries only for what it

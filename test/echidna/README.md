@@ -231,7 +231,7 @@ a failing property would be. The recipe swallows that, and the CI step carries
 
 Both recipes build under `[profile.echidna]` and regenerate their config first.
 That profile pre-links the `YieldOps` and `DepositOps` libraries at fixed
-addresses because Echidna cannot deploy-and-link one the way Foundry does;
-`just _echidna-config` then places each library's code there. The generated configs are rebuilt from the
-current artifact on every run, so the bytecode cannot go stale — and both they
-and the corpus are gitignored.
+addresses because Echidna cannot deploy-and-link them the way Foundry does;
+`just _echidna-config` then places each library's code there. The generated
+configs are rebuilt from the current artifacts on every run, so the bytecode
+cannot go stale — and both they and the corpus are gitignored.
