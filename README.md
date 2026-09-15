@@ -42,6 +42,7 @@ flowchart TB
     NA["NativeAdapter<br/>wrap / unwrap native coin"]
     SW["SwapWrapper<br/>unshield → swap → re-shield"]
     AD["UniV3Adapter · UniV4Adapter<br/>allowlisted ISwapAdapter venues"]
+    BU["Bundler<br/>one per relayer, via BundlerFactory"]
     U["Relayers, wallets,<br/>future adapters"]
   end
   PX["<b>DelayedUpgradeProxy</b><br/>exit window · pause"]
@@ -56,6 +57,9 @@ flowchart TB
   SW -->|"ISwapAdapter.swap"| AD
   AD --> RT["SwapRouter02 (v3)<br/>UniversalRouter (v4)"]
   U -->|"deposit / transfer<br/>withdraw / flushBatch"| PX
+  BU -->|"chained spends<br/>flushBatch"| PX
+  BU -->|"withdrawNative"| NA
+  BU -->|"swap"| SW
   M --> V["BatchedGroth16Verifier<br/>spend proof pair"]
   M --> V2["TreeUpdateBatchGroth16Verifier<br/>flush"]
   M -.->|"delegatecall"| YO["YieldOps<br/>external library"]
@@ -72,13 +76,15 @@ No peripheral holds a privileged position. None is registered with the pool, non
 - **Peripherals are replaceable and additive.** Deploying a second swap venue, or none, changes no pool state. `NativeAdapter` is deployed only on chains with a wrapped-native token.
 - **Peripherals absorb the composition cost.** The pool refunds the address it pulled from, so a peripheral acting as `payer` must track who funded each escrow — see the refund bookkeeping in [`NativeAdapter`](src/native/NativeAdapter.sol).
 
+A relayer lands several tree-advancing operations in one transaction through its own [`Bundler`](src/bundler/Bundler.sol). Each tree update must extend the live tree, so K chained updates can only land in order; `execute` makes them as plain `CALL`s, stops at the first failure and keeps the calls before it. Pool spends bind `pi.relayer`, and swaps `pi_w.payer`, to the Bundler's address, so a proof made for one relayer's Bundler reverts through any other's. [`BundlerFactory`](src/bundler/BundlerFactory.sol) is permissionless and derives each Bundler's CREATE2 address from its creator alone, so a relayer can publish the address before deploying. A Bundler holds no funds and grants no approvals.
+
 ## Governance and upgrades
 
 Pool administration is held by [`ProtocolAdmin`](src/governance/ProtocolAdmin.sol), owned by a `TimelockController` that executes proposals from [`LelantosGovernor`](src/governance/LelantosGovernor.sol). Vote weight is a delegated-balance snapshot of [`LelantosToken`](src/governance/LelantosToken.sol), a fixed-supply `ERC20Votes` with no mint function and no owner.
 
-`ProtocolAdmin` splits the owner role in two. The Timelock reaches everything through `execute`; a guardian holds only four one-way switches — `disableAsset`, `haltYield`, `emergencyUnwind`, `disallowAdapter` — whose boolean arguments are fixed in bytecode. `execute` rejects both `Ownable` ownership selectors, leaving `migrateAdmin` and its four checks as the only route by which ownership can leave the contract.
+`ProtocolAdmin` splits the owner role in two. The Timelock reaches everything through `execute`; a guardian holds only five one-way switches — `disableAsset`, `haltYield`, `emergencyUnwind`, `pauseSpends`, `disallowAdapter` — whose direction is fixed in bytecode; reversing any of them goes through `execute`. `pauseSpends` is latched to one use until governance re-arms it, so pauses cannot be chained into an indefinite freeze. `execute` rejects both `Ownable` ownership selectors and `changeProxyAdmin`, leaving `migrateAdmin` and its five checks as the only route by which pool ownership, wrapper ownership and the proxy admin can leave the contract; all three move in one call.
 
-Upgrades are queued, not applied. `DelayedUpgradeProxy` activates a queued implementation only after `UPGRADE_DELAY`, which is `immutable` and has no setter; until then the current implementation serves every call, so holders may withdraw under the terms in force when they entered. `activateUpgrade` is permissionless. A guardian pause halts every proof-dependent entry point and defers any pending activation by the pause duration, so the window measures unpaused time; `cancelDeposit` and `sweep` stay open, keeping escrowed funds recoverable. Raises to the terms a holder exits under (`withdrawBps`, `perfBps`, `cancelDelay`) are queued for 30 days, measured from the raise and extended past any pause, and applied only through the permissionless `commitExitTerms`; the deploy script requires `upgradeDelay` to be no longer, so a raise cannot land inside an upgrade window whatever the call order.
+Upgrades are queued, not applied. `DelayedUpgradeProxy` activates a queued implementation only after `UPGRADE_DELAY`, which is `immutable` and has no setter; until then the current implementation serves every call, so holders may withdraw under the terms in force when they entered. `activateUpgrade` is permissionless. A guardian pause halts every proof-dependent entry point and defers any pending activation by the pause duration, so the window measures unpaused time; `cancelDeposit` and `sweep` stay open, keeping escrowed funds recoverable. Raises to the terms a holder exits under (`withdrawBps`, `perfBps`, `cancelDelay`) are queued for 30 days, measured from the raise and extended past any pause, and applied only through the permissionless `commitExitTerms`; the proxy constructor rejects an `UPGRADE_DELAY` longer than that, so a raise cannot land inside an upgrade window whatever the call order.
 
 Protocol fees accrue to [`FeeBurner`](src/burn/FeeBurner.sol), which is the pool's `treasury`. It sells accrued fee tokens for the governance token in a descending-price auction and burns the proceeds; `priceOf` reads no external state, so the price cannot be moved by manipulating a market.
 
@@ -97,46 +103,6 @@ Three properties bound the risk:
 A venue that cannot service a draw reverts `VenueDrained` with the spend's nullifiers unconsumed — a liveness failure, not a loss. `emergencyUnwind` withdraws the position back to idle and halts further supply without clearing the binding, leaving the asset as fully backed zero-yield custody at an unchanged index.
 
 `rebalance`, `accruePerf` and `sweepNormalized` are permissionless, with the treasury destination owner-pinned. See [src/README.md](src/README.md#yield) for the arithmetic, the buffer band and the fee derivation.
-
-## Contracts
-
-| Contract | Role |
-| --- | --- |
-| `MASP.sol` | Core pool entry points. Inherits `CommitmentTree`, `AssetRegistry`, `NullifierSet`, `YieldIndex` (which extends `FeeConfig`). Deployed behind `DelayedUpgradeProxy`. |
-| `DelayedUpgradeProxy.sol` | ERC-1967 proxy whose upgrades activate only after an immutable delay. Holds the pause. |
-| `UpgradeStorage.sol` | Exit-window state at a fixed ERC-7201 slot, shared by proxy and implementation. |
-| `OwnableInit.sol` | Initializer-assigned ownership. No `renounceOwnership`. |
-| `CommitmentTree.sol` | Lazy-root quaternary tree with a 64-slot known-root ring buffer. |
-| `AssetRegistry.sol` | Owner-managed asset id to (ERC-20, scale) mapping. Add-only; assets may be disabled, never removed. |
-| `NullifierSet.sol` | Packed-bitmap spent-nullifier set. |
-| `FeeConfig.sol` | Fee basis points, treasury, and per-token accrual. |
-| `governance/LelantosToken.sol` | Fixed-supply `ERC20Votes` governance token. No mint function, no owner. |
-| `governance/LelantosGovernor.sol` | OZ `Governor` executing through a `TimelockController`. |
-| `governance/ProtocolAdmin.sol` | Owner of `MASP` and `SwapWrapper`. Timelock authority plus bounded guardian switches. |
-| `burn/FeeBurner.sol` | Pool treasury. Auctions fee tokens for the governance token and burns the proceeds. |
-| `yield/YieldIndex.sol` | Yield-index storage, owner controls, and the `isYieldAsset` / `index` / `yieldState` views. |
-| `yield/YieldOps.sol` | Every non-trivial yield operation. External library, `delegatecall`ed by the pool. |
-| `libs/DepositOps.sol` | Two-token deposit pulls (Permit2 batch) for a relayer note in another asset. External library, `delegatecall`ed by the pool. |
-| `yield/IYieldVenue.sol` | Venue surface the pool drives: `deposit`, `withdraw`, `totalAssets`, `maxWithdraw`. |
-| `yield/ERC4626Venue.sol` | Generic ERC-4626 venue, one per `(assetId, vault)`, pinned to its pool and otherwise immutable. |
-| `libs/Fees.sol` | `BPS_DENOMINATOR` and `MAX_FEE_BPS`, shared by `FeeConfig` and `AssetRegistry`. |
-| `libs/PubInputs.sol` | Public-input structs and Fiat–Shamir compression. |
-| `libs/AuxValidation.sol` | Bounds and curve checks on per-output FMD payloads. |
-| `SnarkCompression.sol` | Horner evaluation over the coefficient vector. |
-| `BabyJubJub.sol` | On-curve and prime-order-subgroup checks. |
-| `MaspEscrowSatellite.sol` | Base for peripherals that escrow as their own payer: Permit2 arming, bounded balance-delta measurement, escrow record, cancel-and-verify. |
-| `native/NativeAdapter.sol` | Peripheral: wraps native coin into the deposit path, unwraps it out of the withdraw path. |
-| `swap/SwapWrapper.sol` | Peripheral: atomic unshield → swap → re-shield across a MASP pair, plus escrow recovery. |
-| `swap/UniV3Adapter.sol` | Uniswap SwapRouter02 adapter for `SwapWrapper`. |
-| `swap/UniV4Adapter.sol` | Uniswap v4 UniversalRouter adapter for `SwapWrapper`. |
-| `swap/ISwapAdapter.sol` | Venue-adapter interface `SwapWrapper` calls. |
-| `verifiers/BatchedGroth16Verifier.sol` | Checks a spend's `(4x6, tree_update_batch)` proof pair in one pairing call. |
-| `verifiers/TreeUpdateBatchVerifier.sol` | snarkJS codegen for `tree_update_batch`. Used by `flushBatch`. |
-| `verifiers/Verifier.sol` | snarkJS codegen for `4x6`. Not deployed; provenance for the `VK1_*` constants and the differential-test oracle. |
-| `verifiers/VerifyingKeys.sol` | The thirty verifying-key constants and the `BATCH_DOMAIN` transcript separator. |
-| `interfaces/` | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool`, `IProtocolAdmin`. |
-
-The two codegen verifiers and the verification keys behind `VerifyingKeys.sol` are copied from the [`@lelantos-org/circuits` v0.15.0 release](https://github.com/lelantos-org/circuits/releases/tag/v0.15.0), never from a local circuits build: every ceremony draws fresh randomness, so only the release's keys match its published zkeys. A circuit release that changes either key means replacing both verifiers, regenerating `VerifyingKeys.sol` and re-proving the fixtures — see [test/fixtures/README.md](test/fixtures/README.md#generating-proof-fixtures).
 
 ## Gas and contract size
 
@@ -162,44 +128,25 @@ Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 | --- | --- | --- |
 | `MASP` | 23 929 | 647 |
 | `LelantosGovernor` | 16 373 | 8 203 |
+| `SwapWrapper` | 10 410 | 14 166 |
+| `YieldOps` | 9 349 | 15 227 |
 | `LelantosToken` | 7 823 | 16 753 |
-| `SwapWrapper` | 7 814 | 16 762 |
-| `YieldOps` | 6 921 | 17 655 |
-| `DepositOps` | 2 009 | 22 567 |
-| `FeeBurner` | 6 536 | 18 040 |
-| `NativeAdapter` | 6 012 | 18 564 |
-| `ProtocolAdmin` | 4 133 | 20 443 |
-| `DelayedUpgradeProxy` | 3 183 | 21 393 |
+| `FeeBurner` | 6 863 | 17 713 |
+| `NativeAdapter` | 5 351 | 19 225 |
+| `BundlerFactory` | 5 065 | 19 511 |
+| `ProtocolAdmin` | 4 608 | 19 968 |
+| `DelayedUpgradeProxy` | 3 256 | 21 320 |
+| `Bundler` | 2 697 | 21 879 |
+| `UniV3Adapter` | 2 467 | 22 109 |
 | `UniV4Adapter` | 2 443 | 22 133 |
 | `BatchedGroth16Verifier` | 2 167 | 22 409 |
-| `UniV3Adapter` | 1 984 | 22 592 |
-| `ERC4626Venue` | 1 354 | 23 222 |
+| `DepositOps` | 2 009 | 22 567 |
+| `ERC4626Venue` | 1 498 | 23 078 |
 | `TreeUpdateBatchGroth16Verifier` | 1 286 | 23 290 |
 
 `Groth16Verifier` is not deployed by the scripts; the batched verifier checks spend proofs. `ERC4626Venue` is deployed once per `(assetId, vault)` by `DeployYield.s.sol`, after the pool, because it is caller-pinned to it.
 
-`MASP` carries its entire initializer as runtime code, since a constructor cannot reach proxy storage. The default profile (`optimizer_runs = 1 000 000`) builds it at 27 578 B, over the limit; the deploy profile (`optimizer_runs = 1 000`) is what ships, enforced by `just size`.
-
-## Development
-
-```
-just build      # compile
-just test       # full suite
-just size       # EIP-170 check under the deploy profile
-just ci         # version, build, test, fmt-check, size
-just snapshot   # refresh .gas-snapshot
-just slither    # static analysis, fails on medium
-just aderyn     # static analysis, fails on high
-just halmos     # symbolic execution over test/symbolic/
-```
-
-Both analysers run in CI. Their detector sets only partly overlap, so neither replaces the other. Scope and detector exclusions live in `slither.config.json` and `aderyn.toml`; individual false positives are suppressed at the flagged line, with `// slither-disable-next-line <detector>` and `// aderyn-fp-next-line(<detector>)` respectively, so a detector keeps firing on new code.
-
-`just halmos` runs [Halmos](https://github.com/a16z/halmos), which executes the `check_` functions in `test/symbolic/` symbolically: each is proved for every input in a bounded state space rather than sampled. It covers what the escrow digest binds — no preimage but the submitted one cancels a deposit, so an amount cannot be inflated, a payer swapped, or a pending deposit re-rated by a later fee change — the deposit- and spend-side request guards — including the checks that cross-bind the two Groth16 proofs to each other, which no circuit does — the registry's add-only rule, the permanence of a yield venue binding, bit isolation in the `NullifierSet` bitmap, the root ring buffer, and the owner-pinned sweep destination in `FeeConfig`. Where a property is about an authority surface rather than one function, `svm.createCalldata` quantifies over every external function rather than an enumerated list, so a function added later is covered the moment it compiles. It needs no build step of its own — Halmos invokes `forge build` under the `halmos` profile in `foundry.toml` — and its solver, timeouts and scope live in `halmos.toml`.
-
-The suite is deliberately small, and stays that way: a symbolic test earns its place only if it establishes something the fuzz suite, the invariant suite or plain static reasoning does not. [`test/symbolic/README.md`](test/symbolic/README.md) carries the property matrix, what is deliberately excluded and why, and how to add a property. Halmos does not replace the fuzzer — anything keccak-heavy, assembly-heavy or built on 254-bit field arithmetic (`PubInputs`, `SnarkCompression`, `BabyJubJub`) is out of the solver's reach, as is any property that needs it to reason about a division rather than carry one, and those stay with the differential fuzz tests written for them.
-
-Deploy recipes are grouped under `just --list`; each has a `dry-run-*` counterpart that simulates without broadcasting. `just handover` moves the pool, the wrapper and the proxy admin under governance and is run separately from any deploy.
+`MASP` carries its entire initializer as runtime code, since a constructor cannot reach proxy storage. At the default profile's `optimizer_runs = 1 000 000` it would build to about 28.1 KB, over the limit, so `MASP`, `YieldOps` and `DepositOps` compile at the deploy profile's 1 000 runs under both profiles (`compilation_restrictions` in `foundry.toml`): tests run exactly the bytecode that ships, while every other source keeps 1 000 000. `just size` enforces the limit.
 
 ## License
 
