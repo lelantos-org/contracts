@@ -3,23 +3,22 @@
 // Replayed against `test/utils/NullifierSetHarness.sol` by
 // test/quint/NullifierSetReplay.t.sol.
 //
-// WHY THIS ONE
+// SCOPE
 //
 // The contract stores nullifiers as a packed bitmap: `_spentBuckets[nf >> 8]`
-// holds 256 bits keyed by `nf & 0xff`. Splitting one 256-bit value into a
-// bucket and a bit position is where aliasing bugs live.
+// holds 256 bits keyed by `nf & 0xff`. An error in splitting a 256-bit value
+// into bucket and bit position aliases distinct nullifiers.
 //
-// test/symbolic/ proves the isolation property for *pairs* — consuming `a`
-// never marks `b`. What it does not do is run a sequence: nine consumes across
-// three buckets, with the whole spent set re-read and compared after each one.
-// That is what this adds, and it is the reason the domain below is chosen the
-// way it is rather than being a wide random range.
+// test/symbolic/ proves pairwise isolation: consuming `a` never marks `b`.
+// This spec checks sequences of consumes across three buckets, re-reading and
+// comparing the whole spent set after each step. The domain below is chosen
+// for that purpose rather than as a wide random range.
 //
 // ABSTRACTED
 //
-// Nothing, really. The driver maps model integers straight onto `bytes32` and
-// reads `spent()` back, so this is the contract's actual storage behaviour
-// under a model-chosen sequence. There is no mock and no shadow state.
+// Nothing. The driver maps model integers directly onto `bytes32` and reads
+// `spent()` back, so the replay observes the contract's storage behaviour under
+// a model-chosen sequence, with no mock and no shadow state.
 module nullifier_set {
   /// The nullifier domain, chosen for bucket/bit structure rather than spread:
   ///
@@ -33,22 +32,20 @@ module nullifier_set {
   ///     511 |                1 | 255   <- same bit as 255, different bucket
   ///     512 |                2 |   0   <- same bit as 0 and 256
   ///
-  /// Every bit position is shared across buckets and every bucket holds several
-  /// bits, so a bucket index that ignored the high bits, or a mask that ignored
-  /// the low ones, changes the observed set. A domain of random 256-bit values
-  /// would almost never collide and would exercise none of this.
+  /// Bit positions repeat across buckets and buckets 0 and 1 hold several bits
+  /// each, so a bucket index that ignores the high bits, or a mask that ignores
+  /// the low bits, changes the observed set. Random 256-bit values would almost
+  /// never share a bucket or bit position.
   pure val NULLIFIERS = Set(0, 1, 255, 256, 257, 511, 512)
   pure val BUCKET_SIZE = 256
 
   var spentSet: Set[int]
 
-  /// Ghost. Not compared against the chain - `ignoreState` in the config says
-  /// so and why. It exists because with a single monotone set variable there is
-  /// no non-trivial state invariant to write: `spentSet.subseteq(NULLIFIERS)`
-  /// is true by construction and survives every mutation of `consume`, which
-  /// makes `quint run --invariant` look like it is checking something when it
-  /// is not. Counting consumes independently of recording them gives the
-  /// invariant below something real to disagree with.
+  /// Ghost; not compared against the chain (see `ignoreState` in the config).
+  /// A single monotone set admits no non-trivial state invariant:
+  /// `spentSet.subseteq(NULLIFIERS)` holds by construction under any mutation
+  /// of `consume`. Counting consumes independently of the set gives
+  /// `inv_setSizeMatchesConsumes` a second source to contradict.
   var consumeCount: int
 
   action init = all {
@@ -66,13 +63,12 @@ module nullifier_set {
     }
   }
 
-  /// Negative path: consume one that is already spent.
+  /// Negative path: consume a nullifier that is already spent.
   ///
-  /// The model asserts a *rejection* — state is unchanged — and the driver wraps
-  /// the call in `vm.expectRevert(NullifierSet.DoubleSpend.selector)`. No
-  /// invariant handler expresses this: an invariant run with
-  /// `fail_on_revert = false` cannot tell "correctly rejected" from "reverted
-  /// for some unrelated reason" from "never ran at all".
+  /// The model asserts a rejection (state unchanged) and the driver wraps the
+  /// call in `vm.expectRevert(NullifierSet.DoubleSpend.selector)`. An invariant
+  /// run with `fail_on_revert = false` cannot distinguish a correct rejection
+  /// from an unrelated revert or from a call that never ran.
   action consumeSpent = {
     nondet nf = NULLIFIERS.oneOf()
     all {
@@ -86,20 +82,18 @@ module nullifier_set {
 
   // --- invariants -------------------------------------------------------
 
-  /// Nothing outside the modelled domain ever becomes spent.
+  /// Nothing outside the modelled domain becomes spent.
   ///
-  /// True by construction - `consume` only ever draws from `NULLIFIERS` - so
-  /// this cannot fail and is documentation, not a check. Kept for that, and
-  /// paired with the real one below.
+  /// Holds by construction (`consume` only draws from `NULLIFIERS`), so this
+  /// documents the domain; `inv_setSizeMatchesConsumes` is the effective check.
   val inv_spentWithinDomain = spentSet.subseteq(NULLIFIERS)
 
-  /// Every successful consume recorded exactly one new nullifier.
+  /// Every successful consume records exactly one new nullifier.
   ///
   /// The consume counter is maintained independently of the set, so a `consume`
-  /// that recorded nothing, or recorded the wrong value, or recorded one it had
-  /// already recorded, breaks the equality. Mutation testing put numbers on
-  /// this: without it, neither of those two mutations was caught by the
-  /// invariant check at all.
+  /// that records nothing, records the wrong value, or re-records an existing
+  /// value breaks the equality. Without this invariant, mutation testing shows
+  /// such mutations pass the invariant check.
   val inv_setSizeMatchesConsumes = spentSet.size() == consumeCount
 
   val allInvariants = and {
@@ -110,8 +104,8 @@ module nullifier_set {
   // --- witnesses --------------------------------------------------------
 
   /// Two spent nullifiers sharing a bucket. Without this, a run could satisfy
-  /// every invariant while only ever touching one bit per bucket, which is
-  /// precisely the case that cannot detect a mask error.
+  /// every invariant while touching only one bit per bucket, in which case a
+  /// mask error is undetectable.
   val wit_sameBucket =
     spentSet.exists(a => spentSet.exists(b => a != b and a / BUCKET_SIZE == b / BUCKET_SIZE))
 

@@ -3,15 +3,15 @@ pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
 
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { Fees } from "../../src/libs/Fees.sol";
 
 /// Shape checks on the deploy configs in `script/config`.
 ///
 /// `Deploy.s.sol` reads these at broadcast time, where a malformed file costs a
-/// failed mainnet deploy. Fees in particular are per asset and per leg with no
-/// fallback, so a rate array that is shorter than `ids` is not a missing
-/// default — it is a deploy that reverts, or worse, one asset registered at a
-/// rate meant for another. Cheap to pin here.
+/// failed mainnet deploy. Fees are per asset and per leg with no fallback, so
+/// a rate array shorter than `ids` either reverts the deploy or registers an
+/// asset at a rate meant for another.
 contract DeployConfigTest is Test {
     function _configs() internal pure returns (string[6] memory) {
         return [
@@ -43,8 +43,9 @@ contract DeployConfigTest is Test {
         }
     }
 
-    /// The scalar is gone. A config still carrying it would parse fine and
-    /// deploy at rates nobody chose, since `Deploy.s.sol` no longer reads it.
+    /// `Deploy.s.sol` reads only the per-asset fee arrays. A config carrying a
+    /// scalar `feeBps` would parse, but the value would be ignored and the pool
+    /// deployed at rates other than the one it states.
     function test_noConfigStillCarriesTheRemovedScalar() public view {
         string[6] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
@@ -53,17 +54,18 @@ contract DeployConfigTest is Test {
         }
     }
 
-    /// The exit window is immutable on the proxy: it can never be shortened
-    /// after deploy, so a zero or trivially short value ships a pool whose
-    /// upgrades are effectively instant. Cheapest possible place to catch it.
+    /// The exit window is immutable on the proxy and cannot be changed after
+    /// deploy, so a zero or very short value ships a pool whose upgrades are
+    /// effectively instant.
     function test_upgradeWindowIsMeaningfulAndProxyAdminIsSet() public view {
         string[6] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
             string memory j = vm.readFile(files[f]);
-            assertGe(
-                vm.parseJsonUint(j, ".upgradeDelay"),
-                7 days,
-                string.concat(files[f], ": upgradeDelay too short to exit through")
+            uint256 upgradeDelay = vm.parseJsonUint(j, ".upgradeDelay");
+            assertGe(upgradeDelay, 7 days, string.concat(files[f], ": upgradeDelay too short to exit through"));
+            // An exit-term raise must not be able to land inside the window.
+            assertLe(
+                upgradeDelay, ExitTerms.DELAY, string.concat(files[f], ": upgradeDelay longer than the raise notice")
             );
             uint256 maxPause = vm.parseJsonUint(j, ".maxPause");
             assertGt(maxPause, 0, string.concat(files[f], ": zero maxPause"));
@@ -72,8 +74,23 @@ contract DeployConfigTest is Test {
         }
     }
 
-    /// `tokens` and `scales` are parallel to `ids` too; `Deploy.s.sol` requires
-    /// it at broadcast, so failing here is strictly cheaper.
+    /// The pause ceiling is shorter than the exit window. The proxy constructor
+    /// and `Deploy.s.sol` both refuse a config that is not; checking here fails
+    /// before a broadcast is attempted.
+    function test_maxPauseIsShorterThanUpgradeDelay() public view {
+        string[6] memory files = _configs();
+        for (uint256 f; f < files.length; ++f) {
+            string memory j = vm.readFile(files[f]);
+            assertLt(
+                vm.parseJsonUint(j, ".maxPause"),
+                vm.parseJsonUint(j, ".upgradeDelay"),
+                string.concat(files[f], ": maxPause not shorter than upgradeDelay")
+            );
+        }
+    }
+
+    /// `tokens` and `scales` are parallel to `ids`. `Deploy.s.sol` requires
+    /// this at broadcast; checking here fails before a broadcast is attempted.
     function test_assetArraysAreParallel() public view {
         string[6] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {

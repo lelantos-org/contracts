@@ -17,15 +17,14 @@ import { MASPSpendHarness, deploySpendHarness } from "../utils/MASPSpendHarness.
 import { realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// Spend-path chainId enforcement regression test.
+/// Spend-path chainId enforcement.
 ///
-/// Deposit-path BadChainId is already covered in MASP.deposit.t.sol.
-/// The spend path (`transfer`) routes through `_validateRequest` at
-/// MASP.sol:646 which asserts `pi.chainId == block.chainid` BEFORE proof
-/// verification. PolyEval slot 17 binds `chainId` into z, so any mismatch
-/// between calldata `pi.chainId` and the witness-bound chainId also fails
-/// proof verification (z mismatch ⇒ ProofRejected). This file pins both
-/// defenses.
+/// Deposit-path `BadChainId` is covered in MASP.deposit.t.sol. The spend path
+/// (`transfer`) routes through `_validateRequest`, which requires
+/// `pi.chainId == block.chainid` before proof verification. The challenge
+/// preimage hashes `chainId` into z, so a mismatch between calldata
+/// `pi.chainId` and the witness-bound chainId also fails proof verification
+/// (z mismatch, `ProofRejected`). This file covers both checks.
 contract MASPChainIdTest is Test {
     string internal constant FIXTURE = "test/fixtures/proof_transfer.json";
     address permit2;
@@ -58,7 +57,7 @@ contract MASPChainIdTest is Test {
         MASP.Proof txProof;
         PubInputs.Transact pi;
         MASP.Proof tubProof;
-        PubInputs.TreeUpdateBatch tpi;
+        PubInputs.SpendTree tpi;
         AuxValidation.Output[6] aux;
     }
 
@@ -98,25 +97,8 @@ contract MASPChainIdTest is Test {
         a.pi.outCvDep[1][0] = ps[22];
         a.pi.outCvDep[1][1] = ps[23];
 
-        a.tpi.oldRoot = bytes32(vm.parseJsonUint(j, ".transfer.oldRoot"));
         a.tpi.newRoot = bytes32(vm.parseJsonUint(j, ".transfer.newRoot"));
         a.tpi.startIndex = uint64(vm.parseJsonUint(j, ".transfer.startIndex"));
-        a.tpi.actualCount = uint64(vm.parseJsonUint(j, ".transfer.actualCount"));
-        for (uint256 i = 0; i < PubInputs.MAX_L_BATCH; i++) {
-            string memory key = string.concat(".transfer.cms[", vm.toString(i), "]");
-            a.tpi.cms[i] = bytes32(vm.parseJsonUint(j, key));
-        }
-        for (uint256 i = 0; i < PubInputs.MAX_L_BATCH; i++) {
-            string memory base = string.concat(".transfer.cvDeps[", vm.toString(i), "]");
-            a.tpi.cvDeps[i][0] = vm.parseJsonUint(j, string.concat(base, "[0]"));
-            a.tpi.cvDeps[i][1] = vm.parseJsonUint(j, string.concat(base, "[1]"));
-        }
-        for (uint256 i = 0; i < PubInputs.MAX_L_BATCH; i++) {
-            a.tpi.leafAsset[i] = uint64(vm.parseJsonUint(j, string.concat(".transfer.leafAsset[", vm.toString(i), "]")));
-            a.tpi.leafPublicIn[i] =
-                uint64(vm.parseJsonUint(j, string.concat(".transfer.leafPublicIn[", vm.toString(i), "]")));
-            a.tpi.isDeposit[i] = uint8(vm.parseJsonUint(j, string.concat(".transfer.isDeposit[", vm.toString(i), "]")));
-        }
 
         a.aux[0].clueRx = vm.parseJsonUint(j, ".transfer.aux[0].clueRx");
         a.aux[0].clueRy = vm.parseJsonUint(j, ".transfer.aux[0].clueRy");
@@ -134,17 +116,17 @@ contract MASPChainIdTest is Test {
     }
 
     /// Spend with `pi.chainId` differing from `block.chainid` reverts at
-    /// the early-validation gate (MASP.sol:646), before any proof check.
+    /// the `_validateRequest` gate, before any proof check.
     function test_revert_BadChainId_spend() public {
-        // Depends on the deleted `proof_transfer.json`. The gate under test
-        // fires before any proof check, so this needs only a well-formed
-        // `Transact` — it can be rebuilt synthetically at the 4x6 shape
-        // without a proving key, unlike the two real-SNARK tests.
+        // Skipped: `proof_transfer.json` is not in the fixtures. The gate under
+        // test fires before any proof check, so the test needs only a
+        // well-formed `Transact` and can be built synthetically at the 4x6
+        // shape without a proving key.
         vm.skip(true);
         (Args memory a, uint256 fixtureChainId) = _loadFixture();
         vm.chainId(fixtureChainId);
 
-        // Tamper: lie about chainId in calldata.
+        // Mismatched chainId in calldata.
         a.pi.chainId = fixtureChainId + 1;
 
         vm.prank(a.pi.relayer);
@@ -152,32 +134,29 @@ contract MASPChainIdTest is Test {
         masp.transfer(a.txProof, a.pi, a.tubProof, a.tpi, a.aux);
     }
 
-    /// Cross-chain replay: chain forks to a new chainid. Attacker resubmits
-    /// the proof setting `pi.chainId = block.chainid` (the new chain).
-    /// Contract `chainId` check passes (matches new block.chainid). But the
-    /// proof's witness was generated for the original chainId, so the
-    /// recomputed `z = keccak(coeffs incl. new chainId) mod R` differs from
-    /// the prover's z. Proof verification fails ⇒ ProofRejected.
+    /// Cross-chain replay: after a fork to a new chainid, a proof is resubmitted
+    /// with `pi.chainId = block.chainid` (the new chain). The contract's
+    /// `chainId` check passes, but the witness was generated for the original
+    /// chainId, so the recomputed z (which hashes the new chainId) differs from
+    /// the prover's z and verification fails with `ProofRejected`.
     function test_revert_CrossChainReplay() public {
-        // Fixture `proof_transfer.json` is a 2x2 artifact: 30-slot
-        // `txPublicSignals` and two aux blobs. The pool now verifies
-        // `4x6` (69 slots, six outputs), so the fixture cannot
-        // satisfy it.
+        // Skipped: `_loadFixture` expects the 2x2 `proof_transfer.json` layout
+        // (30 `txPublicSignals`, two aux blobs), which the pool's 4x6 shape
+        // (70 challenge words, six outputs) does not accept.
         //
-        // Regenerating requires a 4x6 `flatten` off-chain. The SDK's
-        // `flatten` (sdk/src/circuit/compression.ts) is hard-coded to the
-        // 2x2 shape with literal [0]/[1] indices and no shape parameter, and
-        // `script/fixtures/gen_proof_transfer.ts` re-exports it. The 4x6
-        // prover artifacts are published by the release (`4x6_final.zkey`,
-        // `4x6.wasm`). The blocker is a MASP-level witness: the circuit takes
-        // `out_aux_digest` as an input while `PubInputs.compress` recomputes
-        // it from aux calldata, so the aux payload, the tree roots and the
-        // cross-bound cms/cvDeps must all be fixed before proving.
+        // A 4x6 fixture requires a 4x6 `flatten` off-chain. The SDK's `flatten`
+        // (sdk/src/circuit/compression.ts) is fixed to the 2x2 shape with
+        // literal [0]/[1] indices and no shape parameter. The 4x6 prover
+        // artifacts are published by the release (`4x6_final.zkey`,
+        // `4x6.wasm`). The remaining requirement is a MASP-level witness: the
+        // circuit takes `out_aux_digest` as an input while `PubInputs.compress`
+        // recomputes it from aux calldata, so the aux payload, the tree roots
+        // and the cross-bound cms/cvDeps must all be fixed before proving.
         //
         // Verifier-level coverage: `test/fixtures/transact_4x6_proof.json`,
         // exercised by `BatchedGroth16Verifier.t.sol`. Layout coverage:
-        // `PubInputs.vector4x4.t.sol`, which pins all 53 slots against the
-        // circuit's published witness vector.
+        // `PubInputs.vector4x6.t.sol`, which pins the 70-word challenge and 46
+        // coefficients against the circuit's published witness vector.
         vm.skip(true);
 
         (Args memory a, uint256 fixtureChainId) = _loadFixture();
@@ -194,9 +173,8 @@ contract MASPChainIdTest is Test {
     }
 
     // NOTE: an honest-chainId happy-path test belongs in
-    // MASP.transferSnark.t.sol and requires a fixture regenerated against
-    // the current MAX_N=8 circuit + a post-H-1-fix ceremony. The
-    // BadChainId / CrossChainReplay reverts above don't depend on a
-    // verifying proof — the chainId gate fires in _validateRequest before
-    // any SNARK pairing — so they exercise the H-2 defenses regardless.
+    // MASP.transferSnark.t.sol and requires a fixture generated against the
+    // current 4x6 circuit and ceremony. The `BadChainId` gate fires in
+    // `_validateRequest` before any pairing, so that test needs no verifying
+    // proof; the cross-chain replay test does.
 }

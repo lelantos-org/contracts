@@ -10,14 +10,14 @@ import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { uniformBps } from "./FeeArrays.sol";
 import { deployBehindProxy, poolInitCalldata } from "./PoolDeployer.sol";
 
-/// Test-only subclass that lets a test seed the commitment-tree state
-/// directly (root + committedCount) without going through the
-/// `deposit` + `flushBatch` chain. Used by `MASP.transferSnark.t.sol`
-/// to verify the spend-side Groth16 pair against a pre-populated tree.
-/// The pool is deployable only behind a proxy, so this takes no constructor
-/// arguments; `deploySpendHarness` initializes it behind one.
+/// Test-only subclass that seeds commitment-tree state (root and
+/// committedCount) directly, bypassing `deposit` and `flushBatch`. Used by
+/// spend suites such as `MASP.transferSnark.t.sol` to verify the spend-side
+/// Groth16 pair against a pre-populated tree. The pool is deployable only
+/// behind a proxy, so this takes no constructor arguments;
+/// `deploySpendHarness` initializes it behind one.
 contract MASPSpendHarness is MASP {
-    /// Seed the tree to a known root + committedCount without proof.
+    /// Seeds the tree to a known root and committedCount without a proof.
     function seedRoot(bytes32 newRoot, uint64 inserted) external {
         _advanceRoot(newRoot, inserted, currentRoot());
     }

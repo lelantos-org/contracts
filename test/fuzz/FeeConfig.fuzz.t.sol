@@ -17,15 +17,14 @@ contract FeeConfigFuzzTest is Test {
     function setUp() public {
         token = new MockERC20("T", "T", 18);
         fc = new FeeConfigHarness(TREASURY, OWNER);
-        // Pre-fund so sweep can transfer.
+        // Pre-fund so sweep has a balance to transfer.
         token.mint(address(fc), type(uint128).max);
     }
 
     // --- Fee arithmetic: no overflow for realistic inputs ------------------
 
-    /// Fee formula: `fee = (inAmt * fbps) / 10_000`. For any publicIn <= uint48
-    /// max and fbps <= 2000, the result must not overflow uint256 and must be
-    /// <= inAmt.
+    /// Fee formula `fee = (inAmt * fbps) / 10_000`: for any uint48 publicIn and
+    /// fbps <= 2000, the product does not overflow uint256 and fee <= inAmt.
     function testFuzz_feeFormula_noOverflow(uint48 publicIn, uint16 fbps) public pure {
         vm.assume(fbps <= 2000);
         uint256 scale = 1e10;
@@ -47,7 +46,7 @@ contract FeeConfigFuzzTest is Test {
     // --- Sweep correctness -------------------------------------------------
 
     /// Sweep transfers exactly the full `accruedFee` to treasury and zeroes it.
-    /// uint120 so a1 + a2 stays under the uint128 pre-funded balance.
+    /// Inputs are uint120 so a1 + a2 stays within the uint128 pre-funded balance.
     function testFuzz_sweep_transfersFullAccrual(uint120 a1, uint120 a2) public {
         IERC20 t = IERC20(address(token));
         fc.accrue(t, a1);

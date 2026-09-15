@@ -34,10 +34,9 @@ import { IMASPPool } from "./interfaces/IMASPPool.sol";
 /// Payout is left to the subclass: `_cancelAndVerify` returns the destination,
 /// token and amount without transferring.
 ///
-/// The escrow record carries no token address, so a satellite holding one
-/// immutable token pays no storage for it and returns that token from
-/// `_consumeEscrowToken`; one handling an open set keeps its own per-escrow
-/// record and clears it there.
+/// The escrow record carries no token address. A satellite returns the token
+/// from `_escrowToken`: an immutable one, or the registry token of the
+/// digest-checked `publicAssetId`.
 ///
 /// Ownerless, and stateless beyond the escrow records. A balance delta is valid
 /// only if no re-entry can move the balance between its two reads, so
@@ -62,8 +61,8 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
     ///
     /// On a yield asset that ceiling carries a further factor of the pool's
     /// index, which grows as the venue earns, so the headroom is not permanent.
-    /// `_escrowMeasured` and `_cancelAndVerify` both enforce the width, so an
-    /// out-of-range amount reverts rather than truncating.
+    /// `_escrowMeasured` enforces the width, so an out-of-range amount reverts
+    /// rather than truncating. A cancel refunds at most the recorded pull.
     struct Escrow {
         address refundTo;
         uint96 amount;
@@ -76,11 +75,16 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
     error ZeroAddress();
     error NoEscrowRecord(uint256 id);
     error DepositAlreadySettled(uint256 id);
-    error RefundNotFunded(uint256 id);
+    /// The balance that arrived differs from the refund the pool reports paying.
+    error RefundMismatch(uint256 id, uint256 delivered, uint256 reported);
     error PullBelowMin(uint256 pulled, uint256 minPull);
     error PullExceedsMax(uint256 pulled, uint256 maxPull);
     /// The measured pull does not fit `Escrow.amount`; see that struct.
     error EscrowAmountTooLarge(uint256 pulled);
+    /// The relayer note is valued and in another asset than the deposit. A
+    /// satellite measures and refunds one token, so it escrows only deposits
+    /// whose whole pull is in that token.
+    error FeeAssetMismatch();
 
     constructor(IMASPPool pool, IAllowanceTransfer permit2) {
         if (address(pool) == address(0)) revert ZeroAddress();
@@ -97,19 +101,24 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
         PERMIT2.approve(address(token), address(POOL), type(uint160).max, type(uint48).max);
     }
 
-    /// Returns the token an escrow is denominated in and clears any per-escrow
-    /// token record the override keeps. `_cancelAndVerify` calls it after its
-    /// guards pass and before any external call, keeping the CEI ordering.
-    function _consumeEscrowToken(uint256 id) internal virtual returns (IERC20);
+    /// Returns the token an escrow is denominated in. `publicAssetId` is not yet
+    /// checked when this runs; `POOL.cancelDeposit` checks it against the digest
+    /// in the same call, so an override may derive the token from it.
+    function _escrowToken(uint256 id, uint64 publicAssetId) internal virtual returns (IERC20);
 
     /// Escrows into MASP and measures the pull as a balance delta. Requires the
     /// subclass's reentrancy guard; see the contract notice.
     ///
-    /// @param token Asset the pull is measured in.
+    /// @param token Asset the pull is measured in. Must be the registry token of
+    /// `d.publicAssetId`, derived by the caller from something the caller cannot
+    /// choose: a token taken from calldata can report any balance, satisfying
+    /// both bounds while the pool pulls a different token held here.
     /// @param baseline Balance the pull is measured against: the caller's
     /// snapshot plus any amount it credits to itself before the pool pulls.
     /// @param minPull Inclusive floor on the measured pull. A deposit
-    /// denominated in another asset moves none of `token` and trips it.
+    /// denominated in another asset moves none of `token` and trips it. A
+    /// relayer note in another asset would move a second token the
+    /// measurement cannot see, so it is rejected up front (`FeeAssetMismatch`).
     /// @param maxPull Inclusive ceiling on the measured pull. The Permit2
     /// allowance granted to the pool covers this contract's entire balance and
     /// `d` is unauthenticated calldata, so without a ceiling an oversized
@@ -125,6 +134,9 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
         AuxValidation.Output calldata aux,
         AuxValidation.Output calldata feeAux
     ) internal returns (uint256 id, uint256 pulled) {
+        if (d.feeIn != 0 && d.feeAssetId != d.publicAssetId) {
+            revert FeeAssetMismatch();
+        }
         id = POOL.depositAuthorized(d, aux, feeAux);
         pulled = baseline - token.balanceOf(address(this));
         if (pulled < minPull) revert PullBelowMin(pulled, minPull);
@@ -152,34 +164,34 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
         uint32 submittedAt,
         PubInputs.FeeNote calldata feeNote
     ) internal returns (IERC20 token, address refundTo, uint256 amount) {
-        // Storage pointer: a rejected cancel does not load `amount`.
-        Escrow storage e = _escrows[id];
-        refundTo = e.refundTo;
+        refundTo = _escrows[id].refundTo;
         if (refundTo == address(0)) revert NoEscrowRecord(id);
         if (POOL.escrowed(id) == bytes32(0)) revert DepositAlreadySettled(id);
 
-        amount = e.amount;
-        // CEI: both halves of the record are cleared before any external call.
+        // CEI: the record is cleared before any external call.
         delete _escrows[id];
-        token = _consumeEscrowToken(id);
+        token = _escrowToken(id, publicAssetId);
 
         uint256 balanceBefore = token.balanceOf(address(this));
-        POOL.cancelDeposit(id, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt, feeNote);
-        // Measured, not asserted equal. On a yield asset the refund is the
-        // escrowed units valued at the current index, so it exceeds the amount
-        // pulled at submit by whatever the funds earned in escrow; an exact
-        // match would revert every cancel once the index has moved.
+        (uint256 reported, uint256 feeRefunded) =
+            POOL.cancelDeposit(id, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt, feeNote);
+        // Unreachable for an escrow this contract made, since `_escrowMeasured`
+        // refuses a relayer note in another asset. Checked so a second token
+        // can never arrive unaccounted for.
+        if (feeRefunded != 0) revert FeeAssetMismatch();
+        // Checked against the pool's own refund, not the amount pulled at
+        // submit. A yield-asset refund is the escrow's value at the current
+        // index, floored and capped at the ceilinged pull, so it is at most the
+        // recorded amount and falls below it by a wei of rounding at a flat
+        // index, or by a venue loss. A floor at the recorded amount would revert
+        // those cancels and leave the escrow with no refund path, since the pool
+        // accepts a contract payer's cancel only from the payer itself.
         //
-        // The floor catches the failure this guard exists for: an underfunded or
-        // partially delivered refund. It does not catch an over-delivery on a
-        // plain asset, which would indicate fee-on-transfer behaviour;
-        // distinguishing the two needs the asset's registry entry, which no
-        // satellite holds.
+        // Equality catches a refund delivered short or long in either direction,
+        // including fee-on-transfer behaviour, and the delta is attributable:
+        // this contract is the only permitted caller and holds its guard.
         uint256 delta = token.balanceOf(address(this)) - balanceBefore;
-        if (delta < amount) revert RefundNotFunded(id);
-        if (delta > type(uint96).max) revert EscrowAmountTooLarge(delta);
-        // Forwarded so the payout matches what arrived: `NativeAdapter` unwraps
-        // this and `SwapWrapper` transfers it, so both follow the index.
+        if (delta != reported) revert RefundMismatch(id, delta, reported);
         amount = delta;
     }
 }

@@ -48,14 +48,21 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
 
     LelantosToken public immutable GOV;
 
-    /// `enabled`, `startedAt` and `minLot` total 23 bytes and share one slot, so
-    /// a lot occupies three slots and `priceOf` reads one fewer.
+    /// `enabled`, `startedAt`, `minLot`, `halfLife` and `maxHalvings` total 28
+    /// bytes and share one slot, so a lot occupies three slots rather than four.
     struct Lot {
         bool enabled;
         uint48 startedAt;
         /// Dust floor. A fill below this is refused unless it clears the balance,
-        /// so the tail can always be swept.
+        /// so the tail can always be swept, and such a clearing fill does not
+        /// ratchet the price. Non-zero on an enabled lot.
         uint128 minLot;
+        /// Decay curve in force since `startedAt`, snapshotted from the global
+        /// parameters when the lot is set or re-anchored. A change to the
+        /// globals therefore reaches a running lot only at its next re-anchor,
+        /// not retroactively over time already elapsed.
+        uint32 halfLife;
+        uint8 maxHalvings;
         /// Price at `startedAt`, before any decay.
         uint256 startPrice;
         /// Decay floor. The curve never goes below this, so an unsold lot is stuck
@@ -65,10 +72,11 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
 
     mapping(IERC20 token => Lot) public lots;
 
-    /// Seconds per halving of the asking price.
+    /// Seconds per halving of the asking price, for lots set or re-anchored from
+    /// now on; see `Lot.halfLife`.
     uint32 public halfLife;
-    /// Halvings after which decay stops. Bounded decay is what keeps an unsold lot
-    /// from eventually costing nothing.
+    /// Halvings after which decay stops, for lots set or re-anchored from now on.
+    /// Bounded decay is what keeps an unsold lot from eventually costing nothing.
     uint8 public maxHalvings;
     /// Ratchet applied to a full fill, in bps of the clearing price. Partial fills
     /// scale it down proportionally; see `buy`. Bounded to `[BPS, 50_000]` — it
@@ -113,6 +121,8 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
     error BadDecayParams();
     error BadBurnBps();
     error BadLotPrices();
+    /// An enabled lot needs a non-zero `minLot`; see `buy`.
+    error BadMinLot();
     error NothingToBurn();
 
     constructor(
@@ -138,18 +148,18 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
     /// Pure function of stored lot state and `block.timestamp`. It reads nothing
     /// external, which is what makes the auction unsandwichable.
     function priceOf(IERC20 token) public view returns (uint256) {
-        // `_priceOf` only reads its argument, so the storage-to-memory copy is the
-        // point: there is no write here that could fail to reach storage.
+        // `_priceOf` only reads its argument; the storage-to-memory copy carries
+        // no write that could fail to reach storage.
         // aderyn-fp-next-line(storage-array-memory-edit)
         return _priceOf(lots[token]);
     }
 
     function _priceOf(Lot memory l) private view returns (uint256) {
         if (!l.enabled) return 0;
-        // Both live in the same packed slot; pulling them into locals keeps the
-        // decay arithmetic from re-reading storage three times.
-        uint256 period = halfLife;
-        uint256 maxHalvings_ = maxHalvings;
+        // The lot's own snapshot, not the globals: a governance change to the
+        // curve must not reprice time this lot has already spent decaying.
+        uint256 period = l.halfLife;
+        uint256 maxHalvings_ = l.maxHalvings;
 
         uint256 elapsed = block.timestamp - uint256(l.startedAt);
         uint256 periods = elapsed / period;
@@ -176,8 +186,8 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
     /// Buys `amountOut` of `token` for GOV at the current price. The GOV is
     /// burned and the fee tokens are sent to `to`.
     ///
-    /// `maxGovIn` bounds what the bidder pays. The price only decays with time,
-    /// so it can move only in the bidder's favour before mining.
+    /// `maxGovIn` bounds what the bidder pays. The price decays with time and
+    /// rises only when an earlier fill ratchets it, which this bound covers.
     ///
     /// The ratchet is weighted by fill size: a size-blind ratchet would let
     /// repeated dust fills raise the price and restart the clock, preventing a lot
@@ -210,10 +220,10 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
         // Rounds toward the protocol, matching `YieldOps.sweepNormalized`
         // ("rounding points away from the treasury").
         govIn = Math.mulDiv(amountOut, price, PRICE_SCALE, Math.Rounding.Ceil);
-        // Unreachable as written: rounding up means any non-zero `amountOut` at
-        // a non-zero price costs at least 1 wei, and an enabled lot prices above
-        // zero because `setLot` requires `minPrice > 0`. Retained so a change to
-        // those bounds cannot make a lot free.
+        // Unreachable under the current bounds: rounding up means any non-zero
+        // `amountOut` at a non-zero price costs at least 1 wei, and an enabled
+        // lot prices above zero because `setLot` requires `minPrice > 0`. Guards
+        // against a change to those bounds making a lot free.
         //
         // Zero here is a presence test on a value this contract just computed,
         // not arithmetic on an attacker-movable quantity.
@@ -222,10 +232,24 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
         if (govIn > maxGovIn) revert PriceAboveMax(govIn, maxGovIn);
 
         // --- effects, before any external call -------------------------------
-        uint256 fillBps = Math.mulDiv(amountOut, BPS, bal);
-        uint256 mult = uint256(BPS) + Math.mulDiv(uint256(restartMultBps) - BPS, fillBps, BPS);
-        lot.startPrice = Math.mulDiv(price, mult, BPS);
-        lot.startedAt = uint48(block.timestamp);
+        // Only a fill of at least `minLot` moves the price. `bal` is a live
+        // balance anyone can set by donating, and the clearing exemption above
+        // admits any size, so without this a 1-wei donation followed by a 1-wei
+        // buy counts as a full fill: repeated in one block it doubles the start
+        // price each round and lifts the `maxHalvings` floor far above market,
+        // freezing the lot. A zero-weight fill does not re-anchor either, which
+        // would otherwise restart decay from the current price and walk the
+        // floor down past `maxHalvings`.
+        if (amountOut >= l.minLot) {
+            uint256 fillBps = Math.mulDiv(amountOut, BPS, bal);
+            uint256 mult = uint256(BPS) + Math.mulDiv(uint256(restartMultBps) - BPS, fillBps, BPS);
+            if (mult > BPS) {
+                lot.startPrice = Math.mulDiv(price, mult, BPS);
+                lot.startedAt = uint48(block.timestamp);
+                lot.halfLife = halfLife;
+                lot.maxHalvings = maxHalvings;
+            }
+        }
 
         // --- interactions ----------------------------------------------------
         IERC20(address(GOV)).safeTransferFrom(msg.sender, address(this), govIn);
@@ -242,9 +266,8 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
     /// resting balance is fee income or a donation.
     function burnAccruedGov() external nonReentrant returns (uint256 amount) {
         amount = GOV.balanceOf(address(this));
-        // Zero is the "nothing to do" sentinel. A balance either is or is not
-        // present; there is no threshold to be gamed by dusting, since any
-        // non-zero amount is simply burned.
+        // Zero is the "nothing to do" sentinel. There is no threshold to game by
+        // dusting: any non-zero amount is burned.
         // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NothingToBurn();
         GOV.burn(amount);
@@ -263,7 +286,7 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
         for (uint256 i = 0; i < n; ++i) {
             // slither-disable-next-line low-level-calls,unused-return,calls-loop
             (bool ok,) = _pools[i].call(abi.encodeCall(IFeeSweeper.sweep, (token)));
-            ok; // outcome intentionally ignored
+            ok; // outcome ignored
         }
     }
 
@@ -285,17 +308,29 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
         // GOV arriving as a fee is handled by `burnAccruedGov`.
         if (address(token) == address(GOV)) revert CannotAuctionGov();
         if (enabled && (startPrice == 0 || minPrice == 0 || minPrice > startPrice)) revert BadLotPrices();
+        // A zero `minLot` lets any dust fill ratchet the price; see `buy`. Size it
+        // well above what a donate-and-buy loop is worth: each round must now buy
+        // at least `minLot` at a doubling price.
+        if (enabled && minLot == 0) revert BadMinLot();
 
         lots[token] = Lot({
             enabled: enabled,
             startedAt: uint48(block.timestamp),
             minLot: minLot,
+            halfLife: halfLife,
+            maxHalvings: maxHalvings,
             startPrice: startPrice,
             minPrice: minPrice
         });
         emit LotConfigured(token, enabled, startPrice, minPrice, minLot);
     }
 
+    /// Sets the decay curve for lots set or re-anchored from now on. A running
+    /// lot keeps the curve it was anchored with: applied retroactively, a shorter
+    /// `halfLife` would count its elapsed time as many more halvings and drop the
+    /// price to the floor in one block for whoever buys next. Governance reaches
+    /// a running lot through `setLot`. `restartMultBps` applies at once, since it
+    /// only shapes the next ratchet, never the current price.
     function setDecayParams(uint32 halfLife_, uint8 maxHalvings_, uint16 restartMultBps_) external onlyOwner {
         _setDecayParams(halfLife_, maxHalvings_, restartMultBps_);
     }
@@ -332,13 +367,13 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
     // ============== Internals ================================================
 
     function _setDecayParams(uint32 halfLife_, uint8 maxHalvings_, uint16 restartMultBps_) private {
-        // `halfLife == 0` divides by zero in `_priceOf`; the ratchet must not be
-        // able to *lower* the price, and an unbounded multiplier could overflow a
-        // seed into uselessness.
+        // `halfLife == 0` divides by zero in `_priceOf`; the ratchet must not
+        // lower the price, and an unbounded multiplier could overflow a seed
+        // into uselessness.
         if (halfLife_ == 0) revert BadDecayParams();
         if (maxHalvings_ == 0 || maxHalvings_ > 32) revert BadDecayParams();
-        // Ceiling is 5x. `restartMultBps` is a uint16, so anything above 65_535 is
-        // unrepresentable and a higher bound would be dead code.
+        // Ceiling is 5x. `restartMultBps` is a uint16, so a bound above 65_535
+        // would be dead code.
         if (restartMultBps_ < BPS || restartMultBps_ > 50_000) revert BadDecayParams();
         halfLife = halfLife_;
         maxHalvings = maxHalvings_;

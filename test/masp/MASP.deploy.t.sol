@@ -41,9 +41,9 @@ contract MASPDeployTest is Test {
             tokens[i] = IERC20(address(new MockERC20(names[i], symbols[i], uint8(decs[i]))));
         }
 
-        // Predict the pool address to scope `expectEmit` to its events. The pool
-        // is two CREATEs — the implementation, then the proxy that fronts it —
-        // and the proxy is the one that carries the address.
+        // Predicts the pool address to scope `expectEmit` to its events. The pool
+        // is two CREATEs (the implementation, then the proxy in front of it),
+        // and the proxy holds the pool address.
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
 
         for (uint256 i; i < n; ++i) {

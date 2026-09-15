@@ -5,8 +5,8 @@ import { Test } from "forge-std/Test.sol";
 import { SnarkCompression } from "../../src/SnarkCompression.sol";
 
 /// Property-based tests for `SnarkCompression.evaluatePolyAt`. Coefficients are
-/// pre-reduced into [0, R) — the library trusts callers to do this (see usage
-/// in `MASP._compressPubInputs`).
+/// pre-reduced into [0, R), since the library reverts `CoefficientOutOfField`
+/// on any coefficient >= R.
 contract SnarkCompressionFuzzTest is Test {
     uint256 internal constant R = SnarkCompression.R;
 
@@ -69,8 +69,8 @@ contract SnarkCompressionFuzzTest is Test {
         assertEq(SnarkCompression.evaluatePolyAt(kc, zr), mulmod(kr, SnarkCompression.evaluatePolyAt(c, zr), R));
     }
 
-    /// Variable-length fuzz against naive Horner reference. Bounded so the
-    /// reference loop stays cheap.
+    /// Variable-length evaluation matches a naive Horner reference. Length is
+    /// capped at 32 to bound the reference loop's cost.
     function testFuzz_VariableLengthMatchesReference(uint256[] memory raw, uint256 z) public pure {
         uint256 len = raw.length > 32 ? 32 : raw.length;
         uint256 zr = z % R;
@@ -86,8 +86,8 @@ contract SnarkCompressionFuzzTest is Test {
         assertEq(SnarkCompression.evaluatePolyAt(c, zr), expected);
     }
 
-    /// Coefficient vectors differing in the constant term disagree at z=0,
-    /// confirming distinct polynomials are not collapsed by the evaluation.
+    /// Coefficient vectors differing only in the constant term evaluate
+    /// differently at z=0.
     function testFuzz_DistinctConstantTermsDiffer(uint256[4] memory rawA, uint256 deltaConst) public pure {
         deltaConst = bound(deltaConst, 1, R - 1);
         uint256[] memory a = _toReduced(rawA);

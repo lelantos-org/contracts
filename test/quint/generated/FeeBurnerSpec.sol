@@ -9,11 +9,11 @@ library FeeBurnerSpec {
     /// names - which are not part of that string, but decide what each recorded
     /// `uint8` tag means. Asserted against every fixture's `meta.schemaHash` before
     /// decoding, so a config change not followed by a regeneration fails by name.
-    bytes32 internal constant SCHEMA_HASH = 0x29861e85b5be819c6a52eafae1053b7aeee3a52b20498c37fb6744989e036cf2;
+    bytes32 internal constant SCHEMA_HASH = 0x5688bdbb60f141e503197960d9a5e7fe627faf9d8a38f9fec101757e78654d09;
 
-    /// (uint8,(bool,uint256),(uint256,bool,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,uint256))[]
+    /// (uint8,(bool,uint256),(uint256,bool,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256))[]
     string internal constant CANONICAL_TYPE =
-        "(uint8,(bool,uint256),(uint256,bool,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,uint256))[]";
+        "(uint8,(bool,uint256),(uint256,bool,uint256,uint256,uint256,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256))[]";
 
     /// Order pins the enum values; it comes from the config's `actions` map.
     enum Action {
@@ -21,7 +21,8 @@ library FeeBurnerSpec {
         Buy,
         Wait,
         SetLot,
-        SetPaused
+        SetPaused,
+        SetDecayParams
     }
 
     /// One per Quint state variable, in config declaration order.
@@ -38,6 +39,11 @@ library FeeBurnerSpec {
     /// Not compared: `smallFills` - ghost: fills that took under a tenth of the lot. Paired with largeFills it shows mult was interpolated at more than one point on its range, rather than pinned wherever the seed put it
     /// Not compared: `largeFills` - ghost: fills that took at least half the lot, the other half of that pair
     /// Not compared: `flatDecays` - ghost: waits that moved the clock forward inside the decaying region and left the price where it was. Counted by comparing the curve at two clocks, which is the only way a dropped interpolation term is visible - every other invariant reads the price through the same priceAt
+    /// Not compared: `dustClearsMidDecay` - ghost: clearing fills below MIN_LOT on a lot whose clock had started, where a re-anchor would move startedAt on chain. Backs wit_dustClearKeptTheClock
+    /// Not compared: `zeroWeightFillsMidDecay` - ghost: fills of at least MIN_LOT whose ratchet term floored to zero, on a running clock - the other path that must not re-anchor. Backs wit_zeroWeightFillKeptTheClock
+    /// Not compared: `unanchoredPriceMoves` - ghost: fills that did not re-anchor yet changed the asking price at the same clock, compared through priceAt rather than by restating the guard
+    /// Not compared: `dustReanchors` - ghost: fills below MIN_LOT that rewrote startPrice, startedAt or the curve snapshot - the donate-and-clear ratchet
+    /// Not compared: `staleCurveFills` - ghost: fills on a running lot whose curve snapshot differs from the globals, the only fills whose govIn tells snapshot pricing from global pricing. Backs wit_boughtOnStaleCurve
     struct State {
         uint256 nowTs;
         bool lotEnabled;
@@ -50,6 +56,10 @@ library FeeBurnerSpec {
         uint256 govSupply;
         uint256 bidderGov;
         uint256 secondaryGov;
+        uint256 halfLife;
+        uint256 maxHalvings;
+        uint256 lotHalfLife;
+        uint256 lotMaxHalvings;
     }
 
     /// The union of every action's nondet picks. A step carries the whole
@@ -73,6 +83,7 @@ library FeeBurnerSpec {
         if (v == Action.Buy) return "buy";
         if (v == Action.Wait) return "wait";
         if (v == Action.SetLot) return "setLot";
-        return "setPaused";
+        if (v == Action.SetPaused) return "setPaused";
+        return "setDecayParams";
     }
 }

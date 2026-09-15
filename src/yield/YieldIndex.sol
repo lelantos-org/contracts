@@ -17,7 +17,7 @@ import { YieldOps } from "./YieldOps.sol";
 /// so value conservation is unchanged. The index exists only at the token
 /// boundary.
 ///
-/// Venue binding is immutable: `_initYieldAsset` is the only path that writes a
+/// Venue binding is permanent: `_initYieldAsset` is the only path that writes a
 /// venue and the registry it is called from is add-only, so an asset id's venue
 /// is fixed for its lifetime and there is no `setVenue`. Replacing a venue means
 /// registering a new asset id, at the cost of a public exit and re-entry for
@@ -29,8 +29,10 @@ import { YieldOps } from "./YieldOps.sol";
 ///
 /// Solvency is structural. The index is derived from what the pool holds and is
 /// never stored or oracle-fed, so no accounting drift can make the pool owe more
-/// than it has. The one stored index, `lastIdx`, is a fee high-water mark: a
-/// wrong value mis-collects for the treasury and cannot mis-pay a user.
+/// than it has. The one stored index, `lastIdx`, is a fee high-water mark. It
+/// cannot make the pool insolvent, but a stale mark bills growth to whoever holds
+/// units at the next accrual, so it must be current before the supply grows; see
+/// `YieldOps._accruePerf`.
 abstract contract YieldIndex is FeeConfig {
     YieldOps.Store internal _y;
 
@@ -94,8 +96,14 @@ abstract contract YieldIndex is FeeConfig {
 
     // ============== Owner controls ===========================================
 
-    /// Updates the buffer split and the performance-fee rate. Neither touches
-    /// the venue binding, so neither can move principal between protocols.
+    /// Updates the buffer split and proposes the performance-fee rate. Neither
+    /// touches the venue binding, so neither can move principal between
+    /// protocols.
+    ///
+    /// The buffer and any rate at or below the live one apply at once; a higher
+    /// rate is queued and lands through `commitExitTerms` after
+    /// `ExitTerms.DELAY`, so holders can leave before it is charged. See
+    /// `YieldOps.setParams`.
     function setYieldParams(uint64 id, uint16 bufferBps, uint16 perfBps) external onlyOwner {
         (, uint256 scale) = _yieldAsset(id);
         YieldOps.setParams(_y, id, scale, bufferBps, perfBps);
@@ -104,7 +112,8 @@ abstract contract YieldIndex is FeeConfig {
     /// Withdraws the venue position back to idle and stops further supply.
     /// Leaves the venue bound; see `YieldOps.emergencyUnwind`.
     function emergencyUnwind(uint64 id) external onlyOwner nonReentrant returns (uint256) {
-        return YieldOps.emergencyUnwind(_y, id);
+        (IERC20 token,) = _yieldAsset(id);
+        return YieldOps.emergencyUnwind(_y, id, token);
     }
 
     /// Halts or resumes supply to the asset's bound vault.

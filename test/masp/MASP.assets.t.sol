@@ -11,9 +11,9 @@ import { MockERC20 } from "../mocks/MockERC20.sol";
 
 import { MASPTestBase } from "../utils/MASPTestBase.sol";
 
-/// Registry is add-only with a per-asset `disabled` flag. There is no
-/// destructive `setAssets`; the owner can never strand funds by removing
-/// an asset the pool still holds notes for.
+/// The registry is add-only with a per-asset `disabled` flag. There is no
+/// destructive `setAssets`, so the owner cannot strand funds by removing an
+/// asset the pool still holds notes for.
 contract MASPAssetsTest is MASPTestBase {
     function testAddAssetRegistersEntry() public {
         MockERC20 newTok = new MockERC20("New", "NEW", 18);
@@ -105,8 +105,9 @@ contract MASPAssetsTest is MASPTestBase {
         d.feeCm = bytes32(uint256(0xfee));
 
         AuxValidation.Output[6] memory aux = _emptyAux();
-        MASP.Permit2Sig memory sig =
-            MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
+        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
+            nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
+        });
 
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.AssetDisabled.selector, ASSET_ID));
         masp.deposit(d, sig, aux[0], aux[1]);
@@ -123,8 +124,9 @@ contract MASPAssetsTest is MASPTestBase {
         d.feeCm = bytes32(uint256(0xfee));
 
         AuxValidation.Output[6] memory aux = _emptyAux();
-        MASP.Permit2Sig memory sig =
-            MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
+        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
+            nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
+        });
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(99)));
         masp.deposit(d, sig, aux[0], aux[1]);
     }

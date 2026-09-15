@@ -10,7 +10,7 @@ import { MASPHarness, deployHarness } from "../invariant/MASPHarness.sol";
 import { mockVerifierStack } from "../utils/PoolDeployer.sol";
 
 /// Unit tests for `NullifierSet` bitmap storage via `MASPHarness`.
-/// Covers double-spend, bucket isolation, and full-bucket exhaustion.
+/// Covers double-spend, bucket isolation, and filling a full bucket.
 contract NullifierSetTest is Test {
     MASPHarness harness;
 
@@ -58,7 +58,7 @@ contract NullifierSetTest is Test {
         assertTrue(harness.spent(nf2));
     }
 
-    /// Cross-bucket: consuming a nf in bucket A doesn't touch bucket B.
+    /// Consuming a nullifier in bucket A leaves bucket B unchanged.
     function test_crossBucket_independent() public {
         bytes32 nfA = bytes32(uint256(0)); // bucket 0, bit 0
         bytes32 nfB = bytes32(uint256(256)); // bucket 1, bit 0
@@ -66,7 +66,8 @@ contract NullifierSetTest is Test {
         assertFalse(harness.spent(nfB));
     }
 
-    /// Maximum bit position (bit 255 of a bucket) works correctly.
+    /// The maximum bit position (bit 255 of a bucket) is set and double-spend
+    /// protected.
     function test_maxBitPosition() public {
         bytes32 nf = bytes32(uint256(255)); // bucket 0, bit 255
         harness.consumeNullifierExternal(nf);
@@ -75,8 +76,8 @@ contract NullifierSetTest is Test {
         harness.consumeNullifierExternal(nf);
     }
 
-    /// All 256 bits of one bucket independently settable; no overflow into
-    /// adjacent bits.
+    /// All 256 bits of one bucket are independently settable without spilling
+    /// into the adjacent bucket.
     function test_allBitsInOneBucket() public {
         uint256 bucket = 3;
         for (uint256 bit = 0; bit < 256; bit++) {

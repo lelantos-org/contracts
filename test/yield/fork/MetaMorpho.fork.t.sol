@@ -10,20 +10,19 @@ import { ERC4626Venue } from "../../../src/yield/ERC4626Venue.sol";
 /// `ERC4626Venue` against a real vault.
 ///
 /// Skipped unless `FORK_TESTS=1`, matching `test/swap/fork/UniV4Adapter.fork.t.sol`,
-/// so the default `forge test` stays offline. It also needs the vault naming
-/// which is still open — the MetaMorpho vault per chain has not been chosen, and
-/// the binding an `addYieldAsset` creates is permanent, so this suite takes the
-/// vault from the environment rather than hardcoding a guess:
+/// so the default `forge test` stays offline. The per-chain MetaMorpho vault is
+/// a deployment choice and the binding `addYieldAsset` creates is permanent, so
+/// the vault is read from the environment rather than hardcoded:
 ///
 ///   FORK_TESTS=1 \
 ///   MAINNET_RPC_URL=... \
 ///   YIELD_FORK_VAULT=0x... \
 ///   forge test --match-path 'test/yield/fork/*'
 ///
-/// What this covers that the mock cannot: that a production vault's
-/// `convertToAssets` / `maxWithdraw` / `deposit` / `withdraw` behave the way the
-/// index assumes, in particular that a round trip never returns more than it
-/// took and that `maxWithdraw` is a usable gate rather than an optimistic one.
+/// Covers what the mock cannot: that a production vault's `convertToAssets` /
+/// `maxWithdraw` / `deposit` / `withdraw` behave as the index assumes, in
+/// particular that a round trip never returns more than it took and that
+/// `maxWithdraw` is a reliable gate rather than an optimistic one.
 contract MetaMorphoForkTest is Test {
     ERC4626Venue internal venue;
     IERC4626 internal vault;
@@ -47,8 +46,8 @@ contract MetaMorphoForkTest is Test {
         venue = new ERC4626Venue(POOL, vaultAddr, address(underlying));
     }
 
-    /// The constructor's binding check is the one thing standing between a
-    /// typo and an asset id bound forever to the wrong vault.
+    /// The constructor's binding check prevents an asset id from being
+    /// permanently bound to a vault with a different underlying.
     function test_constructorRejectsMismatchedUnderlying() public {
         vm.expectRevert();
         new ERC4626Venue(POOL, address(vault), address(0xdead));
@@ -62,14 +61,14 @@ contract MetaMorphoForkTest is Test {
         vm.prank(POOL);
         venue.deposit(amount);
 
-        // Vaults round in their own favour, so the position may read a hair
-        // below what went in. It must never read above.
+        // Vaults round in their own favour, so the position may read slightly
+        // below what was supplied, never above.
         assertLe(venue.totalAssets(), amount, "position never reads above what was supplied");
         assertApproxEqRel(venue.totalAssets(), amount, 1e15, "and lands within 0.1%");
     }
 
-    /// `maxWithdraw` must be a gate the pool can trust: whatever it reports as
-    /// available has to actually be withdrawable.
+    /// `maxWithdraw` is a gate the pool relies on: whatever it reports as
+    /// available must be withdrawable.
     function test_maxWithdrawIsHonoured() public {
         uint256 amount = 10 ** IERC20Metadata(address(underlying)).decimals() * 1_000;
         deal(address(underlying), address(venue), amount);

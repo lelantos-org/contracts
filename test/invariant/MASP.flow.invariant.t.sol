@@ -18,19 +18,19 @@ import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/Pool
 import { Stubs } from "../utils/Stubs.sol";
 
 /// Whole-flow invariant for the MASP deposit / batch / cancel / sweep
-/// state machine. The existing per-slice invariants
+/// state machine. The per-slice invariants
 /// ([MASPPendingFee.invariant.t.sol](MASPPendingFee.invariant.t.sol),
 /// [MASPNullifier.invariant.t.sol](MASPNullifier.invariant.t.sol),
 /// [MASPAssets.invariant.t.sol](MASPAssets.invariant.t.sol)) each cover
 /// one surface. This file exercises submit / flushBatch / cancelDeposit /
-/// sweep / advance jointly and asserts cross-handler bookkeeping —
+/// sweep / advance jointly and asserts cross-handler bookkeeping:
 /// lifecycle exclusivity, conservation of `token.balanceOf(masp)`, root
-/// monotonicity, and cancel-delay timing.
+/// coherence, and cancel-delay timing.
 ///
-/// Tree-update SNARK verifier is `vm.mockCall`-stubbed (same trick used by
-/// `MASPPendingFeeInvariantTest.setUp`); without that, every `flushBatch`
-/// would need a real depth-10 proof. Stubbing collapses to pure state-
-/// machine logic — exactly the layer cross-handler invariants protect.
+/// The tree-update SNARK verifier is stubbed with `vm.mockCall` (as in
+/// `MASPEscrowFeeInvariantTest.setUp`), since otherwise every `flushBatch`
+/// needs a real depth-10 proof. With the stub, flush reduces to the
+/// state-machine logic these cross-handler invariants cover.
 contract MaspFlowHandler is Test {
     enum Status {
         Unknown,
@@ -53,22 +53,22 @@ contract MaspFlowHandler is Test {
     mapping(uint256 => uint256) public principalAt; // inAmt (asset-units * scale)
     mapping(uint256 => uint256) public feeAt;
     mapping(uint256 => uint256) public submitBlock;
-    /// Off-chain preimage shadow. Required because the 1-slot escrow stores
-    /// only the digest; flush/cancel must resupply cm0/cm1/publicIn (plus
-    /// payer/submittedAt/fbps, tracked as `payer`/`submitBlock`/`FEE_BPS`)
-    /// and the on-chain digest check binds them.
+    /// Off-chain preimage shadow. The 1-slot escrow stores only the digest, so
+    /// flush/cancel must resupply cm0/cm1/publicIn (plus payer/submittedAt/fbps,
+    /// tracked as `payer`/`submitBlock`/`FEE_BPS`), which the on-chain digest
+    /// check binds.
     mapping(uint256 => uint48) public preimagePublicIn;
     mapping(uint256 => bytes32) public preimageCm0;
 
     /// Sum of principals for ids still `Pending`.
     uint256 public ghostPendingPrincipal;
-    /// Sum of fees escrowed with ids still `Pending`. Never in `accruedFee`
+    /// Sum of fees escrowed with ids still `Pending`. Not part of `accruedFee`
     /// until flush.
     uint256 public ghostPendingFee;
     /// Sum of principals for ids that have been `Flushed` (shielded).
     uint256 public ghostShieldedPrincipal;
-    /// Most recent root pushed by `flushBatch`. Tracks `currentRoot()`
-    /// expectation across calls. Initialized to genesis in test setUp.
+    /// Most recent root pushed by `flushBatch`: the expected `currentRoot()`.
+    /// Initialized to genesis in test setUp.
     bytes32 public lastNewRoot;
     /// Sum of `inserted` across all `flushBatch` calls (i.e. `2 * #flushed`).
     uint64 public ghostInserted;
@@ -110,7 +110,7 @@ contract MaspFlowHandler is Test {
         d.feeCm = bytes32(uint256(0xfee));
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
 
         uint256 id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
@@ -132,15 +132,14 @@ contract MaspFlowHandler is Test {
 
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
-        // The SNARK is mocked, so the new-root value is arbitrary. It is
-        // still bound to (current count, current root) so the handler ghost
-        // tracks `committedCount` advancement accurately.
+        // The SNARK is mocked, so the new-root value is arbitrary; it only
+        // needs to be distinct per (id, block).
         //
         // Reduced mod R because `flushBatch` compresses the batch header
         // through `SnarkCompression.evaluatePolyAt`, which rejects any
-        // coefficient >= R. A raw keccak clears the BN254 scalar field about
-        // 78% of the time, so leaving it unreduced made flush fail for a
-        // reason that has nothing to do with the state machine under test.
+        // coefficient >= R. An unreduced keccak exceeds the BN254 scalar field
+        // most of the time and would make flush revert for a reason unrelated
+        // to the state machine under test.
         tpi.newRoot = bytes32(uint256(keccak256(abi.encode("flushed", id, block.number))) % SnarkCompression.R);
         tpi.startIndex = masp.committedCount();
         // A deposit occupies PubInputs.LEAVES_PER_DEPOSIT (= 2) adjacent
@@ -148,17 +147,17 @@ contract MaspFlowHandler is Test {
         // `_validateBatchHeader` requires `actualCount == n * LEAVES_PER_DEPOSIT`
         // and `_drainDeposit` rebuilds the escrow digest from leaf `p + 1`'s
         // (publicIn, cm, cvDep) as the fee note. `submit` escrows that note as
-        // (0, 0xfee, [0, 0]) via `d.feeCm`, so both leaves must be populated
-        // here or the call reverts `BatchMisaligned` before touching state.
+        // (0, 0xfee, [0, 0]) via `d.feeCm`, so both leaves are populated here;
+        // otherwise the call reverts `BatchMisaligned` before touching state.
         tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
         tpi.cms[0] = preimageCm0[id];
         tpi.leafAsset[0] = ASSET_ID;
         tpi.leafPublicIn[0] = uint64(preimagePublicIn[id]);
         tpi.isDeposit[0] = 1;
         tpi.cms[1] = bytes32(uint256(0xfee));
-        // Zero value, so asset 0: the circuit canonicalises the asset of a
-        // leaf whose Pedersen binding cannot see it (step 6a), and
-        // `_drainDeposit` requires the match.
+        // Zero value, so asset 0: `tree_update_batch.circom` step 6a
+        // canonicalises the asset of a leaf whose Pedersen binding cannot see
+        // it, and `_drainDeposit` requires the match.
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[1] = 0;
         tpi.isDeposit[1] = 1;
@@ -186,17 +185,16 @@ contract MaspFlowHandler is Test {
         uint256 id = _firstWithStatus(idxSeed, Status.Pending);
         if (status[id] != Status.Pending) return;
 
-        // Roll past the cancel delay so the on-chain guard always permits
-        // the call; ghost asserts the timing relationship below.
+        // Roll past the cancel delay so the on-chain guard permits the call;
+        // the timing relationship is asserted below.
         vm.roll(block.number + masp.cancelDelay());
 
         uint256[2] memory zCv;
         // The payer is `vm.etch`ed with MockERC1271 so Permit2's ERC-1271
         // check passes at submit. That gives it code, and MASP restricts
         // cancel to the payer itself whenever `payer.code.length != 0` (a
-        // contract payer must observe its own refund). Without this prank
-        // every real cancel reverts `PayerNotSender`, and the early return
-        // above absorbs the rest, so `cancelCount` never leaves 0.
+        // contract payer must observe its own refund). The prank satisfies
+        // that restriction; without it every cancel reverts `PayerNotSender`.
         vm.prank(payer);
         // forge-lint: disable-next-line(unsafe-typecast)
         masp.cancelDeposit(
@@ -208,11 +206,11 @@ contract MaspFlowHandler is Test {
             FEE_BPS,
             payer,
             uint32(submitBlock[id]),
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: zCv })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: zCv })
         );
 
-        // Cancel-delay assertion: must have waited at least cancelDelay
-        // blocks from submit. By construction (roll above) this holds.
+        // Cancel-delay check: at least cancelDelay blocks have passed since
+        // submit. Holds by construction via the roll above.
         require(block.number >= submitBlock[id] + masp.cancelDelay(), "cancel before delay");
 
         status[id] = Status.Cancelled;
@@ -269,7 +267,7 @@ contract MaspFlowInvariantTest is Test {
 
         Stubs.installPermissiveERC1271(payer);
 
-        // flushBatch's only real dependency that requires a depth-10 proof.
+        // Accept tree-update proofs: the only flushBatch dependency that needs a depth-10 proof.
         Stubs.acceptTreeUpdateProofs(tubVerifier, true);
 
         handler = new MaspFlowHandler(masp, permit2, token, payer, masp.currentRoot());
@@ -285,9 +283,9 @@ contract MaspFlowInvariantTest is Test {
     }
 
     /// Conservation: pool balance equals the pending principal + pending
-    /// fees still in escrow (never in `accruedFee` until flush) + the
+    /// fees still in escrow (not in `accruedFee` until flush) + the
     /// shielded principal locked behind flushed deposits + the on-chain
-    /// `accruedFee`. Sweep moves fees out so accruedFee shrinks in
+    /// `accruedFee`. Sweep moves fees out, so accruedFee shrinks in
     /// lockstep with the balance.
     function invariant_balanceConservation() public view {
         uint256 bal = token.balanceOf(address(masp));
@@ -297,8 +295,8 @@ contract MaspFlowInvariantTest is Test {
     }
 
     /// Lifecycle exclusivity: every submitted id sits in exactly one of
-    /// {Pending, Flushed, Cancelled}. No id can be Unknown after submit
-    /// and no id can transition out of Flushed / Cancelled.
+    /// {Pending, Flushed, Cancelled}, and the Flushed / Cancelled bucket sizes
+    /// match the successful flush / cancel counts.
     function invariant_lifecycleExclusivity() public view {
         uint256 n = handler.idsLen();
         uint256 pending;
@@ -328,16 +326,13 @@ contract MaspFlowInvariantTest is Test {
         assertEq(masp.committedCount(), handler.ghostInserted(), "committedCount delta");
     }
 
-    /// Every handler path must actually land at least once.
+    /// Every handler path lands at least once.
     ///
-    /// `flushOne` silently reverted for the whole life of this suite: it built
-    /// a one-leaf batch where `_validateBatchHeader` demands
-    /// `n * PubInputs.LEAVES_PER_DEPOSIT`. With `fail_on_revert = false` the
-    /// call and its ghost updates rolled back leaving no trace, so
-    /// `ghostShieldedPrincipal`, `flushCount` and `ghostInserted` stayed 0 and
-    /// `invariant_rootCoherence` was comparing 0 to 0. The invariant runner
-    /// cannot distinguish "this path is hard to reach" from "this path is
-    /// dead", so the distinction is drawn here instead.
+    /// With `fail_on_revert = false` a handler call that always reverts rolls
+    /// back its ghost updates without trace, and invariants over those ghosts
+    /// (e.g. `invariant_rootCoherence` against `ghostInserted`) then hold
+    /// vacuously. The invariant runner cannot distinguish a hard-to-reach path
+    /// from an unreachable one, so reachability is checked here directly.
     ///
     /// Mirrors `YieldSolvencyInvariantTest.test_handlerReachesEveryPath`.
     function test_handlerReachesEveryPath() public {
@@ -347,8 +342,7 @@ contract MaspFlowInvariantTest is Test {
 
         handler.flushOne(0);
         assertEq(handler.flushCount(), 1, "flush path");
-        // Not just "a flush landed": it inserted the principal *and* the fee
-        // note. A one-leaf flush is exactly the bug this test exists for.
+        // The flush inserts both the principal leaf and the fee-note leaf.
         assertEq(masp.committedCount(), uint64(PubInputs.LEAVES_PER_DEPOSIT), "flush inserted both leaves");
 
         handler.cancelOne(0);

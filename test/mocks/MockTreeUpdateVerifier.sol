@@ -6,13 +6,11 @@ import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 /// Stand-in for `TreeUpdateBatchGroth16Verifier` in suites that reach
 /// `flushBatch` but are not about the pairing check.
 ///
-/// The Foundry suites get the same effect from
-/// `Stubs.acceptTreeUpdateProofs`, which routes through `vm.mockCall`. Echidna
-/// runs on hevm, whose cheatcode set has no `mockCall`, so the stub has to be
-/// a contract that genuinely implements the interface. Kept next to
-/// `MockBatchVerifier`, which exists for the same reason on the spend leg:
-/// `MASP.initialize` rejects a verifier without code, so the tree-update slot
-/// must hold something callable either way.
+/// Foundry suites achieve the same with `Stubs.acceptTreeUpdateProofs`, which
+/// uses `vm.mockCall`. Echidna runs on hevm, which has no `mockCall`, so the
+/// stub is a contract implementing the interface. `MASP.initialize` rejects a
+/// verifier without code, so the tree-update slot must hold a callable contract
+/// in either case. `MockBatchVerifier` serves the spend leg.
 ///
 /// Answers `result` for every proof. Settable so a suite can drive the
 /// rejection branch, matching `acceptTreeUpdateProofs(tub, false)`.

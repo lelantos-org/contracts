@@ -33,8 +33,8 @@ contract YieldGasTest is YieldBase {
         pi.relayer = RELAYER;
         SpendFixture.fillOutputs(pi, seed, seed + 0x1000);
         pi.merkleRoot = masp.currentRoot();
-        PubInputs.TreeUpdateBatch memory tpi =
-            SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(seed + 0x20000), masp.committedCount());
+        PubInputs.SpendTree memory tpi =
+            SpendFixture.spendTree(bytes32(seed + 0x20000), masp.committedCount(), uint8(masp.rootIndex()));
         vm.prank(RELAYER);
         uint256 g0 = gasleft();
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
@@ -43,8 +43,8 @@ contract YieldGasTest is YieldBase {
 
     function test_gas_depositAndWithdraw() public {
         // Warm-up pass on both sides first: the recipient balance, the token
-        // slots and the venue address are all cold on their first touch, and
-        // comparing a cold path against a warm one measures nothing.
+        // slots and the venue address are cold on first touch, and a cold path
+        // is not comparable with a warm one.
         _depositGas(PLAIN_ID, 0x201);
         _depositGas(YIELD_ID, 0x101);
         _withdrawGas(PLAIN_ID, 0x3001, N / 8);
@@ -56,8 +56,8 @@ contract YieldGasTest is YieldBase {
         // Large exit: more than the buffer, so the venue must be drawn on.
         uint256 plainBig = _withdrawGas(PLAIN_ID, 0x5001, N / 8);
         uint256 yieldBig = _withdrawGas(YIELD_ID, 0x6001, N / 8);
-        // Small exit: the buffer covers it and the venue is never touched.
-        // That is what the buffer is for, and the common case in production.
+        // Small exit: the buffer covers it and the venue is not touched. This
+        // is the buffer's purpose and the expected common case.
         uint256 plainSmall = _withdrawGas(PLAIN_ID, 0x7001, 1_000);
         uint256 yieldSmall = _withdrawGas(YIELD_ID, 0x8001, 1_000);
 
@@ -71,12 +71,16 @@ contract YieldGasTest is YieldBase {
         console2.logInt(int256(yieldBig) - int256(plainBig));
         console2.logInt(int256(yieldSmall) - int256(plainSmall));
 
-        // Loose ceilings, as a regression guard rather than a pin. The premium
-        // an indexed asset pays over a plain one is what the optimisation work
-        // targeted: funding the venue only across a band, and refilling the
-        // buffer on a draw. A change that reintroduces a per-deposit vault mint
-        // or an empty buffer blows through these by a wide margin.
-        assertLt(yieldDep - plainDep, 55_000, "shield premium regressed");
+        // Loose ceilings as a regression guard rather than exact pins. The
+        // premium an indexed asset pays over a plain one is bounded by funding
+        // the venue only across a band and refilling the buffer on a draw; a
+        // per-deposit vault mint or an empty buffer exceeds these by a wide
+        // margin.
+        //
+        // The shield ceiling includes one fresh `_escrowPulled` write (~22.1k),
+        // the refund cap a yield escrow records at submit and clears at flush or
+        // cancel.
+        assertLt(yieldDep - plainDep, 78_000, "shield premium regressed");
         assertLt(yieldBig - plainBig, 30_000, "buffer-exceeding exit premium regressed");
         assertLt(yieldSmall - plainSmall, 15_000, "buffer-served exit premium regressed");
     }

@@ -13,34 +13,29 @@ import { MockAdminTarget, MockSuccessorAdmin } from "./mocks/MockAdminTargets.so
 
 /// Symbolic proofs for the contract that owns the pool once governance is live.
 ///
-/// `ProtocolAdmin` exists to hold two guarantees that nothing else in the system
-/// holds:
+/// `ProtocolAdmin` provides two guarantees:
 ///
-/// 1. **Ownership cannot leave except through `migrateAdmin`.** Every pool admin
-///    function is `onlyOwner`, so an ownership move out of this contract bricks
-///    the whole admin surface — no asset registration, no rate change, no
-///    guardian response, permanently. `execute` is an arbitrary-call primitive
-///    guarded by nothing but a four-byte comparison, which makes that
-///    comparison the single point the guarantee rests on.
+/// 1. **Ownership and the proxy admin leave only through `migrateAdmin`.**
+///    Every pool admin function is `onlyOwner`, so moving ownership out of this
+///    contract permanently disables asset registration, rate changes and
+///    guardian response; moving the proxy admin alone splits upgrade authority
+///    from ownership. `execute` is an arbitrary-call primitive whose selector
+///    comparisons are the only check preventing either.
 /// 2. **The guardian's switches are one-way.** The guardian may close things
-///    inside the timelock delay but may never open them, so a compromised
-///    guardian key costs availability and never custody.
+///    within the timelock delay but never open them, so a compromised guardian
+///    key affects availability, not custody.
 ///
-/// Both are statements about *every* calldata and *every* caller, which is what
-/// makes them worth a solver rather than a fuzzer: the selector guard is a
-/// two-value comparison against a 2^32 space, and a fuzzer that samples
-/// `bytes calldata` essentially never draws either value. Here the tail beyond
-/// the selector is symbolic too, so a guard that matched on more than the
-/// leading four bytes would be caught.
+/// Both quantify over every calldata and every caller. The selector guard is a
+/// two-value comparison in a 2^32 space that a fuzzer sampling `bytes calldata`
+/// almost never hits. The tail beyond the selector is also symbolic, so a guard
+/// matching on more than the leading four bytes would fail.
 ///
-/// Everything reachable is comparisons and mapping writes — no arithmetic, no
-/// hashing beyond role ids fixed at compile time — so the whole file solves in
-/// well under a second.
+/// Reachable code is comparisons and mapping writes, with no arithmetic and no
+/// hashing beyond compile-time role ids.
 ///
-/// The pool and wrapper are `MockAdminTarget`, for the reason given on that
-/// contract: `svm.createCalldata` against a real `MASP` is the non-terminating
-/// shape `README.md` warns about, and none of these properties are about what
-/// the pool does with the forwarded call.
+/// The pool and wrapper are `MockAdminTarget`: `svm.createCalldata` against a
+/// real `MASP` does not terminate (see `README.md`), and none of these properties
+/// depend on what the pool does with the forwarded call.
 contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
     ProtocolAdmin internal admin;
     MockAdminTarget internal pool;
@@ -54,21 +49,22 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
     bytes32 internal GUARDIAN_ROLE;
 
     /// Length of the symbolic calldata the `execute` proofs quantify over: a
-    /// four-byte selector plus one full word of arguments. Every selector
-    /// `MockAdminTarget` declares takes one or two words, so this reaches the
-    /// single-argument ones with a symbolic argument and leaves the two-argument
-    /// ones short — both of which are call shapes `execute` must handle.
+    /// four-byte selector plus one argument word. Every selector `MockAdminTarget`
+    /// declares takes one or two words, so single-argument calls get a symbolic
+    /// argument and two-argument calls are short; `execute` must handle both.
     uint256 internal constant CALLDATA_LEN = 36;
 
     function setUp() public {
-        // Deployed owned by this test, then handed over: `ProtocolAdmin` takes
-        // its targets as constructor arguments, so it cannot be their owner at
-        // the moment they are constructed.
+        // Deployed owned by this test, then transferred: `ProtocolAdmin` takes
+        // its targets as constructor arguments, so it cannot own them at
+        // construction.
         pool = new MockAdminTarget(address(this));
         wrapper = new MockAdminTarget(address(this));
         admin = new ProtocolAdmin(address(pool), address(wrapper), GOV, GUARDIAN);
         pool.transferOwnership(address(admin));
         wrapper.transferOwnership(address(admin));
+        // The pool is also a proxy, whose admin seat is handed over last.
+        pool.changeProxyAdmin(address(admin));
 
         GUARDIAN_ROLE = admin.GUARDIAN_ROLE();
     }
@@ -78,15 +74,13 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
     /// No `execute` from governance moves the pool's owner, whatever the
     /// calldata.
     ///
-    /// This is the guarantee the contract exists for, stated over the whole
-    /// 2^32 selector space rather than the two values the guard names. A guard
-    /// that compared the wrong offset, masked the selector incorrectly, or
-    /// missed one of the two `Ownable` entry points fails here.
+    /// Stated over the full 2^32 selector space rather than the two guarded
+    /// values. A guard comparing the wrong offset, masking the selector
+    /// incorrectly, or missing either `Ownable` entry point fails here.
     ///
-    /// Reverting calls are dropped rather than asserted on: a revert rolls back
-    /// all state, so it cannot move an owner. `check_execute_forwardsOrdinaryCalls`
-    /// is the non-vacuity anchor — without it this would also be satisfied by an
-    /// `execute` that refused everything.
+    /// Reverting calls are discarded, since a revert rolls back all state.
+    /// `check_execute_forwardsOrdinaryCalls` shows this is not satisfied by an
+    /// `execute` that refuses everything.
     function check_execute_neverMovesPoolOwnership() public {
         bytes memory data = svm.createBytes(CALLDATA_LEN, "data");
 
@@ -97,9 +91,8 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         assertEq(pool.owner(), address(admin), "execute moved pool ownership");
     }
 
-    /// The same over the wrapper, which shares the guard and the failure mode:
-    /// an unowned `SwapWrapper` can never have an adapter allowlisted or
-    /// revoked again.
+    /// The same for the wrapper: if ownership of `SwapWrapper` left this
+    /// contract, adapters could not be allowlisted or revoked through it.
     function check_execute_neverMovesWrapperOwnership() public {
         bytes memory data = svm.createBytes(CALLDATA_LEN, "data");
 
@@ -113,17 +106,13 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
     /// Both ownership selectors are refused with `OwnershipCallForbidden`,
     /// whatever argument follows them.
     ///
-    /// Stronger than the two proofs above in one direction — it pins the revert
-    /// reason, so a guard that started rejecting these for an unrelated reason
-    /// (a bad target, an exhausted role) would fail rather than pass — and
-    /// weaker in another, since it names the two selectors instead of
-    /// quantifying over them. Both directions are worth having: this one says
-    /// the guard fires, those say nothing else slips past it.
+    /// Complements the two proofs above: this pins the revert reason for the two
+    /// named selectors (so a rejection for an unrelated reason fails), while
+    /// those quantify over all selectors to show nothing else moves ownership.
     function check_execute_refusesTransferOwnership() public {
         // The selector, then a symbolic destination word: the guard must not
-        // depend on where ownership was being sent, so a burn address is
-        // refused like any other. `transferOwnership` itself rejects only
-        // `address(0)`, which is why that is not sufficient on its own.
+        // depend on the destination, so a burn address is refused like any
+        // other. `transferOwnership` itself rejects only `address(0)`.
         bytes memory tail = svm.createBytes(32, "tail");
         bytes memory data = bytes.concat(Ownable.transferOwnership.selector, tail);
 
@@ -135,9 +124,9 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         );
     }
 
-    /// `renounceOwnership` takes no arguments, so the interesting quantifier is
-    /// over the trailing bytes: a caller may append anything, and Solidity's
-    /// dispatcher ignores it. The guard must too.
+    /// `renounceOwnership` takes no arguments, so the quantifier is over trailing
+    /// bytes: Solidity's dispatcher ignores appended data, and the guard must
+    /// also refuse regardless of it.
     function check_execute_refusesRenounceOwnership() public {
         bytes memory tail = svm.createBytes(32, "tail");
         bytes memory data = bytes.concat(Ownable.renounceOwnership.selector, tail);
@@ -150,9 +139,39 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         );
     }
 
-    /// Non-vacuity: the ordinary governance call `execute` exists to carry does
-    /// go through. Without this the proofs above hold of a contract whose
-    /// `execute` reverts unconditionally.
+    /// No `execute` from governance moves the pool's proxy admin, whatever the
+    /// calldata. That seat queues and cancels upgrades, so moving it alone would
+    /// leave a pool owned here but upgradeable by someone else.
+    ///
+    /// Stated over every selector, like the ownership proofs above.
+    /// `check_execute_forwardsOrdinaryCalls` shows the assumed success is
+    /// reachable.
+    function check_execute_neverMovesProxyAdmin() public {
+        bytes memory data = svm.createBytes(CALLDATA_LEN, "data");
+
+        vm.prank(GOV);
+        (bool ok,) = address(admin).call(abi.encodeCall(ProtocolAdmin.execute, (address(pool), data)));
+        vm.assume(ok);
+
+        assertEq(pool.proxyAdmin(), address(admin), "execute moved the proxy admin");
+    }
+
+    /// `changeProxyAdmin` is refused with `ProxyAdminCallForbidden` for every
+    /// destination word, pinning the reason the proof above relies on.
+    function check_execute_refusesChangeProxyAdmin() public {
+        bytes memory tail = svm.createBytes(32, "tail");
+        bytes memory data = bytes.concat(MockAdminTarget.changeProxyAdmin.selector, tail);
+
+        vm.prank(GOV);
+        (bool ok, bytes memory ret) = address(admin).call(abi.encodeCall(ProtocolAdmin.execute, (address(pool), data)));
+
+        _assertRejected(
+            ok, ret, ProtocolAdmin.ProxyAdminCallForbidden.selector, "changeProxyAdmin slipped through execute"
+        );
+    }
+
+    /// Non-vacuity: an ordinary governance call goes through `execute`, so the
+    /// proofs above are not satisfied by an `execute` that always reverts.
     function check_execute_forwardsOrdinaryCalls(uint256 v) public {
         vm.prank(GOV);
         admin.execute(address(pool), abi.encodeCall(MockAdminTarget.setParam, (v)));
@@ -160,10 +179,10 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         assertEq(pool.touched(), v, "execute did not forward an ordinary call");
     }
 
-    /// Self-calls are refused for every calldata, which is what keeps `execute`
-    /// away from the inherited role-management surface. Reaching `grantRole`
-    /// with `msg.sender == address(this)` would let one proposal mint itself a
-    /// guardian, or revoke governance's own admin role.
+    /// Self-calls are refused for every calldata, keeping `execute` away from the
+    /// inherited role-management surface. Reaching `grantRole` with
+    /// `msg.sender == address(this)` would let one proposal grant a guardian role
+    /// or revoke governance's admin role.
     function check_execute_refusesEverySelfCall() public {
         bytes memory data = svm.createBytes(CALLDATA_LEN, "data");
 
@@ -174,9 +193,8 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
     }
 
     /// `execute` rejects every caller without `DEFAULT_ADMIN_ROLE`, for every
-    /// target and every calldata — the guardian included. The guardian holds a
-    /// role on this contract, so "not governance" is the property, not "no
-    /// role at all".
+    /// target and every calldata, including the guardian, which holds a
+    /// different role on this contract.
     function check_execute_rejectsEveryNonAdmin(address caller, address target) public {
         vm.assume(caller != GOV);
         bytes memory data = svm.createBytes(CALLDATA_LEN, "data");
@@ -189,13 +207,12 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
 
     // --- The guardian's switches are one-way --------------------------------
 
-    /// `disableAsset` drives the flag to `true` for every id, and there is no
-    /// argument by which a guardian could drive it back.
+    /// `disableAsset` sets the flag to `true` for every id, and no argument lets
+    /// a guardian set it back.
     ///
-    /// The direction is fixed in bytecode — the point of splitting these out of
-    /// `execute` — so the proof is that the recorded value is `true` whatever
-    /// id is named. Re-enabling requires a proposal through `execute`, which
-    /// the caller here does not hold the role for.
+    /// The direction is fixed in bytecode, so the proof checks the recorded value
+    /// is `true` for any id. Re-enabling requires a proposal through `execute`,
+    /// for which the guardian lacks the role.
     function check_guardian_disableAssetIsOneWay(uint64 id) public {
         vm.prank(GUARDIAN);
         admin.disableAsset(id);
@@ -203,8 +220,8 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         assertTrue(pool.disabled(id), "disableAsset did not disable");
     }
 
-    /// The same for the yield halt: a guardian stops further supply to a vault
-    /// and cannot resume it.
+    /// The same for the yield halt: a guardian can stop further supply to a vault
+    /// but cannot resume it.
     function check_guardian_haltYieldIsOneWay(uint64 id) public {
         vm.prank(GUARDIAN);
         admin.haltYield(id);
@@ -212,11 +229,10 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         assertTrue(pool.halted(id), "haltYield did not halt");
     }
 
-    /// And for the adapter allowlist, where the direction matters most: an
-    /// allowlisted adapter is called with escrowed funds, so a guardian must be
-    /// able to revoke one and must never be able to add one.
+    /// The same for the adapter allowlist: an allowlisted adapter is called with
+    /// escrowed funds, so a guardian may revoke an adapter but never add one.
     function check_guardian_disallowAdapterIsOneWay(address adapter) public {
-        // Start from the state a revocation is interesting in.
+        // Start with the adapter allowlisted.
         vm.prank(GOV);
         admin.execute(address(wrapper), abi.encodeCall(MockAdminTarget.setAdapterAllowed, (adapter, true)));
         assertTrue(wrapper.adapterAllowed(adapter));
@@ -228,14 +244,18 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
     }
 
     /// Every guardian entry point rejects every caller without the role, for
-    /// every argument — governance included, since it holds
-    /// `DEFAULT_ADMIN_ROLE` and not `GUARDIAN_ROLE`.
+    /// every argument, including governance, which holds `DEFAULT_ADMIN_ROLE`
+    /// but not `GUARDIAN_ROLE`.
     ///
-    /// Enumerated rather than taken from `svm.createCalldata`: this contract's
-    /// `execute` forwards symbolic calldata to a symbolic target, so
-    /// quantifying over its whole ABI would quantify over every call to every
-    /// address. `README.md` records that trap.
-    function check_guardian_entryPointsRejectEveryNonGuardian(address caller, uint64 id, address adapter) public {
+    /// Enumerated rather than using `svm.createCalldata`: `execute` forwards
+    /// symbolic calldata to a symbolic target, so quantifying over the whole ABI
+    /// would quantify over every call to every address (see `README.md`).
+    function check_guardian_entryPointsRejectEveryNonGuardian(
+        address caller,
+        uint64 id,
+        address adapter,
+        uint256 duration
+    ) public {
         vm.assume(!admin.hasRole(GUARDIAN_ROLE, caller));
 
         vm.prank(caller);
@@ -246,18 +266,32 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         (bool c, bytes memory rc) = address(admin).call(abi.encodeCall(ProtocolAdmin.emergencyUnwind, (id)));
         vm.prank(caller);
         (bool d, bytes memory rd) = address(admin).call(abi.encodeCall(ProtocolAdmin.disallowAdapter, (adapter)));
+        vm.prank(caller);
+        (bool e, bytes memory re) = address(admin).call(abi.encodeCall(ProtocolAdmin.pauseSpends, (duration)));
 
         bytes4 denied = IAccessControl.AccessControlUnauthorizedAccount.selector;
         _assertRejected(a, ra, denied, "a non-guardian disabled an asset");
         _assertRejected(b, rb, denied, "a non-guardian halted yield");
         _assertRejected(c, rc, denied, "a non-guardian unwound a venue");
         _assertRejected(d, rd, denied, "a non-guardian revoked an adapter");
+        _assertRejected(e, re, denied, "a non-guardian paused spends");
+        assertEq(pool.pausedFor(), 0);
     }
 
-    /// The guardian cannot reach governance's surface: neither the arbitrary
-    /// call nor the ownership exit. This is the role split stated from the
-    /// other side, and it is what bounds a compromised guardian key to
-    /// availability damage.
+    /// The guardian's pause reaches the pool's proxy for every duration.
+    /// `ProtocolAdmin` forwards the duration unchanged, leaving the ceiling and
+    /// the one-shot latch to the proxy, which proves them in
+    /// `DelayedUpgradeProxy.symbolic.t.sol`.
+    function check_guardian_pauseSpendsReachesTheProxy(uint256 duration) public {
+        vm.prank(GUARDIAN);
+        admin.pauseSpends(duration);
+
+        assertEq(pool.pausedFor(), duration, "pause did not reach the proxy");
+    }
+
+    /// The guardian cannot reach the governance surface: neither `execute` nor
+    /// `migrateAdmin`. This bounds a compromised guardian key to availability
+    /// impact.
     function check_guardian_cannotReachGovernanceSurface(address newAdmin) public {
         bytes memory data = svm.createBytes(CALLDATA_LEN, "data");
 
@@ -270,15 +304,16 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         assertFalse(migrate, "guardian migrated the admin");
         assertEq(pool.owner(), address(admin));
         assertEq(wrapper.owner(), address(admin));
+        assertEq(pool.proxyAdmin(), address(admin));
     }
 
     // --- `migrateAdmin` -----------------------------------------------------
 
-    /// The sanctioned exit moves both owners, in one call.
+    /// `migrateAdmin` moves both owners in one call.
     ///
-    /// Split ownership is the failure this shape prevents: a pool under one
-    /// admin and a wrapper under another cannot be driven by either, since
-    /// `ProtocolAdmin`'s targets are immutable.
+    /// This prevents split ownership: since `ProtocolAdmin`'s targets are
+    /// immutable, a pool under one admin and a wrapper under another could not
+    /// be driven by either.
     function check_migrate_movesBothOwnersTogether() public {
         MockSuccessorAdmin next = new MockSuccessorAdmin(address(pool), address(wrapper));
         next.grant(DEFAULT_ADMIN_ROLE, GOV);
@@ -290,12 +325,48 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         assertEq(wrapper.owner(), address(next), "wrapper did not move");
     }
 
+    /// The proxy admin moves in the same call as ownership, so upgrade authority
+    /// cannot stay behind with a retired governance while the successor owns the
+    /// pool.
+    function check_migrate_movesProxyAdminWithOwnership() public {
+        MockSuccessorAdmin next = new MockSuccessorAdmin(address(pool), address(wrapper));
+        next.grant(DEFAULT_ADMIN_ROLE, GOV);
+
+        vm.prank(GOV);
+        admin.migrateAdmin(address(next));
+
+        assertEq(pool.proxyAdmin(), address(next), "proxy admin stayed behind");
+        assertEq(pool.owner(), address(next));
+        assertEq(wrapper.owner(), address(next));
+    }
+
+    /// Migration is refused while the proxy admin sits anywhere but here, for
+    /// every holder, and nothing moves. Otherwise ownership would leave and the
+    /// upgrade seat would stay with whoever holds it.
+    function check_migrate_rejectsWhenProxyAdminNotHeld(address holder) public {
+        vm.assume(holder != address(admin) && holder != address(0));
+        // `execute` cannot move the seat; this contract hands it over directly.
+        vm.prank(address(admin));
+        pool.changeProxyAdmin(holder);
+
+        MockSuccessorAdmin next = new MockSuccessorAdmin(address(pool), address(wrapper));
+        next.grant(DEFAULT_ADMIN_ROLE, GOV);
+
+        vm.prank(GOV);
+        (bool ok, bytes memory ret) = address(admin).call(abi.encodeCall(ProtocolAdmin.migrateAdmin, (address(next))));
+
+        _assertRejected(ok, ret, ProtocolAdmin.ProxyAdminNotHeld.selector, "migrated without the proxy admin");
+        assertEq(pool.owner(), address(admin));
+        assertEq(wrapper.owner(), address(admin));
+        assertEq(pool.proxyAdmin(), holder);
+    }
+
     /// A successor claiming a different pool or wrapper is refused, for every
     /// address it could claim, and neither owner moves.
     ///
-    /// These checks stop a mis-wired successor, not a hostile one — a hostile
-    /// successor controls its own getters, and the timelock delay bounds that
-    /// case. What the proof establishes is that the accident is impossible.
+    /// These checks reject a misconfigured successor, not a hostile one: a
+    /// hostile successor controls its own getters, and the timelock delay bounds
+    /// that case.
     function check_migrate_rejectsMismatchedTargets(address claimedPool, address claimedWrapper) public {
         vm.assume(claimedPool != address(pool) || claimedWrapper != address(wrapper));
 
@@ -315,12 +386,12 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         assertEq(wrapper.owner(), address(admin));
     }
 
-    /// A successor this Timelock does not administer is refused. Migrating to
-    /// one would strand the pool under a contract governance cannot drive,
-    /// which is indistinguishable from renouncing.
+    /// A successor this Timelock does not administer is refused; migrating to one
+    /// would leave the pool under a contract governance cannot drive, equivalent
+    /// to renouncing.
     function check_migrate_rejectsUngovernedSuccessor() public {
         MockSuccessorAdmin next = new MockSuccessorAdmin(address(pool), address(wrapper));
-        // Deliberately not granted to GOV.
+        // DEFAULT_ADMIN_ROLE is not granted to GOV.
 
         vm.prank(GOV);
         (bool ok, bytes memory ret) = address(admin).call(abi.encodeCall(ProtocolAdmin.migrateAdmin, (address(next))));
@@ -331,9 +402,8 @@ contract ProtocolAdminSymbolicTest is GuardAsserts, SymTest {
         assertEq(pool.owner(), address(admin));
     }
 
-    /// Ownership cannot land on an account with no code, for any such address.
-    /// An EOA successor has no `POOL()` to check and no role table to grant
-    /// through — the pool would simply be gone.
+    /// Ownership cannot move to any account without code. An EOA successor has
+    /// no `POOL()` to check and no role table, so the pool would be unmanageable.
     function check_migrate_rejectsEveryCodelessSuccessor(address newAdmin) public {
         vm.assume(newAdmin.code.length == 0);
 

@@ -8,11 +8,10 @@ import { CommitmentTreeHarness } from "../fuzz/CommitmentTreeHarness.sol";
 
 /// Symbolic proofs for the 64-entry root ring buffer.
 ///
-/// `test/invariant/CommitmentTree.invariant.t.sol` asserts these same three
-/// properties over randomly generated call sequences. Here they are proved for
-/// every root value, at a call depth halmos unrolls exactly — the ring's
-/// wrap-around and its eviction rule are the parts a random sequence explores
-/// shallowly.
+/// `test/invariant/CommitmentTree.invariant.t.sol` checks the ring-index,
+/// current-root and committed-count invariants over random call sequences. Here
+/// the properties are proved for every root value at a fixed call depth, covering
+/// the ring's index masking and root lookups that random sequences reach rarely.
 contract CommitmentTreeSymbolicTest is GuardAsserts {
     CommitmentTreeHarness internal tree;
 
@@ -20,27 +19,40 @@ contract CommitmentTreeSymbolicTest is GuardAsserts {
         tree = new CommitmentTreeHarness();
     }
 
-    /// One advance: the new root becomes current, is known, and the leaf count
-    /// moves by exactly what was inserted.
+    /// One advance: the new root becomes current, is known at the current slot,
+    /// and the leaf count increases by exactly `inserted`. Zero is excluded: it
+    /// marks an unfilled slot and is never known.
     ///
-    /// `inserted` is a uint32 so `committedCount` (uint64, starting at 0 in a
-    /// fresh harness) cannot overflow across the two advances the multi-step
-    /// proofs below make — an overflowing path reverts and would satisfy the
-    /// postconditions vacuously.
+    /// `inserted` is a uint32 so `committedCount` (uint64, 0 in a fresh harness)
+    /// cannot overflow; an overflowing path reverts, and halmos would discard it,
+    /// satisfying the postconditions vacuously.
     function check_advanceRoot_postconditions(bytes32 newRoot, uint32 inserted) public {
+        vm.assume(newRoot != bytes32(0));
         uint64 before = tree.committedCount();
 
         tree.advanceRoot(newRoot, inserted);
 
         assertEq(tree.currentRoot(), newRoot);
         assertTrue(tree.isKnownRoot(newRoot));
+        (bool found, uint256 index) = tree.rootIndexOf(newRoot);
+        assertTrue(found);
+        assertEq(index, uint256(tree.rootIndex()));
         assertEq(tree.committedCount(), before + uint64(inserted));
     }
 
-    /// `rootIndex` stays inside the ring and `roots[rootIndex]` is always what
-    /// `currentRoot()` returns, for any pair of advances. The index is computed
-    /// with a mask rather than a modulo (`(rootIndex + 1) & (ROOT_HISTORY - 1)`),
-    /// which is only equivalent because the size is a power of two.
+    /// Zero is never a known root, whatever the ring holds: unfilled slots are
+    /// zero, and a spend naming one must not match.
+    function check_zeroRoot_neverKnown(bytes32 r) public {
+        tree.advanceRoot(r, 1);
+        assertFalse(tree.isKnownRoot(bytes32(0)));
+        (bool found,) = tree.rootIndexOf(bytes32(0));
+        assertFalse(found);
+    }
+
+    /// `rootIndex` stays inside the ring and `roots[rootIndex]` equals
+    /// `currentRoot()`, for any pair of advances. The index uses a mask rather
+    /// than a modulo (`(rootIndex + 1) & (ROOT_HISTORY - 1)`), which is equivalent
+    /// only because the size is a power of two.
     function check_rootIndex_staysInRing(bytes32 r1, bytes32 r2) public {
         tree.advanceRoot(r1, 1);
         assertLt(uint256(tree.rootIndex()), tree.ROOT_HISTORY_SIZE());
@@ -51,22 +63,23 @@ contract CommitmentTreeSymbolicTest is GuardAsserts {
         assertEq(tree.rootAt(tree.rootIndex()), tree.currentRoot());
     }
 
-    /// Pushing the same root twice must not mark it unknown. Eviction clears
-    /// `isKnownRoot` for the entry it overwrites, so without the
-    /// `evicted != newRoot` guard a root still live in the buffer would be
-    /// unlearned by its own re-insertion.
+    /// Pushing the same root twice keeps it known, and the lookup returns the
+    /// newer slot, which is evicted last.
     function check_repeatedRoot_staysKnown(bytes32 r) public {
+        vm.assume(r != bytes32(0));
         tree.advanceRoot(r, 1);
         tree.advanceRoot(r, 1);
         assertTrue(tree.isKnownRoot(r));
         assertEq(tree.currentRoot(), r);
+        (, uint256 index) = tree.rootIndexOf(r);
+        assertEq(index, uint256(tree.rootIndex()));
     }
 
-    /// The previous root stays known while it is still in the ring: a proof
-    /// accepted against the root one batch behind must not be invalidated by
-    /// the next batch. Distinct roots only — the shared case is above.
+    /// The previous root stays known while it is in the ring, so a proof against
+    /// the root one batch behind is not invalidated by the next batch. Distinct
+    /// roots only; the repeated case is covered above.
     function check_previousRoot_staysKnown(bytes32 r1, bytes32 r2) public {
-        vm.assume(r1 != r2);
+        vm.assume(r1 != r2 && r1 != bytes32(0) && r2 != bytes32(0));
         tree.advanceRoot(r1, 1);
         tree.advanceRoot(r2, 1);
         assertTrue(tree.isKnownRoot(r1));

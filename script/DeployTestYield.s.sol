@@ -9,27 +9,27 @@ import { ERC4626Venue } from "../src/yield/ERC4626Venue.sol";
 import { MockERC4626 } from "../test/mocks/MockERC4626.sol";
 
 /// Test/anvil yield stack: one `MockERC4626` vault plus its `ERC4626Venue` per
-/// registered asset, then the owner registration that binds each as a *new*
+/// registered asset, then the owner registration that binds each as a new
 /// yield asset id. Run after `DeployTest.s.sol`, whose KEY=value output
 /// supplies the env vars below.
 ///
 /// Separate from `DeployYield.s.sol`, which registers venues from a
-/// `{chain}.yield.json` naming vaults that already exist on a real chain. A
-/// local stack has no such vault, and the vault addresses only exist once this
-/// script has deployed them, so there is nothing a config file could name —
-/// this is the same split as `Deploy.s.sol` / `DeployTest.s.sol`.
+/// `{chain}.yield.json` naming vaults that already exist on a real chain. On a
+/// local stack the vault addresses exist only after this script deploys them,
+/// so no config file can name them. This mirrors the `Deploy.s.sol` /
+/// `DeployTest.s.sol` split.
 ///
-/// A yield id is registered *alongside* the token's plain id, never in place of
-/// it: the plain id stays risk-free custody and the yield id earns, and a
+/// A yield id is registered alongside the token's plain id, never in place of
+/// it: the plain id remains risk-free custody, the yield id earns, and a
 /// depositor opts in by choosing an id. Ids come from the same committed
 /// fixture as the plain ones, shifted by `YIELD_ID_OFFSET` (default: the asset
 /// count, so 1,2,3 -> 4,5,6). Scale is copied from the plain id, as the two
 /// differ only in the venue binding.
 ///
-/// Registration is permanent — `addYieldAsset` goes through the add-only
-/// registry — so a re-run against the same MASP reverts on the first id. That
-/// is intended: `just redeploy` re-runs `DeployTest.s.sol` too, which yields a
-/// fresh MASP with none of these ids taken.
+/// Registration is permanent (`addYieldAsset` goes through the add-only
+/// registry), so a re-run against the same MASP reverts on the first id.
+/// `just redeploy` also re-runs `DeployTest.s.sol`, producing a fresh MASP with
+/// none of these ids taken.
 ///
 /// Required env (populated from DeployTest output):
 ///   MASP                       — MASP address, owned by the broadcasting key
@@ -64,8 +64,8 @@ contract DeployTestYield is Script {
         require(scales.length == n, "registry length mismatch");
 
         // Shifting by the asset count keeps every yield id clear of every plain
-        // one for this fixture. An offset small enough to overlap would collide
-        // on `addYieldAsset`, which is caught below rather than mid-broadcast.
+        // id for this fixture. An overlapping offset would collide on
+        // `addYieldAsset`; it is rejected here rather than mid-broadcast.
         uint64 offset = uint64(vm.envOr("YIELD_ID_OFFSET", n));
         require(offset >= n, "YIELD_ID_OFFSET overlaps the plain ids");
 
@@ -82,15 +82,15 @@ contract DeployTestYield is Script {
         for (uint256 i; i < n; ++i) {
             uint64 plainId = uint64(rawIds[i]);
             uint64 yieldId = plainId + offset;
-            // Fixture order and `TOKEN_<id>` are the same table DeployTest
-            // logged, so the token is read by id rather than by position.
+            // DeployTest logs `TOKEN_<id>` from the same fixture, so the token is
+            // read by id rather than by position.
             address token = vm.envAddress(string.concat("TOKEN_", vm.toString(uint256(plainId))));
             _preflight(masp, yieldId, token, scales[i]);
 
             vm.startBroadcast();
-            // The venue is caller-pinned to the pool, so it cannot exist before
-            // the pool's constructor has run — which is why a yield asset is
-            // registered here rather than in DeployTest's constructor arrays.
+            // The venue is caller-pinned to the pool, so it can only be deployed
+            // once the pool exists. A yield asset is therefore registered here
+            // rather than in DeployTest's initialization arrays.
             MockERC4626 vault = new MockERC4626(IERC20(token));
             ERC4626Venue venue = new ERC4626Venue(address(masp), address(vault), token);
             masp.addYieldAsset(
@@ -102,8 +102,8 @@ contract DeployTestYield is Script {
             venues[i] = address(venue);
 
             // KEY=value block scraped by backend/stack/scripts/deploy-contracts.sh
-            // and e2e. The id is in the key, as `TOKEN_<id>` already is, so the
-            // address table alone says which plain asset each pair belongs to.
+            // and e2e. The id is in the key, as in `TOKEN_<id>`, so the address
+            // table alone identifies the plain asset each pair belongs to.
             console2.log(string.concat("YIELD_TOKEN_", vm.toString(uint256(yieldId)), "=", vm.toString(token)));
             console2.log(string.concat("YIELD_VAULT_", vm.toString(uint256(yieldId)), "=", vm.toString(vaults[i])));
             console2.log(string.concat("YIELD_VENUE_", vm.toString(uint256(yieldId)), "=", vm.toString(venues[i])));
@@ -114,12 +114,12 @@ contract DeployTestYield is Script {
     function _preflight(MASP masp, uint64 yieldId, address token, uint256 scale) internal view {
         _requireCode(token, "token has no code");
         require(scale != 0, "scale zero");
-        // `addYieldAsset` is `onlyOwner`; failing here names the problem
-        // instead of reverting inside the broadcast with `OwnableUnauthorized`.
+        // `addYieldAsset` is `onlyOwner`; checking here gives a descriptive error
+        // instead of `OwnableUnauthorizedAccount` inside the broadcast.
         require(masp.owner() == tx.origin, "broadcasting key does not own the MASP");
 
-        // The id must be free. `addYieldAsset` would revert anyway; failing
-        // here costs no gas and names the id.
+        // The id must be free. `addYieldAsset` would also revert; checking here
+        // costs no gas and gives a descriptive error.
         try masp.asset(yieldId) returns (MASP.AssetEntry memory) {
             revert("yield asset id already registered");
         } catch { }

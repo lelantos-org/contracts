@@ -4,6 +4,7 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 
 import { DelayedUpgradeProxy } from "../../src/DelayedUpgradeProxy.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { MockPoolV1, MockPoolV2, SelectorProbe } from "../mocks/MockPool.sol";
 
 /// The exit window, end to end.
@@ -117,7 +118,7 @@ contract DelayedUpgradeProxyTest is Test {
         assertEq(activationAt, 0);
     }
 
-    /// An upgrade must preserve the pool's tree, balances and accounting.
+    /// An upgrade preserves the pool's balances, totals and configuration.
     function test_stateSurvivesTheUpgrade() public {
         vm.prank(stranger);
         pool.deposit(500e18);
@@ -246,13 +247,98 @@ contract DelayedUpgradeProxyTest is Test {
         vm.stopPrank();
     }
 
-    /// A pause with nothing queued must not set an activation time.
+    /// A pause with nothing queued does not set an activation time. What it has
+    /// not yet run is charged to the next queue instead, which starts its window
+    /// when the pause ends; see `test_queueDuringAPauseStartsTheWindowWhenThePauseEnds`.
     function test_pauseWithNoPendingUpgradeDoesNotSetActivation() public {
         vm.prank(admin);
         proxy.pauseSpends(1 days);
         (address pending, uint256 activationAt) = proxy.pendingUpgrade();
         assertEq(pending, address(0));
         assertEq(activationAt, 0);
+    }
+
+    // ============== Queueing while paused ====================================
+
+    /// An upgrade queued while spends are paused starts its window when the pause
+    /// ends. `pauseSpends` extends only a window that already exists, so without
+    /// this a pause issued ahead of the queue would run inside the new window and
+    /// shorten the holders' exit by its remaining duration.
+    ///
+    /// Queued mid-pause rather than in the pausing block, so the deferral is the
+    /// remaining pause and not the pause as issued.
+    function test_queueDuringAPauseStartsTheWindowWhenThePauseEnds() public {
+        vm.prank(admin);
+        proxy.pauseSpends(MAX_PAUSE);
+        vm.warp(T0 + 2 days);
+        _queue();
+
+        (, uint256 activationAt) = proxy.pendingUpgrade();
+        uint256 pausedUntil = proxy.spendsPausedUntil();
+        assertEq(pausedUntil, T0 + MAX_PAUSE);
+        assertEq(activationAt - pausedUntil, UPGRADE_DELAY, "paused time came out of the exit window");
+
+        // Where the window would have closed had it started at the queue.
+        vm.warp(T0 + 2 days + UPGRADE_DELAY);
+        vm.expectRevert(abi.encodeWithSelector(DelayedUpgradeProxy.NotYetActivatable.selector, activationAt));
+        proxy.activateUpgrade();
+
+        vm.warp(T0 + MAX_PAUSE + UPGRADE_DELAY);
+        proxy.activateUpgrade();
+        assertEq(pool.version(), 2);
+    }
+
+    /// Cancelling and re-queueing inside a pause restarts the window from the end
+    /// of the pause, not from the re-queue. The cancel discards the extension the
+    /// pause gave the first window, and the pause cannot be issued again to
+    /// restore it, so the re-queue must carry it.
+    function test_cancelAndRequeueDuringAPauseKeepsTheFullWindow() public {
+        _queue();
+        vm.warp(T0 + 1 days);
+        vm.prank(admin);
+        proxy.pauseSpends(MAX_PAUSE);
+
+        vm.warp(T0 + 3 days);
+        vm.startPrank(admin);
+        proxy.cancelUpgrade();
+        proxy.queueUpgrade(address(v2));
+        vm.stopPrank();
+
+        (, uint256 activationAt) = proxy.pendingUpgrade();
+        uint256 pausedUntil = proxy.spendsPausedUntil();
+        assertEq(pausedUntil, T0 + 1 days + MAX_PAUSE);
+        assertEq(activationAt - pausedUntil, UPGRADE_DELAY, "re-queue mid-pause shortened the exit window");
+    }
+
+    /// A pause that has already run out defers nothing: the window starts at the
+    /// queue, as it does with no pause at all.
+    function test_queueAfterThePauseExpiredStartsNow() public {
+        vm.prank(admin);
+        proxy.pauseSpends(1 days);
+        vm.warp(T0 + 2 days);
+        _queue();
+
+        (, uint256 activationAt) = proxy.pendingUpgrade();
+        assertEq(activationAt, T0 + 2 days + UPGRADE_DELAY, "an expired pause deferred the window");
+    }
+
+    /// A pause at least as long as the window is refused at construction. Paused
+    /// time does not consume the window, but a single pause that long would still
+    /// hold spends shut for as long as the window itself. Equal and longer are
+    /// both refused; one second shorter is accepted.
+    function test_revert_PauseNotShorterThanDelay() public {
+        bytes memory init = abi.encodeCall(MockPoolV1.initialize, (WITHDRAW_BPS));
+
+        vm.expectRevert(DelayedUpgradeProxy.PauseNotShorterThanDelay.selector);
+        new DelayedUpgradeProxy(address(v1), init, admin, UPGRADE_DELAY, UPGRADE_DELAY);
+
+        // The configuration `Deploy.s.sol` once admitted: a 30-day pause over a
+        // 7-day window.
+        vm.expectRevert(DelayedUpgradeProxy.PauseNotShorterThanDelay.selector);
+        new DelayedUpgradeProxy(address(v1), init, admin, 7 days, 30 days);
+
+        DelayedUpgradeProxy tight = new DelayedUpgradeProxy(address(v1), init, admin, UPGRADE_DELAY, UPGRADE_DELAY - 1);
+        assertEq(tight.MAX_PAUSE(), UPGRADE_DELAY - 1);
     }
 
     // ============== Access control ===========================================
@@ -285,12 +371,12 @@ contract DelayedUpgradeProxyTest is Test {
         proxy.changeProxyAdmin(governance);
         assertEq(proxy.proxyAdmin(), governance);
 
-        // The old admin is powerless...
+        // The previous admin is rejected.
         vm.prank(admin);
         vm.expectRevert(DelayedUpgradeProxy.NotProxyAdmin.selector);
         proxy.queueUpgrade(address(v2));
 
-        // ...and the new one is not.
+        // The new admin is accepted.
         vm.prank(governance);
         proxy.queueUpgrade(address(v2));
         (address pending,) = proxy.pendingUpgrade();
@@ -317,6 +403,18 @@ contract DelayedUpgradeProxyTest is Test {
         );
     }
 
+    /// The window may not outlast the pool's exit-term notice, or a raise queued
+    /// alongside an upgrade could land before the upgrade activates.
+    function test_revert_DelayExceedsExitTermsNotice() public {
+        bytes memory init = abi.encodeCall(MockPoolV1.initialize, (WITHDRAW_BPS));
+
+        vm.expectRevert(DelayedUpgradeProxy.DelayExceedsExitTermsNotice.selector);
+        new DelayedUpgradeProxy(address(v1), init, admin, ExitTerms.DELAY + 1, MAX_PAUSE);
+
+        DelayedUpgradeProxy atNotice = new DelayedUpgradeProxy(address(v1), init, admin, ExitTerms.DELAY, MAX_PAUSE);
+        assertEq(atNotice.UPGRADE_DELAY(), ExitTerms.DELAY);
+    }
+
     function test_constructorRejectsZeroDelay() public {
         vm.expectRevert(DelayedUpgradeProxy.ZeroDelay.selector);
         new DelayedUpgradeProxy(address(v1), abi.encodeCall(MockPoolV1.initialize, (WITHDRAW_BPS)), admin, 0, MAX_PAUSE);
@@ -324,8 +422,8 @@ contract DelayedUpgradeProxyTest is Test {
 
     // ============== The guarantee itself =====================================
 
-    /// `UPGRADE_DELAY` must be unreachable by any code path, asserted at the
-    /// dispatch level rather than by inspection.
+    /// No reachable function changes `UPGRADE_DELAY`. Asserted by calling
+    /// plausible setter signatures through the proxy rather than by inspection.
     function test_noCodePathCanShortenTheUpgradeDelay() public {
         assertEq(proxy.UPGRADE_DELAY(), UPGRADE_DELAY);
 

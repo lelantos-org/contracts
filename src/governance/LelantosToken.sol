@@ -14,7 +14,7 @@ import { Time } from "@openzeppelin/contracts/utils/types/Time.sol";
 /// upgrade path. Supply is therefore monotonically non-increasing, and
 /// `INITIAL_SUPPLY - totalSupply()` measures everything `FeeBurner` has burned.
 contract LelantosToken is ERC20, ERC20Burnable, ERC20Permit, ERC20Votes {
-    /// The full supply, minted to the constructor's `recipient`. Retained so the
+    /// The full supply, minted to the constructor's `recipient`. Stored so the
     /// cumulative burn is derivable on-chain.
     uint256 public immutable INITIAL_SUPPLY;
 

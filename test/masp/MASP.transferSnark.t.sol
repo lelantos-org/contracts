@@ -17,10 +17,9 @@ import { MASPSpendHarness, deploySpendHarness } from "../utils/MASPSpendHarness.
 import { realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// End-to-end transfer test with REAL Groth16 proofs. Bootstraps the tree
-/// to a known state via `MASPSpendHarness.seedRoot`, then invokes
-/// `transfer` with the spend-side fixture (transact_2x2 +
-/// tree_update_batch N=1 proofs).
+/// End-to-end transfer test with real Groth16 proofs. Bootstraps the tree to a
+/// known state via `MASPSpendHarness.seedRoot`, then invokes `transfer` with
+/// the spend-side fixture (transact_2x2 and tree_update_batch N=1 proofs).
 contract MASPTransferSnarkTest is Test {
     string internal constant FIXTURE = "test/fixtures/proof_transfer.json";
     address permit2;
@@ -50,31 +49,29 @@ contract MASPTransferSnarkTest is Test {
     }
 
     function test_transferRealSnark_succeeds() public {
-        // Fixture `proof_transfer.json` is a 2x2 artifact: 30-slot
-        // `txPublicSignals` and two aux blobs. The pool now verifies
-        // `4x6` (69 slots, six outputs), so the fixture cannot
-        // satisfy it.
+        // Skipped: the test expects the 2x2 `proof_transfer.json` layout (30
+        // `txPublicSignals`, two aux blobs), which the pool's 4x6 shape (70
+        // challenge words, six outputs) does not accept.
         //
-        // Regenerating requires a 4x4 `flatten` off-chain. The SDK's
-        // `flatten` (sdk/src/circuit/compression.ts) is hard-coded to the
-        // 2x2 shape with literal [0]/[1] indices and no shape parameter, and
-        // `script/fixtures/gen_proof_transfer.ts` re-exports it. The 4x4
-        // prover artifacts are published by the release (`4x4_final.zkey`,
-        // `4x4.wasm`). The blocker is a MASP-level witness: the circuit takes
-        // `out_aux_digest` as an input while `PubInputs.compress` recomputes
-        // it from aux calldata, so the aux payload, the tree roots and the
-        // cross-bound cms/cvDeps must all be fixed before proving.
+        // A 4x6 fixture requires a 4x6 `flatten` off-chain. The SDK's `flatten`
+        // (sdk/src/circuit/compression.ts) is fixed to the 2x2 shape with
+        // literal [0]/[1] indices and no shape parameter. The 4x6 prover
+        // artifacts are published by the release (`4x6_final.zkey`,
+        // `4x6.wasm`). The remaining requirement is a MASP-level witness: the
+        // circuit takes `out_aux_digest` as an input while `PubInputs.compress`
+        // recomputes it from aux calldata, so the aux payload, the tree roots
+        // and the cross-bound cms/cvDeps must all be fixed before proving.
         //
         // Verifier-level coverage: `test/fixtures/transact_4x6_proof.json`,
         // exercised by `BatchedGroth16Verifier.t.sol`. Layout coverage:
-        // `PubInputs.vector4x4.t.sol`, which pins all 53 slots against the
-        // circuit's published witness vector.
+        // `PubInputs.vector4x6.t.sol`, which pins the 70-word challenge and 46
+        // coefficients against the circuit's published witness vector.
         vm.skip(true);
 
         string memory j = vm.readFile(FIXTURE);
         vm.chainId(uint256(vm.parseJsonUint(j, ".chainId")));
 
-        // Seed the tree to the post-bootstrap state. After this:
+        // Seeds the tree to the post-bootstrap state. Afterwards:
         // currentRoot() == fixture.bootstrap.newRoot (= fixture.transfer.merkleRoot)
         // committedCount == 2
         bytes32 seedRoot = bytes32(vm.parseJsonUint(j, ".bootstrap.newRoot"));
@@ -82,7 +79,7 @@ contract MASPTransferSnarkTest is Test {
         assertEq(masp.currentRoot(), seedRoot, "seed root mismatch");
         assertEq(masp.committedCount(), 2, "committedCount=2");
 
-        // Build the transact_2x2 PI tuple from publicSignals.
+        // Builds the transact_2x2 PI tuple from publicSignals.
         uint256[] memory ps = vm.parseJsonUintArray(j, ".transfer.txPublicSignals");
         require(ps.length == 30, "expected 30 transact pi");
 
@@ -112,27 +109,12 @@ contract MASPTransferSnarkTest is Test {
         pi.outCvDep[1][0] = ps[22];
         pi.outCvDep[1][1] = ps[23];
 
-        // tree_update_batch PI for the transfer leg.
-        PubInputs.TreeUpdateBatch memory tpi;
-        tpi.oldRoot = bytes32(vm.parseJsonUint(j, ".transfer.oldRoot"));
+        // tree_update_batch PI for the transfer leg. The pool rebuilds the rest
+        // of the batch image from `pi`; the anchor is the seeded root.
+        PubInputs.SpendTree memory tpi;
         tpi.newRoot = bytes32(vm.parseJsonUint(j, ".transfer.newRoot"));
         tpi.startIndex = uint64(vm.parseJsonUint(j, ".transfer.startIndex"));
-        tpi.actualCount = uint64(vm.parseJsonUint(j, ".transfer.actualCount"));
-        for (uint256 i = 0; i < PubInputs.MAX_L_BATCH; i++) {
-            string memory key = string.concat(".transfer.cms[", vm.toString(i), "]");
-            tpi.cms[i] = bytes32(vm.parseJsonUint(j, key));
-        }
-        for (uint256 i = 0; i < PubInputs.MAX_L_BATCH; i++) {
-            string memory base = string.concat(".transfer.cvDeps[", vm.toString(i), "]");
-            tpi.cvDeps[i][0] = vm.parseJsonUint(j, string.concat(base, "[0]"));
-            tpi.cvDeps[i][1] = vm.parseJsonUint(j, string.concat(base, "[1]"));
-        }
-        for (uint256 i = 0; i < PubInputs.MAX_L_BATCH; i++) {
-            tpi.leafAsset[i] = uint64(vm.parseJsonUint(j, string.concat(".transfer.leafAsset[", vm.toString(i), "]")));
-            tpi.leafPublicIn[i] =
-                uint64(vm.parseJsonUint(j, string.concat(".transfer.leafPublicIn[", vm.toString(i), "]")));
-            tpi.isDeposit[i] = uint8(vm.parseJsonUint(j, string.concat(".transfer.isDeposit[", vm.toString(i), "]")));
-        }
+        tpi.anchorIndex = uint8(masp.rootIndex());
 
         AuxValidation.Output[6] memory aux;
         aux[0].clueRx = vm.parseJsonUint(j, ".transfer.aux[0].clueRx");
@@ -159,7 +141,7 @@ contract MASPTransferSnarkTest is Test {
         MASP.Proof memory txProof = _readProof(j, ".transfer.txProof");
         MASP.Proof memory tubProof = _readProof(j, ".transfer.tubProof");
 
-        // Submit transfer. Both proofs verified against real verifiers.
+        // Submits the transfer; both proofs are checked by the real verifiers.
         vm.prank(pi.relayer);
         masp.transfer(txProof, pi, tubProof, tpi, aux);
 

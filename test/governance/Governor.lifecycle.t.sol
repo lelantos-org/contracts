@@ -7,14 +7,14 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { FeeConfig } from "../../src/FeeConfig.sol";
 import { MASP } from "../../src/MASP.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 
 import { GovTestBase } from "./GovTestBase.sol";
 
-/// The end-to-end proof that governance actually controls the pool: a proposal
-/// travels the full Governor → Timelock → ProtocolAdmin → MASP path and lands on
-/// real pool state. Everything else in this suite is a detail of that claim.
+/// End-to-end governance control of the pool: a proposal travels the full
+/// Governor → Timelock → ProtocolAdmin → MASP path and changes real pool state.
 contract GovernorLifecycleTest is GovTestBase {
     function test_handoverPutsThePoolUnderGovernance() public view {
         assertEq(masp.owner(), address(protocolAdmin), "pool owner");
@@ -24,7 +24,7 @@ contract GovernorLifecycleTest is GovTestBase {
         assertTrue(protocolAdmin.hasRole(protocolAdmin.DEFAULT_ADMIN_ROLE(), address(timelock)));
     }
 
-    /// The old owner is now powerless — the whole point of the handover.
+    /// After handover the previous owner has no administrative access.
     function test_formerOwnerCanNoLongerAdminister() public {
         vm.prank(OWNER);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OWNER));
@@ -36,13 +36,26 @@ contract GovernorLifecycleTest is GovTestBase {
             address(masp), abi.encodeCall(AssetRegistry.setAssetFee, (ASSET_ID, 50, 60)), "set asset fee to 50/60"
         );
 
+        // The deposit rate lands with the proposal; the raised withdraw rate is
+        // queued behind the exit-term notice and lands at the commit.
         (uint16 dep, uint16 wit) = masp.assetFees(ASSET_ID);
         assertEq(dep, 50);
+        assertLt(wit, 60, "withdraw raise applied without notice");
+
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY);
+        masp.commitExitTerms(ASSET_ID);
+        (, wit) = masp.assetFees(ASSET_ID);
         assertEq(wit, 60);
     }
 
+    /// Lengthening the cancel delay is a raise: the proposal queues it and the
+    /// permissionless commit lands it after the notice.
     function test_proposalChangesCancelDelay() public {
         _passAdminCall(address(masp), abi.encodeCall(MASP.setCancelDelay, (10_000)), "set cancel delay");
+        assertEq(masp.cancelDelay(), 7_200, "raise applied without notice");
+
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY);
+        masp.commitExitTerms(ASSET_ID);
         assertEq(masp.cancelDelay(), 10_000);
     }
 
@@ -60,13 +73,13 @@ contract GovernorLifecycleTest is GovTestBase {
         assertTrue(wrapper.adapterAllowed(adapter));
     }
 
-    /// Walks every state transition, since `state()` is overridden across
-    /// `Governor` and `GovernorTimelockControl` and a wrong override desyncs the
-    /// whole pipeline.
+    /// Walks every state transition: `state()` is overridden across `Governor`
+    /// and `GovernorTimelockControl`, and an incorrect override desyncs the
+    /// pipeline. The payload shortens the delay, which applies on execution.
     function test_proposalStateProgression() public {
         (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
             address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (9_000))))
+            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (4_000))))
         );
         string memory desc = "state progression";
         bytes32 h = keccak256(bytes(desc));
@@ -92,7 +105,7 @@ contract GovernorLifecycleTest is GovTestBase {
         vm.warp(governor.proposalEta(id) + 1);
         governor.execute(t, v, c, h);
         assertEq(uint8(governor.state(id)), uint8(IGovernor.ProposalState.Executed));
-        assertEq(masp.cancelDelay(), 9_000);
+        assertEq(masp.cancelDelay(), 4_000);
     }
 
     // ============== Negatives ================================================
@@ -140,10 +153,10 @@ contract GovernorLifecycleTest is GovTestBase {
         governor.execute(t, v, c, h);
     }
 
-    // ============== The two calls that would brick the pool ==================
+    // ============== Ownership-destroying calls ===============================
 
-    /// `renounceOwnership` on an immutable pool is unrecoverable, so it must not be
-    /// reachable even by a proposal that passes.
+    /// `renounceOwnership` leaves the pool without an owner, so it is unreachable
+    /// even by a proposal that passes.
     function test_proposalCannotRenounceOwnership() public {
         (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
             address(protocolAdmin),
@@ -159,9 +172,8 @@ contract GovernorLifecycleTest is GovTestBase {
         assertEq(masp.owner(), address(protocolAdmin), "owner survived");
     }
 
-    /// The reason both selectors are blocked, not just `renounceOwnership`:
-    /// `transferOwnership` refuses only `address(0)`, so a burn address bricks the
-    /// pool just as thoroughly and would otherwise stay reachable.
+    /// `transferOwnership` is blocked as well as `renounceOwnership`: it refuses
+    /// only `address(0)`, and a transfer to a burn address has the same effect.
     function test_proposalCannotTransferOwnershipToBurnAddress() public {
         address dead = address(0xdEaD);
         (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(

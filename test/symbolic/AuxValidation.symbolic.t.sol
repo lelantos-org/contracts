@@ -17,18 +17,15 @@ contract AuxValidationHarness {
 
 /// Symbolic proofs for the aux payload's shape checks.
 ///
-/// `AuxValidation.validate` runs four kinds of check in order: the ciphertext
-/// length bounds, the clue-bits prefix mask, and then the Baby-Jubjub on-curve
-/// and small-subgroup tests. Only the first two are provable here — the curve
-/// checks are `mulmod` chains over a 254-bit prime, which is the shape no solver
-/// in this suite finishes. The points are therefore held concrete at the
-/// prime-order generator, which constant-folds those checks away and leaves the
-/// shape rules as the subject. `test/fuzz/BabyJubJub.fuzz.t.sol` covers the
-/// curve half differentially, which is the right tool for it.
+/// `AuxValidation.validate` checks, in order: ciphertext length bounds, the
+/// clue-bits prefix mask, then Baby-Jubjub on-curve and small-subgroup membership.
+/// Only the first two are proved here: the curve checks are `mulmod` chains over a
+/// 254-bit prime that the bundled solvers do not finish. The points are held
+/// concrete at the prime-order generator, which constant-folds the curve checks.
+/// `test/fuzz/BabyJubJub.fuzz.t.sol` covers the curve checks differentially.
 ///
-/// Both proofs state the accept/reject boundary in both directions. A too-strict
-/// bound would reject payloads a wallet legitimately produces, which a
-/// rejection-only proof would not notice.
+/// The proofs state the accept/reject boundary in both directions, so an
+/// over-strict bound that rejects well-formed wallet payloads also fails.
 contract AuxValidationSymbolicTest is GuardAsserts {
     AuxValidationHarness internal h;
 
@@ -53,11 +50,10 @@ contract AuxValidationSymbolicTest is GuardAsserts {
     /// A payload is accepted exactly when its ciphertext is within the length
     /// bounds and its clue-bits prefix is confined to 14 bits.
     ///
-    /// The lengths are chosen either side of both boundaries. Halmos's default
-    /// for a `bytes` parameter is `0,65,1024`, which straddles the valid range
-    /// without landing on either edge — the off-by-one a length check is most
-    /// likely to get wrong would go unnoticed. `2` and `256` are the inclusive
-    /// bounds; `1`, `3`, `255` and `257` are their neighbours.
+    /// The lengths sit on and around both boundaries. Halmos's default `bytes`
+    /// lengths (`0,65,1024`) straddle the valid range without hitting either edge,
+    /// so they miss off-by-one errors. `2` and `256` are the inclusive bounds;
+    /// `1`, `3`, `255` and `257` are their neighbours.
     ///
     /// @custom:halmos --array-lengths ct={0,1,2,3,255,256,257}
     function check_aux_acceptsExactlyWellFormedPayloads(bytes memory ct) public view {
@@ -78,9 +74,9 @@ contract AuxValidationSymbolicTest is GuardAsserts {
 
     /// The two bits above the 14-bit clue mask must be clear, for every prefix.
     ///
-    /// The prefix is the FMD clue the recipient filters on; bits outside the
-    /// mask are not part of that field, so accepting them would let a sender
-    /// smuggle a distinguisher into what is meant to be an opaque payload.
+    /// The prefix is the FMD clue the recipient filters on. Bits outside the mask
+    /// are not part of that field; accepting them would let a sender embed a
+    /// distinguisher in an otherwise opaque payload.
     ///
     /// @custom:halmos --array-lengths ct=2
     function check_aux_rejectsPrefixOutsideTheClueMask(bytes memory ct) public view {

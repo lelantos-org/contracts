@@ -10,8 +10,8 @@ import { MockERC20 } from "../mocks/MockERC20.sol";
 /// Concrete `FeeConfig` exposing the internal helpers for unit tests.
 contract FeeConfigHarness is FeeConfig {
     constructor(address treasury_, address owner_) {
-        // `FeeConfig` is initializer-based now (it lives behind a proxy in
-        // production); the harness just calls the hooks directly.
+        // `FeeConfig` is initializer-based (it runs behind a proxy in
+        // production); the harness calls the init hooks directly.
         _initOwner(owner_);
         _initTreasury(treasury_);
     }
@@ -30,7 +30,7 @@ contract FeeConfigTest is Test {
     function setUp() public {
         token = new MockERC20("T", "T", 18);
         fc = new FeeConfigHarness(TREASURY, OWNER); // rates live per asset, not here
-        // Pre-fund harness so sweep transfers can succeed.
+        // Pre-funds the harness so sweep transfers succeed.
         token.mint(address(fc), 1_000_000 ether);
     }
 

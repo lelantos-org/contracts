@@ -14,6 +14,7 @@ import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { OwnableInit } from "../../src/OwnableInit.sol";
 import { Fees } from "../../src/libs/Fees.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
@@ -24,23 +25,19 @@ import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
 /// Symbolic proofs for the venue binding and the yield surface's access
 /// control.
 ///
-/// A venue binding is permanent by construction: `_initYieldAsset` is the only
-/// path that writes one, it is reached only from `addYieldAsset`, and the
-/// registry underneath is add-only, so `params[id].venue` is written at most
-/// once per id and there is no `setVenue`. That claim is what the proofs below
-/// check — replacing a venue is meant to require registering a new asset id, at
-/// the cost of a public exit and re-entry for its holders, and this is what
-/// makes that cost unavoidable.
+/// A venue binding is permanent: `_initYieldAsset` is the only writer of
+/// `params[id].venue`, it is reached only from `addYieldAsset`, and the registry
+/// is add-only, so the venue is written at most once per id and there is no
+/// `setVenue`. Replacing a venue therefore requires registering a new asset id,
+/// with a public exit and re-entry for its holders.
 ///
-/// What is *not* here: anything about the index itself. Every unit conversion
-/// in `YieldOps` runs through `Math.mulDiv`, a symbolic-times-symbolic product
-/// under a division, which no solver here finishes at any argument width. The
-/// yield accounting and rounding properties stay with `test/yield/`. The
-/// binding and the authorization around it carry no arithmetic at all, which is
-/// exactly why they are affordable.
+/// Index behaviour is out of scope: every unit conversion in `YieldOps` uses
+/// `Math.mulDiv`, a product of symbolic values under a division that the solvers
+/// do not finish at any argument width. Yield accounting and rounding are covered
+/// in `test/yield/`. The binding and its authorization involve no arithmetic.
 ///
 /// Mocked: the venue and its vault (`MockYieldVenue`), which `initAsset` probes
-/// through three view calls and nothing else; Permit2; both Groth16 verifiers.
+/// through three view calls only; Permit2; both Groth16 verifiers.
 contract YieldBindingSymbolicTest is GuardAsserts {
     uint64 internal constant PLAIN_ID = 1;
     uint64 internal constant YIELD_ID = 2;
@@ -89,20 +86,17 @@ contract YieldBindingSymbolicTest is GuardAsserts {
     /// id is rejected by the add-only registry before any venue is written, for
     /// every id and every venue offered.
     ///
-    /// This is the property that makes yield opt-in meaningful. A depositor
-    /// chooses custody by picking an asset id, and that choice only binds if the
-    /// id's venue cannot be re-pointed underneath them. `_initYieldAsset` is the
-    /// sole writer and is reached only from `addYieldAsset`, so rejecting the
-    /// re-registration is what makes the binding permanent — replacing a venue
-    /// has to mean a new id, and a public exit and re-entry for its holders.
+    /// A depositor chooses custody by choosing an asset id, which is meaningful
+    /// only if the id's venue cannot change. `_initYieldAsset` is the sole writer
+    /// and is reached only from `addYieldAsset`, so rejecting re-registration
+    /// makes the binding permanent.
     ///
-    /// Stated over an enumerated set of owner calls rather than
-    /// `svm.createCalldata`, deliberately. Quantifying over the pool's whole
-    /// external surface also enumerates `transfer` and `withdraw`, and with the
-    /// verifier mocked to accept, those *succeed* into `PubInputs.compress` —
-    /// the proof does not time out, it fails to terminate. The enumeration below
-    /// covers every function that writes yield or registry state; a new one has
-    /// to be added here by hand, which is the cost of the reshape.
+    /// Uses enumerated owner calls rather than `svm.createCalldata`: quantifying
+    /// over the pool's full external surface includes `transfer` and `withdraw`,
+    /// which pass validation into `PubInputs.compress` and do not terminate.
+    /// `check_ownerConfigurationCannotMoveAVenue` enumerates the owner
+    /// configuration calls; a new function that writes yield or registry state
+    /// must be added there by hand.
     function check_yieldVenueBindingIsPermanent(uint64 id, address otherVenue) public {
         vm.assume(id != PLAIN_ID);
 
@@ -117,10 +111,11 @@ contract YieldBindingSymbolicTest is GuardAsserts {
         assertTrue(masp.isYieldAsset(id), "asset stays a yield asset");
     }
 
-    /// None of the owner's configuration calls moves a bound venue. `bufferBps`
-    /// shifts the idle/lent split and `perfBps` the treasury's cut; neither is
-    /// allowed to move principal between protocols, and `halted` stops new
-    /// supply without clearing the binding.
+    /// `setYieldParams`, `setHalted`, `setAssetDisabled` and the commit of a
+    /// queued rate raise do not move a bound venue. `bufferBps` shifts the
+    /// idle/lent split and `perfBps` the treasury's cut, neither moving
+    /// principal between protocols; `halted` stops new supply without clearing
+    /// the binding.
     function check_ownerConfigurationCannotMoveAVenue(uint16 bufferBps, uint16 perfBps, bool halted) public {
         (bool added,) = _addYieldAsset(YIELD_ID, address(venue));
         assertTrue(added);
@@ -131,16 +126,19 @@ contract YieldBindingSymbolicTest is GuardAsserts {
         address(masp).call(abi.encodeCall(AssetRegistry.setAssetDisabled, (YIELD_ID, true)));
         vm.stopPrank();
 
+        // A raised `perfBps` is only queued; land it too.
+        vm.warp(block.timestamp + ExitTerms.DELAY);
+        address(masp).call(abi.encodeCall(MASP.commitExitTerms, (YIELD_ID)));
+
         assertEq(masp.yieldState(YIELD_ID).venue, address(venue), "venue unchanged");
         assertTrue(masp.isYieldAsset(YIELD_ID));
     }
 
-    /// A plain asset cannot acquire a venue after registration either: the
-    /// registry is add-only, so the second registration of its id reverts before
-    /// any venue is written.
+    /// A plain asset cannot acquire a venue after registration: the registry is
+    /// add-only, so re-registering its id reverts before any venue is written.
     ///
-    /// Opting out of yield has to be as durable as opting in — the plain id for
-    /// a token is unlent custody, and a depositor who chose it must keep it.
+    /// Opting out of yield is as durable as opting in: the plain id for a token
+    /// is unlent custody for its lifetime.
     function check_plainAssetCannotGainAVenueLater() public {
         (bool ok,) = _addYieldAsset(PLAIN_ID, address(venue));
 
@@ -150,8 +148,8 @@ contract YieldBindingSymbolicTest is GuardAsserts {
 
     // --- binding validation ------------------------------------------------
 
-    /// A venue must be pinned to this pool. An unpinned one would take custody
-    /// of this pool's principal while answering to another.
+    /// A venue must be pinned to this pool; otherwise it would hold this pool's
+    /// principal while answering to another pool.
     function check_addYieldAsset_rejectsVenuePinnedElsewhere(address otherPool) public {
         vm.assume(otherPool != address(masp));
 
@@ -163,8 +161,8 @@ contract YieldBindingSymbolicTest is GuardAsserts {
     }
 
     /// The venue's vault must hold the asset being registered. A mismatch would
-    /// supply one token's deposits into a vault denominated in another, and the
-    /// binding is permanent, so the error would be unrecoverable for that id.
+    /// supply one token's deposits into a vault denominated in another, and since
+    /// the binding is permanent the error would be unrecoverable for that id.
     function check_addYieldAsset_rejectsVaultHoldingAnotherAsset(address vaultAsset) public {
         vm.assume(vaultAsset != address(token));
 
@@ -175,17 +173,32 @@ contract YieldBindingSymbolicTest is GuardAsserts {
         assertFalse(masp.isYieldAsset(YIELD_ID));
     }
 
-    /// A zero venue is rejected rather than silently registering a plain asset
-    /// through the yield entry point.
+    /// A venue backs at most one id: once bound, registering it under any other
+    /// id is rejected `VenueAlreadyBound`, and that id stays unregistered. Two
+    /// ids on one venue would both count its position in `gross`.
+    function check_addYieldAsset_rejectsVenueBoundToAnotherId(uint64 first, uint64 second) public {
+        vm.assume(first != PLAIN_ID && second != PLAIN_ID && first != second);
+
+        (bool added,) = _addYieldAsset(first, address(venue));
+        assertTrue(added, "venue bound");
+
+        (bool ok, bytes memory ret) = _addYieldAsset(second, address(venue));
+
+        _assertRejected(ok, ret, YieldOps.VenueAlreadyBound.selector);
+        assertFalse(masp.isYieldAsset(second), "second id not bound");
+    }
+
+    /// A zero venue is rejected, so the yield entry point cannot register a plain
+    /// asset.
     function check_addYieldAsset_rejectsZeroVenue() public {
         (bool ok, bytes memory ret) = _addYieldAsset(YIELD_ID, address(0));
 
         _assertRejected(ok, ret, YieldOps.VenueZero.selector);
     }
 
-    /// The buffer split and the performance fee are accepted for exactly their
-    /// documented ranges: a buffer is a fraction of gross, and the performance
-    /// fee is capped at the same 20% ceiling as every other rate.
+    /// The buffer split and performance fee are accepted for exactly their
+    /// ranges: the buffer is a fraction of gross (at most `BPS_DENOMINATOR`), and
+    /// the performance fee has the same 20% ceiling as every other rate.
     function check_addYieldAsset_acceptsExactlyValidParams(uint16 bufferBps, uint16 perfBps) public {
         vm.prank(OWNER);
         (bool ok,) = address(masp)
@@ -201,8 +214,8 @@ contract YieldBindingSymbolicTest is GuardAsserts {
 
     // --- authorization -----------------------------------------------------
 
-    /// Registering a yield asset is owner-only, for every other caller. It binds
-    /// custody permanently, so it is the most consequential call on the pool.
+    /// Registering a yield asset rejects every non-owner caller; it binds custody
+    /// permanently.
     function check_addYieldAsset_isOwnerOnly(address caller) public {
         vm.assume(caller != OWNER);
 
@@ -219,8 +232,8 @@ contract YieldBindingSymbolicTest is GuardAsserts {
     }
 
     /// Halting supply to a venue is owner-only. `halted` stops new supply while
-    /// leaving the binding in place, so an open one would be a denial of yield;
-    /// the exit path stays open either way.
+    /// leaving the binding in place, so a permissionless halt would allow denial
+    /// of yield; the exit path stays open either way.
     function check_setHalted_isOwnerOnly(address caller, bool halted) public {
         vm.assume(caller != OWNER);
         (bool added,) = _addYieldAsset(YIELD_ID, address(venue));
@@ -233,7 +246,7 @@ contract YieldBindingSymbolicTest is GuardAsserts {
         assertFalse(masp.yieldState(YIELD_ID).halted);
     }
 
-    /// Retuning the buffer split and performance fee is owner-only.
+    /// Updating the buffer split and performance fee is owner-only.
     function check_setYieldParams_isOwnerOnly(address caller, uint16 bufferBps, uint16 perfBps) public {
         vm.assume(caller != OWNER);
         (bool added,) = _addYieldAsset(YIELD_ID, address(venue));

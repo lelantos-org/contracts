@@ -4,9 +4,9 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 import { SnarkCompression } from "../../src/SnarkCompression.sol";
 
-/// External wrapper so `vm.expectRevert` can intercept the internal library
-/// revert. `evaluatePolyAt` is `internal` — direct calls don't create a new
-/// EVM call frame that Foundry can intercept.
+/// External wrapper so `vm.expectRevert` can intercept the library revert.
+/// `evaluatePolyAt` is `internal`, so a direct call creates no call frame for
+/// Foundry to intercept.
 contract SnarkCompressionWrapper {
     function eval(uint256[] calldata c, uint256 z) external pure returns (uint256) {
         return SnarkCompression.evaluatePolyAt(c, z);
@@ -14,8 +14,8 @@ contract SnarkCompressionWrapper {
 }
 
 /// Negative tests for `SnarkCompression.evaluatePolyAt`.
-/// The main fuzz suite pre-reduces coefficients with `% R`; these tests verify
-/// the out-of-field guard that fires when a caller skips reduction.
+/// The main fuzz suite pre-reduces coefficients with `% R`; these tests cover
+/// the out-of-field guard that fires on unreduced coefficients.
 contract SnarkCompressionNegTest is Test {
     uint256 internal constant R = SnarkCompression.R;
 
@@ -46,9 +46,9 @@ contract SnarkCompressionNegTest is Test {
         wrapper.eval(c, 0);
     }
 
-    /// Out-of-field coefficient at a later position (not index 0) — Horner
-    /// eval visits coefficients in reverse (highest degree first), so the
-    /// leading coefficient is checked last; it must still revert.
+    /// Out-of-field coefficient at the highest-degree index. Horner evaluation
+    /// visits coefficients from highest degree to lowest, so this exercises the
+    /// guard on a position other than index 0.
     function test_outOfField_inHigherDegreeCoeff_reverts() public {
         uint256[] memory c = new uint256[](3);
         c[0] = 1; // valid
@@ -75,7 +75,7 @@ contract SnarkCompressionNegTest is Test {
         wrapper.eval(c, 0);
     }
 
-    /// Fuzz: any in-field coefficient must not revert; result must be in [0, R).
+    /// Fuzz: an in-field coefficient does not revert and the result is in [0, R).
     function testFuzz_inField_neverReverts(uint256 coeff, uint256 z) public view {
         coeff = coeff % R;
         z = z % R;

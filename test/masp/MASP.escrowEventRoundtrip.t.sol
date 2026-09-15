@@ -21,10 +21,10 @@ import { TestConstants } from "../utils/TestConstants.sol";
 /// to resupply the full preimage. The documented source for that preimage is
 /// the deposit's `DepositEscrowed` event plus its block number.
 ///
-/// Every other escrow test builds the preimage from Solidity values it already
-/// holds, which would keep passing even if the event dropped or reordered a
-/// field. These tests decode the emitted log and use nothing else, so the event
-/// is exercised as the off-chain integration surface it is specified to be.
+/// Other escrow tests build the preimage from Solidity values they already
+/// hold, and would pass even if the event dropped or reordered a field. These
+/// tests decode the emitted log and use nothing else, exercising the event as
+/// the off-chain integration surface.
 contract MASPEscrowEventRoundtripTest is Test {
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
     uint256 internal constant SCALE = TestConstants.SCALE;
@@ -50,15 +50,16 @@ contract MASPEscrowEventRoundtripTest is Test {
         uint256[2] cvDep;
         uint32 submittedAt;
         uint48 feeIn;
+        uint64 feeAssetId;
         bytes32 feeCm;
         uint256[2] feeCvDep;
     }
 
     /// The non-indexed body of `DepositEscrowed`, in declaration order.
     ///
-    /// Decoded as a struct rather than a positional tuple: the body now spans
-    /// two `bytes` members, so the fee fields sit past the first dynamic
-    /// offset and cannot be read by truncating the head.
+    /// Decoded as a struct rather than a positional tuple: the body spans two
+    /// `bytes` members, so the fee fields sit past the first dynamic offset
+    /// and cannot be read by truncating the head.
     struct EscrowLog {
         uint64 publicAssetId;
         uint64 publicIn;
@@ -72,6 +73,7 @@ contract MASPEscrowEventRoundtripTest is Test {
         uint256 ephPubX;
         uint256 ephPubY;
         bytes ciphertext;
+        uint64 feeAssetId;
         uint64 feeIn;
         bytes32 feeCm;
         uint256 feeCvDepX;
@@ -99,7 +101,7 @@ contract MASPEscrowEventRoundtripTest is Test {
         token.approve(address(permit2), type(uint256).max);
     }
 
-    /// A deposit occupies one leaf, so it carries one aux payload.
+    /// A single aux payload, passed for both of the deposit's leaves.
     function _aux() internal pure returns (AuxValidation.Output memory aux) {
         aux.clueRx = BabyJubJub.BASE8_X;
         aux.clueRy = BabyJubJub.BASE8_Y;
@@ -108,7 +110,7 @@ contract MASPEscrowEventRoundtripTest is Test {
         aux.ciphertext = hex"0001";
     }
 
-    /// Submit a deposit and recover the cancel preimage purely from the log.
+    /// Submits a deposit and recovers the cancel preimage from the log alone.
     function _submitAndDecode(uint64 publicIn, uint256 nonce) internal returns (Decoded memory dec) {
         uint256 inAmt = uint256(publicIn) * SCALE;
         (uint16 depBps,) = masp.assetFees(ASSET_ID);
@@ -126,7 +128,7 @@ contract MASPEscrowEventRoundtripTest is Test {
         d.rcv = 0xccc + nonce;
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
 
         vm.recordLogs();
@@ -135,7 +137,7 @@ contract MASPEscrowEventRoundtripTest is Test {
 
         bytes32 sigHash = keccak256(
             "DepositEscrowed(uint256,address,address,uint64,uint64,uint16,bytes32,uint256,uint256,uint256,"
-            "uint256,uint256,uint256,uint256,bytes,uint64,bytes32,uint256,uint256,uint256,uint256,uint256,"
+            "uint256,uint256,uint256,uint256,bytes,uint64,uint64,bytes32,uint256,uint256,uint256,uint256,uint256,"
             "uint256,uint256,bytes)"
         );
         bool found;
@@ -145,9 +147,8 @@ contract MASPEscrowEventRoundtripTest is Test {
             dec.id = uint256(logs[i].topics[1]);
             dec.payer = address(uint160(uint256(logs[i].topics[2])));
             // Event data is the parameter tuple encoded inline, but decoding
-            // into a *dynamic* struct expects a leading offset to it. Prepend
-            // one rather than decoding 22 positional values, which blows the
-            // stack.
+            // into a dynamic struct expects a leading offset to it. One is
+            // prepended; decoding 23 positional values exceeds the stack limit.
             EscrowLog memory body = abi.decode(bytes.concat(abi.encode(uint256(0x20)), logs[i].data), (EscrowLog));
             dec.publicAssetId = body.publicAssetId;
             dec.publicIn = body.publicIn;
@@ -158,6 +159,7 @@ contract MASPEscrowEventRoundtripTest is Test {
             // from the log too.
             // forge-lint: disable-next-line(unsafe-typecast)
             dec.feeIn = uint48(body.feeIn);
+            dec.feeAssetId = body.feeAssetId;
             dec.feeCm = body.feeCm;
             dec.feeCvDep = [body.feeCvDepX, body.feeCvDepY];
         }
@@ -172,7 +174,7 @@ contract MASPEscrowEventRoundtripTest is Test {
         uint64 publicIn = 100;
         Decoded memory dec = _submitAndDecode(publicIn, 0);
 
-        // Sanity: the log actually carried the submitted values.
+        // The log carries the submitted values.
         assertEq(dec.publicAssetId, ASSET_ID, "assetId from log");
         assertEq(dec.publicIn, publicIn, "publicIn from log");
         assertEq(dec.feeBpsAtSubmit, FEE_BPS, "feeBps from log");
@@ -184,7 +186,7 @@ contract MASPEscrowEventRoundtripTest is Test {
         vm.roll(block.number + masp.cancelDelay());
         uint256 before = token.balanceOf(payer);
 
-        // Driven purely from log-derived values. The fixture payer is an
+        // Uses only log-derived values. The fixture payer is an
         // etched ERC-1271 stub, so MASP treats it as a contract payer and only
         // it may cancel; the unrelated-caller case is covered for EOA payers in
         // MASP.cancelDeposit.t.sol.
@@ -198,7 +200,9 @@ contract MASPEscrowEventRoundtripTest is Test {
             dec.feeBpsAtSubmit,
             dec.payer,
             dec.submittedAt,
-            PubInputs.FeeNote({ feeIn: dec.feeIn, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep })
+            PubInputs.FeeNote({
+                feeIn: dec.feeIn, feeAssetId: dec.feeAssetId, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep
+            })
         );
 
         assertEq(token.balanceOf(payer) - before, expected, "refund to digest-bound payer");
@@ -206,14 +210,14 @@ contract MASPEscrowEventRoundtripTest is Test {
     }
 
     /// `feeBpsAtSubmit` is bound into the digest, so an owner fee change while
-    /// a deposit is pending must not alter what the escrow refunds.
+    /// a deposit is pending does not alter what the escrow refunds.
     function test_cancelDeposit_usesSubmitTimeFeeAfterFeeRaise() public {
         uint64 publicIn = 100;
         Decoded memory dec = _submitAndDecode(publicIn, 0);
         assertEq(dec.feeBpsAtSubmit, FEE_BPS, "captured submit-time fee");
 
-        // Owner raises the fee to the ceiling while the deposit is pending.
-        // Read the bound first: an inline call would consume the prank.
+        // The owner raises the fee to the ceiling while the deposit is pending.
+        // The bound is read first: an inline call would consume the prank.
         uint16 maxFee = masp.MAX_FEE_BPS();
         vm.prank(OWNER);
         masp.setAssetFee(ASSET_ID, maxFee, maxFee);
@@ -236,14 +240,16 @@ contract MASPEscrowEventRoundtripTest is Test {
             dec.feeBpsAtSubmit,
             dec.payer,
             dec.submittedAt,
-            PubInputs.FeeNote({ feeIn: dec.feeIn, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep })
+            PubInputs.FeeNote({
+                feeIn: dec.feeIn, feeAssetId: dec.feeAssetId, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep
+            })
         );
 
         assertEq(token.balanceOf(payer) - before, atSubmit, "refund uses submit-time fee");
     }
 
     /// Supplying the current fee instead of the digest-bound submit-time fee
-    /// must be rejected rather than silently refunding a different amount.
+    /// is rejected rather than refunding a different amount.
     function test_revert_cancelDeposit_currentFeeInsteadOfSubmitTimeFee() public {
         Decoded memory dec = _submitAndDecode(100, 0);
 
@@ -262,7 +268,9 @@ contract MASPEscrowEventRoundtripTest is Test {
             maxFee,
             dec.payer,
             dec.submittedAt,
-            PubInputs.FeeNote({ feeIn: dec.feeIn, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep })
+            PubInputs.FeeNote({
+                feeIn: dec.feeIn, feeAssetId: dec.feeAssetId, feeCm: dec.feeCm, feeCvDep: dec.feeCvDep
+            })
         );
     }
 }

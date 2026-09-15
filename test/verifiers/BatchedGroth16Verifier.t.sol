@@ -12,18 +12,18 @@ import { SNARK_R, SNARK_Q } from "../../src/verifiers/VerifyingKeys.sol";
 /// Differential and negative coverage for `BatchedGroth16Verifier`, the
 /// hand-written pairing assembly the spend path runs.
 ///
-/// The load-bearing property is stated once and checked everywhere:
+/// The property under test is
 ///
 ///     verifyBatch(P1, P2) == v1.verifyProof(P1) && v2.verifyProof(P2)
 ///
 /// with the two snarkjs codegen verifiers as oracle. Folding the shared
 /// `alpha`/`beta` and `gamma` terms, scaling proof 2 by a Fiat-Shamir `r2`, and
-/// deriving `r2` from the calldata transcript must all preserve that equality.
+/// deriving `r2` from the calldata transcript all preserve that equality.
 ///
-/// Proofs come from `script/fixtures/gen_proof_fixture.sh`. The two circuits'
-/// instances are not bound to each other at the verifier level — that
-/// cross-binding is `MASP._validateRequest` — so any transact vector paired
-/// with any tree-update vector is a valid accepting case.
+/// Proofs come from `script/fixtures/gen_proof_fixture.sh`. The verifier does
+/// not bind the two circuits' instances to each other (`MASP._validateRequest`
+/// does), so any transact vector paired with any tree-update vector is a valid
+/// accepting case.
 contract BatchedGroth16VerifierTest is Test {
     string internal constant TRANSACT_PROOFS = "test/fixtures/transact_4x6_proof.json";
     string internal constant TUB_PROOFS = "test/fixtures/tree_update_batch_proof.json";
@@ -95,11 +95,11 @@ contract BatchedGroth16VerifierTest is Test {
         }
     }
 
-    /// A valid proof beside a broken one must still agree with the oracle. This
-    /// establishes that proof 2 is checked at all: `r2 == 0` would collapse the
-    /// identity to `e_1 == 0` and admit any `P2`.
+    /// A valid proof beside a broken one agrees with the oracle. This shows
+    /// proof 2 is checked: `r2 == 0` would collapse the identity to `e_1 == 0`
+    /// and admit any `P2`.
     function test_differential_mixedValidity() public view {
-        // Perturb a public signal rather than a curve point. An off-curve point
+        // Perturbs a public signal rather than a curve point. An off-curve point
         // makes the pairing precompile fail, and a failing precompile consumes
         // all gas forwarded to it; both verifiers forward nearly all of it, so
         // a point-level tamper costs ~1e9 gas to reject.
@@ -117,14 +117,14 @@ contract BatchedGroth16VerifierTest is Test {
     }
 
     /// Each slot is checked against its own `delta` and `IC` block, so a valid
-    /// pair passed in the opposite order must reject.
+    /// pair passed in the opposite order is rejected.
     function test_slotOrderIsLoadBearing() public view {
         assertTrue(_batch(t[0], u[0]), "control case must verify");
         assertFalse(batch.verifyBatch(u[0].a, u[0].b, u[0].c, u[0].pub, t[0].a, t[0].b, t[0].c, t[0].pub), "swapped");
     }
 
     /// The `IC` blocks differ per circuit, so a proof paired with the other
-    /// circuit's public signals must reject.
+    /// circuit's public signals is rejected.
     function test_crossCircuitPublicSignalsReject() public view {
         P memory p1 = t[0];
         p1.pub = u[0].pub;
@@ -134,12 +134,12 @@ contract BatchedGroth16VerifierTest is Test {
     // --- word-level tampering ------------------------------------------------
 
     /// The transcript is all twenty calldata words. Perturbing any one of them
-    /// must reject.
+    /// is rejected.
     function testFuzz_tamperedWordRejects(uint8 wordIdx, uint256 delta) public view {
         wordIdx = uint8(bound(wordIdx, 0, WORDS - 1));
-        // Stay inside the relevant field so the change is a different valid
-        // encoding rather than a range-check rejection, which the dedicated
-        // out-of-field tests already cover.
+        // Stays inside the relevant field so the change is a different in-range
+        // encoding rather than a range-check rejection, which the out-of-field
+        // tests cover.
         uint256 modulus = _isPublicInput(wordIdx) ? SNARK_R : SNARK_Q;
         delta = bound(delta, 1, modulus - 1);
 
@@ -152,8 +152,7 @@ contract BatchedGroth16VerifierTest is Test {
 
     /// Guards the fuzz test above, which asserts only that a tampered instance
     /// is rejected: a `_toWords`/`_fromWords` pair that corrupted the instance
-    /// would satisfy it on every input. An untouched round trip must still
-    /// verify.
+    /// would satisfy it on every input. An untouched round trip still verifies.
     function test_wordRoundTripIsIdentity() public view {
         (P memory p1, P memory p2) = _fromWords(_toWords(t[0], u[0]));
         assertTrue(_batch(p1, p2), "round-trip corrupted the instance");
@@ -206,9 +205,9 @@ contract BatchedGroth16VerifierTest is Test {
 
     // --- range checks --------------------------------------------------------
 
-    /// Public inputs must be reduced, exactly as `checkField` requires in the
-    /// codegen. `y + R` and `z + R` are the same field element, so accepting
-    /// them would give two calldata encodings of one instance.
+    /// Public inputs must be reduced, as `checkField` requires in the codegen.
+    /// `y + R` and `z + R` are the same field elements as `y` and `z`, so
+    /// accepting them would give two calldata encodings of one instance.
     function test_outOfFieldPublicInputsReject() public view {
         for (uint256 k; k < 2; ++k) {
             P memory p1 = t[0];
@@ -221,8 +220,8 @@ contract BatchedGroth16VerifierTest is Test {
         }
     }
 
-    /// `a1.y` is the one coordinate that reaches no precompile unreduced — it is
-    /// negated in place — so the contract range-checks it itself.
+    /// `a1.y` is the one coordinate that does not reach a precompile unreduced
+    /// (it is negated in place), so the contract range-checks it directly.
     function test_unreducedA1YRejects() public view {
         P memory p1 = t[0];
         p1.a[1] += SNARK_Q;
@@ -257,24 +256,24 @@ contract BatchedGroth16VerifierTest is Test {
         for (uint256 i; i < short.length; ++i) {
             short[i] = cd[i];
         }
-        // Truncated calldata never reaches the assembly: every parameter is a
+        // Truncated calldata does not reach the assembly: every parameter is a
         // static type, so Solidity's dispatcher validates the size and reverts
-        // first. A different mechanism from the `calldatasize` pin, equally
-        // fail-closed.
+        // first. This is a separate mechanism from the `calldatasize` pin and
+        // also fails closed.
         (ok,) = address(batch).staticcall(short);
         assertFalse(ok, "truncated calldata accepted");
     }
 
-    /// The verifier reads every field by a hard-coded calldata offset, and it
-    /// hashes `cd[4 .. 644]` verbatim. Both rest on the ABI putting the twenty
-    /// words exactly where the assembly's literals say. `test_calldataLengthIsPinned`
+    /// The verifier reads every field by a hard-coded calldata offset and
+    /// hashes `cd[4 .. 644]` verbatim. Both rely on the ABI placing the twenty
+    /// words where the assembly's literals expect. `test_calldataLengthIsPinned`
     /// pins only the total, which a compensating pair of layout changes would
-    /// survive; this pins each word.
+    /// preserve; this test pins each word.
     ///
     /// The subject is the encoder, not the assembly. Shifting an offset inside
-    /// `BatchedGroth16Verifier` leaves this test green; that mutation is
-    /// fail-closed and `test_differential_allValidCombinations` catches it.
-    /// This catches the converse: a solc release laying the static arrays out
+    /// `BatchedGroth16Verifier` does not fail this test; that mutation fails
+    /// closed and `test_differential_allValidCombinations` catches it. This
+    /// test catches the converse: a solc release laying out the static arrays
     /// differently, moving every offset at once, which would otherwise surface
     /// as an unattributable fixture failure.
     ///
@@ -312,7 +311,7 @@ contract BatchedGroth16VerifierTest is Test {
         assertEq(_word(cd, 0x264), u[0].pub[1], "pub2.z offset");
 
         // The transcript is `BATCH_DOMAIN || cd[4 .. 644]`, so the body the
-        // assembly copies has to end exactly where the last word does.
+        // assembly copies ends exactly where the last word does.
         assertEq(0x264 + 0x20, cd.length, "CD_BODY does not cover the last word");
     }
 
@@ -347,9 +346,9 @@ contract BatchedGroth16VerifierTest is Test {
         assertEq(_batch(t[0], u[0]), _batch(t[0], u[0]), "result is not a function of the instance");
     }
 
-    // --- the point of the exercise -------------------------------------------
+    // --- gas -----------------------------------------------------------------
 
-    /// The batched check must cost less than the two it replaces: six pairings
+    /// The batched check costs less than two single verifications: six pairings
     /// (45k + 6*34k) against two sets of four (2 * (45k + 4*34k)), plus three
     /// extra `ECMUL`s and one keccak over 672 bytes.
     ///

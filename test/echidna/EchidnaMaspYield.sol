@@ -11,6 +11,7 @@ import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { ERC4626Venue } from "../../src/yield/ERC4626Venue.sol";
 import { YieldIndex } from "../../src/yield/YieldIndex.sol";
 
@@ -23,29 +24,30 @@ import { SpendFixture } from "../utils/SpendFixture.sol";
 import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
+/// The hevm cheatcode used by `EchidnaMaspYield.commitParams`.
+interface IHevm {
+    function warp(uint256 timestamp) external;
+}
+
 /// Echidna target for the indexed-asset (yield) accounting.
 ///
-/// Deliberately *not* a port of `test/yield/YieldSolvency.invariant.t.sol`.
-/// That suite is thorough — seven invariants over thirteen handlers, covering
-/// growth, loss, illiquidity, rebalance, unwind and the fee high-water mark —
-/// and re-stating it here would buy almost nothing. What it cannot express is
-/// magnitude, and that is what this file is for.
+/// Not a port of `test/yield/YieldSolvency.invariant.t.sol`, which covers
+/// growth, loss, illiquidity, rebalance, unwind and the fee high-water mark as
+/// pass/fail invariants. This target adds magnitude.
 ///
-/// `invariant_paysOutNoMoreThanCameInPlusYield` asks whether the yield id ever
-/// distributes value that was neither deposited nor earned. It is a yes/no
-/// question, and the answer is no. The question it cannot ask is *how close*
-/// the pool gets, which is the one that separates a rounding residue bounded
-/// by a few wei from a leak that grows with volume — and yield is where that
-/// distinction lives, since every conversion between units and assets is a
-/// `mulDiv` with a rounding direction. `optimize_freeMoney` below maximises
-/// exactly that slack, which no Foundry invariant can do.
+/// `invariant_paysOutNoMoreThanCameInPlusYield` checks whether the yield id
+/// ever distributes value that was neither deposited nor earned. It cannot
+/// measure how close the pool gets, which separates a rounding residue of a
+/// few wei from a leak that grows with volume. Every conversion between units
+/// and assets is a `mulDiv` with a rounding direction, and
+/// `optimize_freeMoney` maximises that slack.
 ///
-/// The handler surface is therefore only as wide as it needs to be to move the
-/// index: shield, settle, exit, grow, lose, and the maintenance calls that
-/// re-price. Two asset ids share one ERC-20 on purpose — that sharing is what
-/// puts the yield id's booked `idle` at risk of being spent against the plain
-/// id's liability.
+/// The handler surface is limited to what moves the index: shield, settle,
+/// exit, grow, lose, and the maintenance and parameter calls that re-price.
+/// Two asset ids share one ERC-20 so that the yield id's booked `idle` can be
+/// spent against the plain id's liability.
 contract EchidnaMaspYield {
+    IHevm internal constant HEVM = IHevm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
     uint64 internal constant PLAIN_ID = 1;
     uint64 internal constant YIELD_ID = 9;
     uint256 internal constant SCALE = TestConstants.SCALE;
@@ -101,23 +103,23 @@ contract EchidnaMaspYield {
     uint256 public sweeps;
     uint256 public earns;
     uint256 public losses;
+    uint256 public commits;
 
     constructor() {
         permit2 = new DeployPermit2().deployPermit2();
         token = new MockERC20("M", "M", 18);
 
         // Both verifiers accept: the subject is the index arithmetic, not the
-        // pairings. The consequence is the same as in EchidnaMasp — the fuzzer
-        // supplies public inputs a circuit would have constrained — which is
-        // why `withdrawYield` bounds its exit by the units actually
-        // outstanding rather than by anything it chooses.
+        // pairings. As in EchidnaMasp, the fuzzer supplies public inputs a
+        // circuit would constrain, so `withdrawYield` bounds its exit by the
+        // units outstanding.
         IVerifier tub = IVerifier(address(new MockTreeUpdateVerifier(true)));
         MockBatchVerifier bv = new MockBatchVerifier();
         bv.setResult(true);
 
-        // Only the plain id is registered up front. The yield id is created
-        // by `addYieldAsset` below, and registering it here first would make
-        // that call revert `DuplicateAsset`.
+        // Only the plain id is registered here. The yield id is created by
+        // `addYieldAsset` below, which reverts `DuplicateAsset` if the id
+        // already exists.
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
             singleAsset(IERC20(address(token)), PLAIN_ID, SCALE);
 
@@ -139,9 +141,8 @@ contract EchidnaMaspYield {
         masp.addYieldAsset(YIELD_ID, IERC20(address(token)), SCALE, FEE_BPS, FEE_BPS, address(venue), 500, FEE_BPS);
 
         // This contract is the payer. `depositAuthorized` requires
-        // `msg.sender == d.payer`, which suits Echidna exactly: no signature,
-        // no ERC-1271 stub and no impersonation — the target simply funds and
-        // authorises itself.
+        // `msg.sender == d.payer`, so no signature, ERC-1271 stub or
+        // impersonation is needed.
         token.mint(address(this), type(uint128).max);
         token.approve(permit2, type(uint256).max);
         IAllowanceTransfer(permit2).approve(address(token), address(masp), type(uint160).max, type(uint48).max);
@@ -155,9 +156,9 @@ contract EchidnaMaspYield {
         _deposit(amount, true);
     }
 
-    /// The plain id shares the yield id's ERC-20. Its presence is the point:
-    /// it gives the pool a second, differently-priced claim on one balance,
-    /// which is what `echidna_poolCoversIdlePlusPlainLiability` protects.
+    /// The plain id shares the yield id's ERC-20, giving the pool a second,
+    /// differently priced claim on one balance; see
+    /// `echidna_poolCoversIdlePlusPlainLiability`.
     function depositPlain(uint64 amount) public {
         _deposit(amount, false);
     }
@@ -245,10 +246,9 @@ contract EchidnaMaspYield {
 
     function _withdraw(uint64 amount, bool yieldSide) internal {
         uint64 id = yieldSide ? YIELD_ID : PLAIN_ID;
-        // Bounded by what is actually outstanding. With the spend verifier
-        // stubbed nothing else would stop the fuzzer withdrawing value that
-        // was never deposited, and the conservation ghosts would then be
-        // reporting an artifact of the stub rather than a defect.
+        // Bounded by what is outstanding. With the spend verifier stubbed,
+        // nothing else prevents withdrawing value never deposited, and the
+        // conservation ghosts would report an artifact of the stub.
         uint256 cap = yieldSide ? masp.yieldState(id).totalNormalized : plainHeld / SCALE;
         if (cap == 0) return;
         uint64 n = uint64(1 + (amount % cap));
@@ -262,16 +262,13 @@ contract EchidnaMaspYield {
         pi.payer = PLAIN_RECIPIENT;
         pi.relayer = address(this); // _validateRequest pins relayer == msg.sender
         // Spaced by more than either array width. `fillOutputs` writes
-        // TRANSACT_IN consecutive nullifiers from the seed, so advancing by
-        // one per call would overlap the last nullifier of one spend with the
-        // first of the next and every second exit would revert `DoubleSpend`
-        // into the catch — leaving the properties true over a history that
-        // barely withdrew.
+        // TRANSACT_IN consecutive nullifiers from the seed, so a smaller step
+        // would overlap consecutive spends and revert them with `DoubleSpend`.
         seed += 0x100;
         SpendFixture.fillOutputs(pi, seed, seed + 0x5000);
         pi.merkleRoot = masp.currentRoot();
-        PubInputs.TreeUpdateBatch memory tpi = SpendFixture.batchFor(
-            pi, masp.currentRoot(), EchidnaRoots.fresh(abi.encode("yx", seed)), masp.committedCount()
+        PubInputs.SpendTree memory tpi = SpendFixture.spendTree(
+            EchidnaRoots.fresh(abi.encode("yx", seed)), masp.committedCount(), uint8(masp.rootIndex())
         );
 
         uint256 before = token.balanceOf(to);
@@ -290,8 +287,8 @@ contract EchidnaMaspYield {
     // Venue
     // -----------------------------------------------------------------------
 
-    /// Genuine venue growth. Counted into `venueEarned`, which is the only
-    /// thing that licenses the pool to pay out more than came in.
+    /// Venue growth, counted into `venueEarned`, the only source that permits
+    /// the pool to pay out more than came in.
     function earn(uint96 amount) public {
         uint256 amt = 1 + (uint256(amount) % 1e22);
         token.mint(address(this), amt);
@@ -313,8 +310,8 @@ contract EchidnaMaspYield {
         _observe();
     }
 
-    /// A venue that reports a position it cannot presently pay out, which is
-    /// what forces the idle buffer to do its job.
+    /// Caps venue liquidity so it reports a position it cannot pay out,
+    /// forcing exits through the idle buffer.
     function squeeze(uint96 cap) public {
         vault.setLiquidityCap(uint256(cap));
         _observe();
@@ -336,16 +333,29 @@ contract EchidnaMaspYield {
 
     function sweepYield() public {
         try masp.sweepNormalized(YIELD_ID) returns (uint256 paid) {
-            // Swept fees leave the pool for the treasury, so they are a payout
-            // of the yield id like any other and must be accounted as one.
+            // Swept fees leave the pool for the treasury and count as a payout
+            // of the yield id.
             yieldPaidOut += paid;
             sweeps++;
         } catch { }
         _observe();
     }
 
+    /// A higher rate is only queued; `commitParams` lands it.
     function setParams(uint16 buffer, uint16 perf) public {
         try masp.setYieldParams(YIELD_ID, buffer % 10_001, perf % (FEE_BPS + 1)) { } catch { }
+        _observe();
+    }
+
+    /// Waits out the raise notice and commits. Warps with hevm's `warp`, which
+    /// Echidna supports: its per-call `maxTimeDelay` would need most of a
+    /// sequence to cover `ExitTerms.DELAY`, leaving raised rates barely
+    /// reachable. Nothing else in this target reads the clock.
+    function commitParams() public {
+        HEVM.warp(block.timestamp + ExitTerms.DELAY);
+        try masp.commitExitTerms(YIELD_ID) {
+            commits++;
+        } catch { }
         _observe();
     }
 
@@ -353,16 +363,15 @@ contract EchidnaMaspYield {
     // Observation
     // -----------------------------------------------------------------------
 
-    /// Sampled after every call, because both facts below are about a
-    /// transition rather than a state and are unobservable from the end value.
+    /// Sampled after every call, because both checks below concern transitions
+    /// and are not observable from the final state.
     function _observe() internal {
         YieldIndex.YieldState memory st = masp.yieldState(YIELD_ID);
 
-        // An empty asset reports RAY by convention, not by measurement: with
-        // no units outstanding there is no rate to speak of. Comparing across
-        // that boundary is meaningless — the last holder exiting a pool that
-        // had grown reads as a fall from its final index back to RAY — so
-        // monotonicity is only judged between two non-empty observations.
+        // An empty asset reports RAY by convention: with no units outstanding
+        // there is no rate. The last holder exiting a grown pool would read as
+        // a fall back to RAY, so monotonicity is judged only between two
+        // non-empty observations.
         if (st.totalNormalized + st.accruedFeeNormalized == 0) {
             hasBaseline = false;
         } else {
@@ -390,23 +399,22 @@ contract EchidnaMaspYield {
     // -----------------------------------------------------------------------
 
     /// No free money: over any history, what the yield id paid out cannot
-    /// exceed what went into it plus what its venue genuinely earned.
+    /// exceed what went into it plus what its venue earned.
     ///
-    /// The strongest of the set. A rounding leak, a double-credited fee, or a
-    /// refund priced off a stale index all surface here as the pool
-    /// distributing value that was never deposited or earned.
+    /// A rounding leak, a double-credited fee, or a refund priced off a stale
+    /// index all surface here as the pool distributing value that was never
+    /// deposited or earned.
     function echidna_noFreeMoney() public view returns (bool) {
         return yieldPaidOut <= yieldPaidIn + venueEarned;
     }
 
-    /// The pool actually holds the idle balance it has booked, on top of what
-    /// the plain id is owed out of the same ERC-20. This is the property that
-    /// two ids over one token puts at risk.
+    /// The pool holds the idle balance it has booked plus what the plain id is
+    /// owed from the same ERC-20.
     function echidna_poolCoversIdlePlusPlainLiability() public view returns (bool) {
         return token.balanceOf(address(masp)) >= _state().idle + plainHeld;
     }
 
-    /// Booked idle is a component of the backing and can never exceed it.
+    /// Booked idle is a component of the backing and never exceeds it.
     function echidna_idleNeverExceedsGross() public view returns (bool) {
         return _state().idle <= _gross();
     }
@@ -418,9 +426,9 @@ contract EchidnaMaspYield {
         return _gross() > 0;
     }
 
-    /// `lastIdx` is a high-water mark that only `_accruePerf` raises. A fall
-    /// would mean the mark was reset and the treasury could bill twice for the
-    /// same growth.
+    /// `lastIdx` is a high-water mark that is only ever raised (by
+    /// `_accruePerf` and `setParams`). A fall would mean the mark was reset and
+    /// the treasury could bill twice for the same growth.
     function echidna_highWaterMarkNeverFalls() public view returns (bool) {
         return !markFell;
     }
@@ -433,28 +441,26 @@ contract EchidnaMaspYield {
     // -----------------------------------------------------------------------
     // Optimization targets
     //
-    // The reason this file exists. Everything above answers yes or no; these
-    // answer "by how much", which is the question that distinguishes a bounded
-    // rounding residue from a leak that scales with volume. Both should report
-    // 0, and a small positive maximum is a finding to read rather than a test
-    // failure to fix.
+    // The properties above are pass/fail; these measure magnitude, which
+    // distinguishes a bounded rounding residue from a leak that scales with
+    // volume. Both are expected to stay non-positive; a small positive maximum
+    // is a finding to investigate.
     // -----------------------------------------------------------------------
 
-    /// Largest amount by which the yield id has ever overpaid relative to what
-    /// was deposited and earned.
+    /// Largest amount by which the yield id has overpaid relative to what was
+    /// deposited and earned.
     ///
-    /// This is `echidna_noFreeMoney` restated as a magnitude. Every conversion
-    /// between normalized units and assets is a `mulDiv` with a rounding
-    /// direction, so the interesting question is not whether the slack is ever
-    /// non-zero but whether it stays bounded as volume grows.
+    /// `echidna_noFreeMoney` as a magnitude. Every conversion between
+    /// normalized units and assets is a `mulDiv` with a rounding direction; the
+    /// question is whether the slack stays bounded as volume grows.
     function optimize_freeMoney() public view returns (int256) {
         return int256(yieldPaidOut) - int256(yieldPaidIn + venueEarned);
     }
 
     /// Largest amount by which booked idle has exceeded the actual backing.
     ///
-    /// Positive means the pool believes it holds a buffer that is not there —
-    /// drift between what funds the venue and what tops the buffer back up.
+    /// Positive means the pool books a buffer it does not hold, i.e. drift
+    /// between venue funding and buffer refills.
     function optimize_idleOverGross() public view returns (int256) {
         return int256(_state().idle) - int256(_gross());
     }

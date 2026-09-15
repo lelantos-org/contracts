@@ -9,12 +9,10 @@ import { NullifierSetSpecReplay } from "./generated/NullifierSetSpecReplay.sol";
 
 /// Driver for [spec/nullifier_set.qnt](../../spec/nullifier_set.qnt).
 ///
-/// Drives the same `NullifierSetHarness` the symbolic suite proves against
-/// ([test/symbolic/NullifierSet.symbolic.t.sol](../symbolic/NullifierSet.symbolic.t.sol)),
-/// so the two agree on the surface and differ only in what they establish: that
-/// suite proves the isolation property for a *pair* of nullifiers over all
-/// 2^256 values, this one runs a *sequence* and re-reads the whole spent set
-/// after every call.
+/// Drives the same `NullifierSetHarness` as the symbolic suite
+/// ([test/symbolic/NullifierSet.symbolic.t.sol](../symbolic/NullifierSet.symbolic.t.sol)).
+/// That suite proves isolation for a pair of nullifiers over all 2^256 values;
+/// this driver runs a sequence and re-reads the whole spent set after every call.
 ///
 /// `abstract` so Foundry does not collect it as a test contract; the generated
 /// `NullifierSetTraces` inherits it and holds one test per trace.
@@ -23,9 +21,9 @@ abstract contract NullifierSetReplay is NullifierSetSpecReplay {
     ///
     /// `_project` enumerates this to rebuild the spent set: `spent()` is a
     /// mapping lookup and cannot be iterated, so the reconstruction is complete
-    /// only because the model's domain is finite and known. If the spec widens
-    /// its domain and this does not, the projection would quietly stop seeing
-    /// the extra values — `_assertDomain` turns that into a hard failure.
+    /// only because the model's domain is finite and known. `_assertDomain`
+    /// fails on any pick outside this list, so a spec domain wider than this
+    /// one cannot go unobserved.
     function _domain() internal pure returns (uint256[7] memory) {
         return [uint256(0), 1, 255, 256, 257, 511, 512];
     }
@@ -43,10 +41,9 @@ abstract contract NullifierSetReplay is NullifierSetSpecReplay {
         if (action == NullifierSetSpec.Action.Consume) {
             nfs.consume(bytes32(picks.nf));
         } else if (action == NullifierSetSpec.Action.ConsumeSpent) {
-            // The model asserts a rejection, so the driver has to assert one
-            // too. Without `expectRevert` the call would simply revert, the
-            // replay would report it as an enabledness divergence, and the
-            // negative path could never be expressed.
+            // The model asserts a rejection, so the driver expects the revert.
+            // Without `expectRevert` the replay reports the revert as an
+            // enabledness divergence.
             vm.expectRevert(NullifierSet.DoubleSpend.selector);
             nfs.consume(bytes32(picks.nf));
         } else {
@@ -72,9 +69,9 @@ abstract contract NullifierSetReplay is NullifierSetSpecReplay {
         }
     }
 
-    /// A pick outside the modelled domain means the spec and this driver have
-    /// drifted apart, and the projection above would be incomplete. Fail on
-    /// that directly rather than letting it surface as a missing set member.
+    /// A pick outside the modelled domain means the spec and this driver
+    /// disagree and the projection above is incomplete. Fails explicitly rather
+    /// than surfacing as a missing set member.
     function _assertDomain(uint256 nf) private pure {
         uint256[7] memory domain = _domain();
         for (uint256 i = 0; i < domain.length; i++) {

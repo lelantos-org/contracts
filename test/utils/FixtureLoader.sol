@@ -8,8 +8,8 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { SpendFixture } from "./SpendFixture.sol";
 
-/// JSON fixture loading helpers, kept off the test inheritance chain so unit
-/// + reentrancy + integration tests can share parsing without duplicating it.
+/// JSON fixture loading helpers, kept off the test inheritance chain so unit,
+/// reentrancy and integration tests share parsing.
 library FixtureLoader {
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -77,9 +77,9 @@ library FixtureLoader {
             tpi.cms[i] = bytes32(vm.parseJsonUint(json, key));
         }
 
-        // Aux blobs (clue PIs sit in publicSignals[20..25]; the contract
-        // re-derives them from aux during compress(), so the JSON aux MUST
-        // pack the same Rx/Ry/clueBits to keep PIs consistent).
+        // Aux blobs. Clue public inputs sit in publicSignals[20..25] and the
+        // contract re-derives them from aux during compress(), so the JSON aux
+        // must pack the same Rx/Ry/clueBits for the inputs to match.
         aux[0].clueRx = vm.parseJsonUint(json, ".aux[0].clueRx");
         aux[0].clueRy = vm.parseJsonUint(json, ".aux[0].clueRy");
         aux[0].ephPubX = vm.parseJsonUint(json, ".aux[0].ephPubX");
@@ -102,10 +102,10 @@ library FixtureLoader {
         aux[3].ciphertext = vm.parseJsonBytes(json, ".aux[3].ciphertext");
     }
 
-    /// Aux with empty (2-byte zero) ciphertext prefix in both slots — minimal
-    /// valid input that always passes `AuxValidation.validate`. Points are set
-    /// to the Baby-Jubjub prime-order generator `BASE8` so the low-order /
-    /// identity rejection in `AuxValidation` does not trip.
+    /// Aux with a 2-byte zero ciphertext prefix in every slot: the minimal input
+    /// that passes `AuxValidation.validate`. Points are set to the Baby-Jubjub
+    /// prime-order generator `BASE8` so the low-order and identity rejection in
+    /// `AuxValidation` does not trigger.
     function emptyAux() internal pure returns (AuxValidation.Output[6] memory) {
         return SpendFixture.uniformAux(hex"0000");
     }

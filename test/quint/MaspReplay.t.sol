@@ -28,9 +28,9 @@ import { MaspSpecReplay } from "./generated/MaspSpecReplay.sol";
 /// Deploys a real pool behind its proxy, with permit2, a mock ERC-20 and the
 /// tree-update verifier `vm.mockCall`-stubbed — the same setup
 /// [test/invariant/MASP.flow.invariant.t.sol](../invariant/MASP.flow.invariant.t.sol)
-/// uses. What differs is what drives it: the invariant suite lets the fuzzer
-/// pick calls and checks three properties at the end of a run, while this
-/// replays a checked model and compares the whole state after every step.
+/// uses. The invariant suite lets the fuzzer pick calls and checks properties at
+/// the end of a run; this driver replays a checked model and compares the whole
+/// state after every step.
 ///
 /// `abstract` so Foundry does not collect it as a test contract; the generated
 /// `MaspTraces` inherits it and holds one test per trace.
@@ -40,14 +40,13 @@ abstract contract MaspReplay is MaspSpecReplay {
     uint16 internal constant FEE_BPS = 25;
     /// Must match `MAX_DEPOSITS` in the spec.
     uint256 internal constant MAX_DEPOSITS = 6;
-    /// The pool's *initial* delay. `setCancelDelay` moves it during a trace, so
-    /// this is only asserted in `setUp`; the live value is projected state.
+    /// The pool's initial delay. `setCancelDelay` changes it during a trace, so
+    /// this is asserted only in `setUp`; the live value is projected state.
     ///
-    /// The generator does not emit the spec's constants (v1), so this is a
-    /// second copy. It is not load-bearing: a spec that disagreed would put its
-    /// `cancel` / `cancelTooEarly` guards on a different block, and the replay
-    /// would diverge at the first one rather than pass quietly. `setUp` asserts
-    /// the *pool* agrees, which is the copy nothing else would catch.
+    /// The generator does not emit spec constants, so this duplicates the
+    /// spec's value. A mismatch with the spec moves its `cancel` /
+    /// `cancelTooEarly` guards to a different block and the replay diverges at
+    /// the first one. `setUp` asserts that the pool agrees.
     uint32 internal constant CANCEL_DELAY = 7200;
     address internal constant TREASURY = address(0xfee);
     /// The fee-note commitment every deposit escrows, with `feeIn` zero. Bound
@@ -63,11 +62,11 @@ abstract contract MaspReplay is MaspSpecReplay {
     // --- driver shadow ----------------------------------------------------
     //
     // `escrowed[id]` stores one keccak digest, not the fields behind it, so
-    // flush and cancel must resupply the preimage and there is nothing on
-    // chain to read it back from. This is the only state `_project` does not
-    // read live, and every field it feeds is cross-checked in `_project`
-    // against the one thing the chain does expose: whether the escrow is still
-    // occupied. Same reason `MaspFlowHandler` carries `preimage*` maps.
+    // flush and cancel must resupply the preimage, which cannot be read back
+    // from chain. This is the only state `_project` does not read live; it is
+    // cross-checked in `_project` against what the chain does expose: whether
+    // the escrow is still occupied. `MaspFlowHandler` carries `preimage*` maps
+    // for the same reason.
     uint256[] internal ids;
     mapping(uint256 id => uint48) internal shadowPublicIn;
     mapping(uint256 id => bytes32) internal shadowCm;
@@ -96,15 +95,14 @@ abstract contract MaspReplay is MaspSpecReplay {
             address(this)
         );
 
-        // This also gives the payer code, which is why cancels have to come
-        // from the payer itself.
+        // This also gives the payer code, so cancels must come from the payer
+        // itself.
         Stubs.installPermissiveERC1271(payer);
 
-        // flushBatch's only dependency needing a real depth-11 proof.
+        // The only flushBatch dependency that requires a real depth-11 proof.
         Stubs.acceptTreeUpdateProofs(IVerifier(address(tubVerifier)), true);
 
-        // The spec hardcodes the delay it reasons about. Assert the pool agrees
-        // rather than trusting two copies of a constant to stay in step.
+        // The spec hardcodes the initial delay; assert the pool agrees.
         assertEq(masp.cancelDelay(), CANCEL_DELAY, "spec and pool disagree on cancelDelay");
         assertEq(block.number, 1, "spec `init` fixes blockNo = 1");
     }
@@ -130,7 +128,8 @@ abstract contract MaspReplay is MaspSpecReplay {
             // Owner-only, and the driver is the owner. The pool bounds the value
             // to [CANCEL_DELAY_MIN, CANCEL_DELAY_MAX]; the spec draws only from
             // inside that range, so a revert here is a divergence, not an
-            // expected rejection.
+            // expected rejection. A lengthening succeeds but is only queued, so
+            // the post-state comparison checks the live delay did not move.
             masp.setCancelDelay(uint32(picks.newDelay));
         } else if (action == MaspSpec.Action.SetAssetDisabled) {
             masp.setAssetDisabled(ASSET_ID, picks.disabled);
@@ -144,8 +143,8 @@ abstract contract MaspReplay is MaspSpecReplay {
         uint256 fee = (inAmt * FEE_BPS) / 10_000;
 
         // Mint exactly what the deposit costs. The model's `payerBalance` then
-        // only ever moves on a refund, which makes it a direct check that the
-        // pool pulled neither more nor less than it should have.
+        // moves only on a refund, directly checking that the pool pulled the
+        // exact amount.
         token.mint(payer, inAmt + fee);
         vm.prank(payer);
         token.approve(permit2, type(uint256).max);
@@ -161,7 +160,7 @@ abstract contract MaspReplay is MaspSpecReplay {
 
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
 
         uint256 id = masp.deposit(d, sig, aux[0], aux[1]);
@@ -177,8 +176,7 @@ abstract contract MaspReplay is MaspSpecReplay {
     /// its principal, then the note paying the flusher. `_validateBatchHeader`
     /// requires `actualCount == n * 2` and `_drainDeposit` rebuilds the escrow
     /// digest from leaf `p + 1` as the fee note, which submit escrowed as
-    /// `(0, FEE_CM, [0, 0])`. Populating only leaf 0 reverts `BatchMisaligned`
-    /// — which is exactly the bug `MaspFlowHandler.flushOne` shipped with.
+    /// `(0, FEE_CM, [0, 0])`. Populating only leaf 0 reverts `BatchMisaligned`.
     function _flush(uint256 id) private {
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
@@ -218,11 +216,11 @@ abstract contract MaspReplay is MaspSpecReplay {
     function _cancel(uint256 id, bool expectTooEarly) private {
         uint256[2] memory zCv;
 
-        // `expectRevert` before `prank`, not after: a prank is consumed by the
-        // next call, and `expectRevert` is itself a call. Ordering them the
-        // other way round spends the prank on the cheatcode, the cancel arrives
-        // from this contract rather than the payer, and it reverts
-        // `PayerNotSender` instead of the expected `CancelTooEarly`.
+        // `expectRevert` must precede `prank`: a prank is consumed by the next
+        // call, and `expectRevert` is itself a call. The reverse order spends
+        // the prank on the cheatcode, so the cancel comes from this contract
+        // rather than the payer and reverts `PayerNotSender` instead of
+        // `CancelTooEarly`.
         if (expectTooEarly) {
             vm.expectRevert(
                 abi.encodeWithSelector(MASP.CancelTooEarly.selector, id, shadowSubmitBlock[id] + masp.cancelDelay())
@@ -241,7 +239,7 @@ abstract contract MaspReplay is MaspSpecReplay {
             FEE_BPS,
             payer,
             uint32(shadowSubmitBlock[id]),
-            PubInputs.FeeNote({ feeIn: 0, feeCm: FEE_CM, feeCvDep: zCv })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: FEE_CM, feeCvDep: zCv })
         );
 
         if (!expectTooEarly) shadowStatus[id] = MaspSpec.Status.Cancelled;
@@ -260,19 +258,17 @@ abstract contract MaspReplay is MaspSpecReplay {
         s.cancelDelay = masp.cancelDelay();
         s.assetDisabled = masp.asset(ASSET_ID).disabled;
 
-        // Ids are dense from zero and pushed in order, so this is already the
-        // ascending order the generator sorted the model's map into.
+        // Ids are dense from zero and pushed in order, matching the ascending
+        // order the generator sorts the model's map into.
         s.deposits = new MaspSpec.DepositEntry[](ids.length);
         for (uint256 i = 0; i < ids.length; i++) {
             uint256 id = ids[i];
             uint256 principal = uint256(shadowPublicIn[id]) * SCALE;
 
-            // The load-bearing cross-check. `escrowed[id]` is the only thing
-            // the chain exposes about a deposit's lifecycle, and it says
-            // exactly one bit: still pending, or not. Asserting the shadow
-            // against it means a driver bookkeeping bug fails here, by name,
-            // instead of arriving at the comparison dressed as a divergence
-            // between the model and the contract.
+            // `escrowed[id]` is the only on-chain view of a deposit's
+            // lifecycle, and it exposes one bit: pending or not. Asserting the
+            // shadow against it makes a driver bookkeeping error fail here by
+            // name rather than as a model/contract divergence.
             bool pendingOnChain = masp.escrowed(id) != bytes32(0);
             require(
                 pendingOnChain == (shadowStatus[id] == MaspSpec.Status.Pending),

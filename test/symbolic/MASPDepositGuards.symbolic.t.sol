@@ -10,15 +10,14 @@ import { PoolFixture } from "./PoolFixture.sol";
 
 /// Symbolic proofs for the deposit-side request guards.
 ///
-/// `deposit` and `depositAuthorized` share `_validateDeposit`, which is the only
-/// thing standing between unauthenticated calldata and an escrow record. It runs
-/// before any token moves, and — like the spend guards — every rejection it
-/// makes happens before the Baby-Jubjub curve checks at the end of the function,
-/// so the whole guard set is provable for every malformed request.
+/// `deposit` and `depositAuthorized` share `_validateDeposit`, which validates
+/// unauthenticated calldata before any token moves or escrow record is written.
+/// Every rejection precedes the Baby-Jubjub curve checks at the end of the
+/// function, so the guard set is provable for every malformed request.
 ///
-/// Each proof pins the revert selector, and `check_deposit_fixtureIsAccepted`
-/// anchors them: without it, a fixture broken for some unrelated reason would
-/// satisfy every rejection here while proving nothing.
+/// Each proof pins the revert selector. `check_deposit_fixtureIsAccepted` shows
+/// the fixture itself is accepted, so a rejection cannot come from an unrelated
+/// fixture defect.
 ///
 /// The pool and its mocks come from `PoolFixture`.
 contract MASPDepositGuardsSymbolicTest is PoolFixture {
@@ -38,8 +37,8 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
         _assertRejected(ok, ret, expected);
     }
 
-    /// The fixture is genuinely accepted, so every rejection proof below is
-    /// attributable to the field it breaks rather than to a broken fixture.
+    /// The fixture is accepted, so each rejection proof below is attributable to
+    /// the field it breaks.
     function check_deposit_fixtureIsAccepted() public {
         (bool ok,) = _deposit(_valid());
         assertTrue(ok);
@@ -47,10 +46,9 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
 
     // --- amount bounds -----------------------------------------------------
 
-    /// A deposit must carry a non-zero amount that fits the width the escrow
-    /// digest and the tree-update circuit both narrow it to. Proved across the
-    /// whole `uint64` the request declares, so the boundary at `uint48` max is
-    /// covered from both sides.
+    /// A deposit amount must be non-zero and fit `uint48`, the width the escrow
+    /// digest and the tree-update circuit narrow it to. Proved over the full
+    /// declared `uint64`, covering both sides of the `uint48` max boundary.
     function check_deposit_rejectsOutOfRangeAmount(uint64 publicIn) public {
         vm.assume(publicIn == 0 || publicIn > type(uint48).max);
 
@@ -60,8 +58,8 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
         _rejectedWith(d, publicIn == 0 ? MASP.MustHaveDeposit.selector : MASP.PublicInTooLarge.selector);
     }
 
-    /// The relayer's fee note is bound to the same width. It may be zero — the
-    /// leaf is minted either way — so only the ceiling applies.
+    /// The relayer's fee note has the same width bound. It may be zero (the leaf
+    /// is minted either way), so only the ceiling applies.
     function check_deposit_rejectsOutOfRangeFeeNote(uint64 feeIn) public {
         vm.assume(feeIn > type(uint48).max);
 
@@ -73,9 +71,9 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
 
     // --- party and commitment binding --------------------------------------
 
-    /// `depositAuthorized` pulls against an allowance the payer granted, so the
-    /// caller must be the payer. Without this, anyone could drain any address
-    /// that had ever approved the pool through Permit2.
+    /// `depositAuthorized` pulls against the payer's allowance, so the caller must
+    /// be the payer; otherwise any address that approved the pool through Permit2
+    /// could be drained by a third party.
     function check_depositAuthorized_rejectsAnyCallerButThePayer(address caller) public {
         vm.assume(caller != address(this) && caller != address(0));
 
@@ -85,8 +83,8 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
         _rejectedWith(d, MASP.PayerNotSender.selector);
     }
 
-    /// A zero payer or recipient is rejected. The recipient is what the note is
-    /// addressed to; a zero one escrows funds nobody can claim.
+    /// A zero payer or recipient is rejected. A zero recipient would escrow funds
+    /// nobody can claim.
     function check_deposit_rejectsZeroParties(bool zeroPayer) public {
         PubInputs.DepositRequest memory d = _valid();
         if (zeroPayer) {
@@ -95,13 +93,12 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
             d.recipient = address(0);
         }
 
-        // A zero payer trips `ZeroPayer` inside validation, before the
-        // caller-is-payer check that would otherwise also reject it.
+        // `ZeroPayer` fires inside validation, before the caller-is-payer check.
         _rejectedWith(d, zeroPayer ? MASP.ZeroPayer.selector : MASP.ZeroRecipient.selector);
     }
 
-    /// Neither leaf may carry a zero commitment: a deposit always occupies two
-    /// leaves, and a zero one is not a well-formed note.
+    /// Neither of the deposit's two leaves may carry a zero commitment; a zero
+    /// commitment is not a well-formed note.
     function check_deposit_rejectsZeroCommitment(bool zeroOut) public {
         PubInputs.DepositRequest memory d = _valid();
         if (zeroOut) {
@@ -125,8 +122,7 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
 
     // --- registry gating ---------------------------------------------------
 
-    /// Only a registered id can be deposited into, for every id the registry
-    /// does not hold.
+    /// Every asset id the registry does not hold is rejected.
     function check_deposit_rejectsUnregisteredAsset(uint64 assetId) public {
         vm.assume(assetId != ASSET_ID);
 
@@ -139,10 +135,8 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
 
     /// A disabled asset takes no new deposits.
     ///
-    /// The other half of the rule — that a disabled asset stays spendable and
-    /// withdrawable, so existing notes and escrows can still exit — needs a
-    /// spend to succeed and is out of reach here; `test/masp/MASP.assets.t.sol`
-    /// covers it.
+    /// That a disabled asset stays spendable and withdrawable requires a
+    /// successful spend and is covered by `test/masp/MASP.assets.t.sol`.
     function check_deposit_rejectsDisabledAsset() public {
         vm.prank(OWNER);
         masp.setAssetDisabled(ASSET_ID, true);

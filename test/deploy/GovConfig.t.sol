@@ -7,8 +7,8 @@ import { Test } from "forge-std/Test.sol";
 /// `DeployConfig.t.sol`.
 ///
 /// `DeployGovernance.s.sol` reads these at broadcast time, where a malformed file
-/// costs a failed mainnet deploy — and several of these values cannot be fixed
-/// afterwards without the very governance they configure.
+/// costs a failed mainnet deploy, and several values cannot be changed
+/// afterwards without the governance they configure.
 contract GovConfigTest is Test {
     function _configs() internal pure returns (string[2] memory) {
         return ["script/config/mainnet.gov.json", "script/config/mainnet.gov.example.json"];
@@ -91,14 +91,14 @@ contract GovConfigTest is Test {
         }
     }
 
-    /// The live config must name the real deployment; the example stays zeroed.
+    /// The live config names the deployed contracts; the example stays zeroed.
     function test_liveConfigNamesDeployedContracts() public view {
         string memory j = vm.readFile("script/config/mainnet.gov.json");
         assertTrue(vm.parseJsonAddress(j, ".masp") != address(0), "masp unset");
         assertTrue(vm.parseJsonAddress(j, ".swapWrapper") != address(0), "swapWrapper unset");
     }
 
-    /// Voting parameters are in **seconds**, because the token uses a timestamp
+    /// Voting parameters are in seconds because the token uses a timestamp
     /// clock. A value that looks like a block count is a misconfiguration.
     function test_votingParamsLookLikeSecondsNotBlocks() public view {
         string memory j = vm.readFile("script/config/mainnet.gov.json");

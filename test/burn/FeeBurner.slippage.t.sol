@@ -8,14 +8,13 @@ import { FeeBurner } from "../../src/burn/FeeBurner.sol";
 import { FeeBurnerTestBase } from "./FeeBurnerTestBase.sol";
 import { ReentrantOnTransferERC20 } from "./mocks/ReentrantOnTransferERC20.sol";
 
-/// The sandwich argument, made mechanical.
+/// Sandwich and flash-loan resistance of the auction.
 ///
-/// The reason to prefer an auction to a router swap is that `priceOf` reads no
-/// external state, so there is nothing a flash loan can move. These tests assert
-/// that rather than asserting it in a comment.
+/// `priceOf` reads no external state, so a flash loan has no input to move.
+/// These tests assert that property.
 contract FeeBurnerSlippageTest is FeeBurnerTestBase {
-    /// No ordering advantage exists within a block: price is a pure function of
-    /// stored state and `block.timestamp`, identical for everyone.
+    /// Price is a pure function of stored state and `block.timestamp`, so no
+    /// ordering within a block yields a better price.
     function test_twoBiddersInTheSameBlockSeeTheSamePrice() public {
         _seedBurner(100e18);
         _enableLot();
@@ -29,20 +28,20 @@ contract FeeBurnerSlippageTest is FeeBurnerTestBase {
         vm.prank(bidder2);
         uint256 govB = burner.buy(IERC20(address(token)), 1e18, type(uint256).max, bidder2);
 
-        // The second pays slightly more, because the first fill ratcheted the
-        // price up — never less. Front-running is not free.
+        // The first fill ratchets the price up, so the second bidder pays at
+        // least as much.
         assertGe(govB, govA, "the follower must not get a better price");
     }
 
-    /// A flash loan cannot move what the burner charges: the price is unchanged
-    /// across arbitrary external state mutation at a fixed timestamp.
+    /// The price is unchanged across external state mutation at a fixed
+    /// timestamp, so a flash loan cannot move it.
     function test_priceIsUnaffectedByExternalStateChanges() public {
         _seedBurner(100e18);
         _enableLot();
         uint256 before = burner.priceOf(IERC20(address(token)));
 
-        // Mint a fortune, move balances, donate to the burner — none of it is an
-        // input to the curve.
+        // Minting, balance moves and donations to the burner are not inputs to
+        // the curve.
         token.mint(address(burner), 1_000_000e18);
         vm.prank(govHolder);
         gov.transfer(bidder, 1_000e18);
@@ -50,8 +49,8 @@ contract FeeBurnerSlippageTest is FeeBurnerTestBase {
         assertEq(burner.priceOf(IERC20(address(token))), before, "price moved with external state");
     }
 
-    /// Taking a partial lot raises the price for whoever comes next, so a
-    /// front-runner pays for the privilege instead of extracting from it.
+    /// A partial fill raises the price for the next bidder, so front-running
+    /// increases cost rather than extracting value.
     function test_frontRunningRaisesThePriceForTheFollower() public {
         _seedBurner(100e18);
         _enableLot();
@@ -82,11 +81,13 @@ contract FeeBurnerSlippageTest is FeeBurnerTestBase {
         assertGe(p2, MIN_PRICE, "price fell through the floor");
     }
 
-    /// Every buy must cost the bidder something, at any point on the curve.
+    /// Every buy costs a non-zero amount of GOV at any point on the curve. The
+    /// lot takes the smallest `minLot`, so every amount down to one base unit is
+    /// buyable.
     function testFuzz_buyAlwaysCostsGov(uint32 wait, uint64 amount) public {
         vm.assume(amount > 0);
         _seedBurner(100e18);
-        _enableLot();
+        _enableLot(1);
 
         vm.warp(T0 + uint256(wait));
         vm.prank(bidder);
@@ -102,7 +103,7 @@ contract FeeBurnerSlippageTest is FeeBurnerTestBase {
         evil.mint(address(burner), 10e18);
 
         vm.prank(timelockOwner);
-        burner.setLot(IERC20(address(evil)), true, SEED_PRICE, MIN_PRICE, 0);
+        burner.setLot(IERC20(address(evil)), true, SEED_PRICE, MIN_PRICE, MIN_LOT);
 
         evil.arm(
             address(burner), abi.encodeCall(FeeBurner.buy, (IERC20(address(evil)), 1e18, type(uint256).max, bidder))
@@ -113,17 +114,17 @@ contract FeeBurnerSlippageTest is FeeBurnerTestBase {
         burner.buy(IERC20(address(evil)), 1e18, type(uint256).max, bidder);
     }
 
-    /// CEI, asserted rather than assumed: by the time the token is paid out the
-    /// lot has already been re-priced, so a re-entrant call could never observe
-    /// the old price even without the guard.
+    /// Checks-effects-interactions: the lot is re-priced before the payout
+    /// transfer, so a re-entrant call cannot observe the old price even without
+    /// the guard.
     function test_lotIsRepricedBeforeThePayoutTransfer() public {
         ReentrantOnTransferERC20 evil = new ReentrantOnTransferERC20();
         evil.mint(address(burner), 10e18);
 
         vm.prank(timelockOwner);
-        burner.setLot(IERC20(address(evil)), true, SEED_PRICE, MIN_PRICE, 0);
+        burner.setLot(IERC20(address(evil)), true, SEED_PRICE, MIN_PRICE, MIN_LOT);
 
-        // Re-entering with a read-only call: record the stored start price at the
+        // Re-enters with a call that records the stored start price at the
         // moment of the payout.
         evil.arm(address(this), abi.encodeCall(this.recordStartPrice, (address(evil))));
 
@@ -136,7 +137,7 @@ contract FeeBurnerSlippageTest is FeeBurnerTestBase {
     uint256 internal observedStartPrice;
 
     function recordStartPrice(address t) external {
-        (,,, uint256 startPrice,) = burner.lots(IERC20(t));
+        (,,,,, uint256 startPrice,) = burner.lots(IERC20(t));
         observedStartPrice = startPrice;
     }
 }

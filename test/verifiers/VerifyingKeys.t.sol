@@ -48,9 +48,9 @@ import {
 /// so the comparison goes through the committed verification-key JSON.
 ///
 /// A wrong constant makes `BatchedGroth16Verifier` fail closed, which surfaces
-/// only in a test running a real proof. A stale `BATCH_DOMAIN` surfaces nowhere
-/// else at all: both sides of a batch derive the challenge from the same
-/// domain, so an incorrect one still agrees with itself.
+/// only in a test running a real proof. A stale `BATCH_DOMAIN` is detected only
+/// here: both sides of a batch derive the challenge from the same domain, so an
+/// incorrect one is still self-consistent.
 contract VerifyingKeysTest is Test {
     string internal constant VK1 = "test/fixtures/verification_key_4x6.json";
     string internal constant VK2 = "test/fixtures/verification_key_tree_update_batch.json";
@@ -67,9 +67,9 @@ contract VerifyingKeysTest is Test {
         return vm.parseJsonUint(json, path);
     }
 
-    /// Read a G2 point in the order the snarkjs codegen emits it: `(x1, x2)`
+    /// Reads a G2 point in the order the snarkjs codegen emits it: `(x1, x2)`
     /// then `(y1, y2)`, which is the JSON's `[0][1], [0][0], [1][1], [1][0]`.
-    /// The coordinate swap is expressed here once, not at each assertion.
+    /// The coordinate swap is expressed once here rather than at each assertion.
     function _g2(string memory json, string memory field)
         internal
         pure
@@ -187,7 +187,7 @@ contract VerifyingKeysTest is Test {
         _assertIC(vk2, [VK2_IC0X, VK2_IC0Y, VK2_IC1X, VK2_IC1Y, VK2_IC2X, VK2_IC2Y], "VK2");
     }
 
-    /// The two circuits must keep distinct `delta`s. A collision means both keys
+    /// The two circuits have distinct `delta`s. A collision means both keys
     /// came from the same phase-2 output.
     function test_deltasAreDistinct() public pure {
         assertTrue(
@@ -206,7 +206,7 @@ contract VerifyingKeysTest is Test {
 
     // --- provenance ----------------------------------------------------------
 
-    /// Both key files must come from the same circuits release.
+    /// Both key files are Groth16 over bn128 with two public inputs.
     function test_fixtureProvenance() public view {
         assertEq(vm.parseJsonString(vk1, ".protocol"), "groth16", "vk1 protocol");
         assertEq(vm.parseJsonString(vk2, ".protocol"), "groth16", "vk2 protocol");

@@ -40,7 +40,7 @@ copy is verifiable against the release.
 Read by [PubInputs.vector4x6.t.sol](../PubInputs.vector4x6.t.sol), which drives
 `PubInputs.Transact` from the circuit's own witness and compares against the
 `(y, z)` the compiled circuit produced. This pins all 46 coefficient slots and
-the 69-word challenge preimage they are the leading span of, against an artifact
+the 70-word challenge preimage they are the leading span of, against an artifact
 generated outside this repo — the other layout tests only
 compare the contract to reference code written alongside it.
 

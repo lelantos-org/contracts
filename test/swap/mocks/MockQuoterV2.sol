@@ -2,11 +2,11 @@
 pragma solidity 0.8.36;
 
 /// Test stub for UniV3 QuoterV2. Two modes per `(tokenIn, tokenOut, fee)`:
-///   1. legacy fixed (`set`)  — `amountOut` constant regardless of input.
+///   1. fixed (`set`)           — `amountOut` constant regardless of input.
 ///   2. linear rate (`setRate`) — `amountOut = amountIn * ratePer1e18 / 1e18`.
-/// Fixed mode wins when both are set so existing e2e tests that pin a
-/// specific output keep deterministic behaviour. Tiers with neither
-/// configured revert via `NoPool`, mirroring the real QuoterV2.
+/// Fixed mode takes precedence when both are set, so e2e tests that pin a
+/// specific output stay deterministic. Tiers with neither configured revert
+/// with `NoPool`, mirroring the real QuoterV2.
 contract MockQuoterV2 {
     struct QuoteExactInputSingleParams {
         address tokenIn;
@@ -28,7 +28,7 @@ contract MockQuoterV2 {
 
     error NoPool();
 
-    /// Legacy fixed-output setter (kept for e2e back-compat).
+    /// Fixed-output setter, used by e2e tests that pin a specific output.
     function set(address tokenIn, address tokenOut, uint24 fee, uint256 amountOut, uint256 gasEstimate) external {
         bytes32 k = _key(tokenIn, tokenOut, fee);
         PoolQuote storage q = quotes[k];

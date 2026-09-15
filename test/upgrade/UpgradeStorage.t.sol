@@ -20,7 +20,7 @@ contract UpgradeStorageTest is Test {
         assertEq(uint256(UpgradeStorage.SLOT) & 0xff, 0);
     }
 
-    /// Well clear of the sequential slots a pool implementation uses.
+    /// The slot lies far above the sequential slots a pool implementation uses.
     function test_slotIsNowhereNearSequentialStorage() public pure {
         assertGt(uint256(UpgradeStorage.SLOT), 1e60);
     }

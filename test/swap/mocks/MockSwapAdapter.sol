@@ -17,14 +17,14 @@ contract MockSwapAdapter is ISwapAdapter {
     /// simulating a faulty venue.
     bool public siphonMode;
     /// `tokenIn` pushed back to the caller, modelling a venue that consumes
-    /// less than it was handed. The wrapper's closing leftover invariant is
-    /// what must catch it.
+    /// less than it was handed. The wrapper's closing leftover invariant must
+    /// detect it.
     uint256 public refundIn;
     /// `tokenOut` delivered on top of the reported `actualOut`, modelling a
     /// venue whose return value understates what it sent.
     uint256 public extraOut;
     /// If true, skip the internal `minOut` check so the call returns a short
-    /// output instead of reverting — that hands the decision to the wrapper.
+    /// output instead of reverting, leaving the check to the wrapper.
     bool public ignoreMinOut;
 
     function setNextActualOut(uint256 v) external {

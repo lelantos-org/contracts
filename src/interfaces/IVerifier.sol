@@ -2,8 +2,8 @@
 pragma solidity 0.8.36;
 
 /// Groth16 verifier interface (snarkjs codegen). Compressed public-input mode:
-/// only `(z, y)` with `y = p(z)` over the logical public inputs. Shared by the
-/// `4x6` and `tree_update_batch` verifiers.
+/// `input` is `[y, z]`, with `y = p(z)` over the logical public inputs. Shared by
+/// the `4x6` and `tree_update_batch` verifiers.
 interface IVerifier {
     function verifyProof(
         uint256[2] calldata a,

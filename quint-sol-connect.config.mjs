@@ -4,10 +4,9 @@
 // committed traces needs neither, so `just test` and the `test` CI job pick
 // them up as ordinary Foundry tests.
 export default {
-  // Bytes are the binding constraint on how many specs this repo can carry;
-  // runtime is not (all three suites replay in ~65 ms). Specs draw against a
-  // shared total, so adding one is a visible trade against the others rather
-  // than an unbounded addition.
+  // Fixture size, not runtime, limits how many specs the repo can carry
+  // (replay takes milliseconds). Specs draw against a shared total, so adding
+  // one is an explicit trade against the others.
   budget: { totalBytes: 12_000_000, defaultMaxBytes: 512_000 },
 
   solidityOut: 'test/quint/generated',
@@ -19,14 +18,13 @@ export default {
       spec: 'spec/commitment_tree.qnt',
       module: 'commitment_tree',
 
-      // 90 steps deliberately exceeds ROOT_HISTORY (64): the wrap is the whole
-      // point of modelling this contract, and `[invariant] depth = 64` means
-      // the fuzz suite essentially never reaches one.
-      // 2 traces, not 8. `wit_ringRootUnlearned` already fires in 100% of them,
-      // so extra traces buy nothing on the property this spec exists to show,
-      // while each costs ~470 KB. Steps are NOT the compressible axis here:
-      // below ~70 the ring stops wrapping and the spec loses its reason to
-      // exist. Breadth moved to the nightly `just quint-fresh`.
+      // 90 steps exceeds ROOT_HISTORY (64): the ring wrap is the purpose of
+      // modelling this contract, and with `[invariant] depth = 64` the fuzz
+      // suite rarely reaches one.
+      // 2 traces: both hold duplicate roots across the wrap, the case
+      // `inv_ringRootsAreKnown` checks, and each costs ~470 KB. Steps cannot be
+      // reduced: below ~70 the ring does not wrap. Breadth comes from the
+      // nightly `just quint-fresh`.
       run: {
         traces: 2,
         maxSteps: 90,
@@ -58,14 +56,13 @@ export default {
         knownRoots: { set: 'uint256' },
       },
 
-      // Model-only ghosts. They exist to give the invariants something to
-      // contradict, not to describe the contract, and there is nothing on chain
-      // to compare them against.
-      // Floors at ~60% of what the pinned seed currently produces. They exist for
-      // the quiet failure: an action that drops from forty steps to one still
-      // replays green, it just stops testing that action.
+      // Floors at ~60% of what the pinned seed produces. They catch an action
+      // whose step count collapses, which would otherwise replay green while
+      // barely exercising that action.
       coverage: { minSteps: { advance: 108 } },
 
+      // Model-only ghosts. They give the invariants something to contradict
+      // and have no on-chain counterpart to compare against.
       ignoreState: {
         advances:
           'ghost: counts advances so `inv_indexTracksAdvances` can catch a wrong ring stride, which no other invariant constrains',
@@ -101,9 +98,7 @@ export default {
         spentSet: { set: 'uint256' },
       },
 
-      // Floors at ~60% of what the pinned seed currently produces. They exist for
-      // the quiet failure: an action that drops from forty steps to one still
-      // replays green, it just stops testing that action.
+      // Floors at ~60% of what the pinned seed produces; see commitmentTree.
       coverage: { minSteps: { consume: 25, consumeSpent: 61 } },
 
       ignoreState: {
@@ -123,9 +118,9 @@ export default {
       module: 'masp',
 
       run: {
-        // Raised when setCancelDelay became a seventh action: a wider action
-        // set dilutes every other action's share of a fixed step budget, and
-        // cancel coverage (the boundary cases especially) fell with it.
+        // Sized for eight actions: a wider action set dilutes each action's
+        // share of a fixed step budget, and cancel coverage (especially the
+        // boundary cases) needs this many traces.
         traces: 20,
         maxSteps: 96,
         maxSamples: 20000,
@@ -176,14 +171,12 @@ export default {
         // reads it from storage, so moving it moves the unlock block of every
         // deposit already in flight.
         cancelDelay: 'uint256',
-        // Read in exactly one place, `_validateDeposit`. Flush and cancel do
-        // not gate on it, which is what stops a disable stranding escrows.
+        // Read only in `_validateDeposit`. Flush and cancel do not check it, so
+        // disabling an asset does not strand escrows.
         assetDisabled: 'bool',
       },
 
-      // Floors at ~60% of what the pinned seed currently produces. They exist for
-      // the quiet failure: an action that drops from forty steps to one still
-      // replays green, it just stops testing that action.
+      // Floors at ~60% of what the pinned seed produces; see commitmentTree.
       coverage: {
         minSteps: {
           submit: 68,
@@ -225,13 +218,16 @@ export default {
 
       run: {
         traces: 8,
-        maxSteps: 80,
+        // 96 rather than 80: a sub-MIN_LOT amount drawn against a large balance
+        // is rejected, so `buy` is scarce, and 8 x 80 gives 39 fills, below its
+        // floor.
+        maxSteps: 96,
         maxSamples: 20000,
         seed: '0x5eed0005',
         invariant: 'allInvariants',
-        // Token magnitudes leave i64: `amountOut * price` at 18 decimals is
-        // past it before the division brings it back, and the Rust evaluator
-        // refuses the literals outright.
+        // Token magnitudes exceed i64: `amountOut * price` at 18 decimals
+        // overflows before the division, and the Rust evaluator rejects the
+        // literals.
         backend: 'typescript',
       },
 
@@ -241,17 +237,18 @@ export default {
       },
 
       budget: {
-        maxBytes: 800_000,
+        maxBytes: 1_200_000,
         why:
-          '`buy` is guard-limited - it needs an enabled lot, a non-empty balance and an '
-          + 'unpaused burner - so it never gets its 1/5 share of a step budget. It runs on '
-          + '7.6% of steps even after the enable and pause flags were biased in its favour, '
-          + 'so a floor of 45 fills costs ~640 steps. Lowering the floor instead would leave '
-          + 'the accepting-path arithmetic this spec exists for barely exercised, which is '
-          + 'the one thing the symbolic suite cannot reach',
+          '`buy` is guard-limited - it needs an enabled lot, a non-empty balance, an '
+          + 'unpaused burner and, unless it clears the balance, at least MIN_LOT - so it never '
+          + 'gets its 1/6 share of a step budget: 54 of 776 steps on the pinned seed. A floor '
+          + 'of 45 fills needs 8 x 96; 8 x 80 gives 39. Lowering the floor instead would leave '
+          + 'the accepting-path arithmetic this spec exists for barely exercised, which is the '
+          + 'one thing the symbolic suite cannot reach. The global and per-lot decay curves add '
+          + 'four scalars per step, which is what shows a running lot is never repriced'
       },
 
-      coverage: { minSteps: { buy: 45, accrueFees: 60, wait: 60, setLot: 60, setPaused: 60 } },
+      coverage: { minSteps: { buy: 45, accrueFees: 60, wait: 60, setLot: 60, setPaused: 60, setDecayParams: 60 } },
 
       state: {
         nowTs: 'uint256',
@@ -261,13 +258,21 @@ export default {
         minPrice: 'uint256',
         paused: 'bool',
         burnerTokenBal: 'uint256',
-        // Should be zero after every buy: the split sends all of it out.
+        // Zero after every buy: the split sends all of it out.
         burnerGovBal: 'uint256',
         govSupply: 'uint256',
-        // Moves only by `govIn`, which makes the composite rounding compared
+        // Moves only by `govIn`, so the composite rounding is compared
         // directly rather than inferred.
         bidderGov: 'uint256',
         secondaryGov: 'uint256',
+        // The global decay curve, written only by setDecayParams.
+        halfLife: 'uint256',
+        maxHalvings: 'uint256',
+        // The lot's curve snapshot, written by setLot and a re-anchoring fill.
+        // Priced off rather than the globals, so setDecayParams never reprices
+        // a running lot.
+        lotHalfLife: 'uint256',
+        lotMaxHalvings: 'uint256',
       },
 
       ignoreState: {
@@ -297,23 +302,35 @@ export default {
           'ghost: fills that took at least half the lot, the other half of that pair',
         flatDecays:
           'ghost: waits that moved the clock forward inside the decaying region and left the price where it was. Counted by comparing the curve at two clocks, which is the only way a dropped interpolation term is visible - every other invariant reads the price through the same priceAt',
+        dustClearsMidDecay:
+          'ghost: clearing fills below MIN_LOT on a lot whose clock had started, where a re-anchor would move startedAt on chain. Backs wit_dustClearKeptTheClock',
+        zeroWeightFillsMidDecay:
+          'ghost: fills of at least MIN_LOT whose ratchet term floored to zero, on a running clock - the other path that must not re-anchor. Backs wit_zeroWeightFillKeptTheClock',
+        unanchoredPriceMoves:
+          'ghost: fills that did not re-anchor yet changed the asking price at the same clock, compared through priceAt rather than by restating the guard',
+        dustReanchors:
+          'ghost: fills below MIN_LOT that rewrote startPrice, startedAt or the curve snapshot - the donate-and-clear ratchet',
+        staleCurveFills:
+          'ghost: fills on a running lot whose curve snapshot differs from the globals, the only fills whose govIn tells snapshot pricing from global pricing. Backs wit_boughtOnStaleCurve',
       },
 
-      // One pick name across all five, because a step carries a slot for every
-      // distinct name whichever action ran: three names cost 192 B on each of
-      // 648 steps to hold two empty slots at a time. The spec names it locally
-      // in each action and the driver does the same at each branch.
+      // One pick name across all six actions, because every step carries a
+      // slot for each distinct name regardless of which action ran: three names
+      // would cost 192 B per step for two empty slots. The spec and the driver
+      // name it locally in each action.
       //
-      // For `setLot` and `setPaused` it is a quarters draw, not a flag - the lot
+      // For `setLot` and `setPaused` it is a quarters draw, not a flag: the lot
       // is enabled on `p > 0` and the burner paused on `p == 0`. A uniform bool
-      // on each of those two gates left `buy`, the accepting path this spec
-      // exists for, blocked three quarters of the time.
+      // on each gate would block `buy`, the accepting path this spec targets,
+      // three quarters of the time.
       actions: {
         accrueFees: { p: 'uint256' },
         buy: { p: 'uint256' },
         wait: { p: 'uint256' },
         setLot: { p: 'uint256' },
         setPaused: { p: 'uint256' },
+        // A quarters draw indexing DECAY_HALF_LIVES and DECAY_MAX_HALVINGS.
+        setDecayParams: { p: 'uint256' },
       },
     },
 
@@ -321,13 +338,14 @@ export default {
       spec: 'spec/delayed_upgrade_proxy.qnt',
       module: 'delayed_upgrade_proxy',
 
-      // Fewer, longer traces on purpose: every property here is an
-      // interleaving (queue -> pause -> activate, pause -> queue, latch ->
-      // reset -> latch), and one 60-step trace reaches more of them than two
-      // 30-step ones.
+      // Fewer, longer traces: every property here is an interleaving
+      // (queue -> pause -> activate, pause -> queue, latch -> reset -> latch),
+      // and one 60-step trace reaches more of them than two 30-step ones.
+      // 76 rather than 60 since `queueUpgrade` defers by a running pause:
+      // longer windows cost activations, and 8 x 60 fell below the floor.
       run: {
         traces: 8,
-        maxSteps: 60,
+        maxSteps: 76,
         maxSamples: 20000,
         seed: '0x5eed0004',
         invariant: 'allInvariants',
@@ -343,7 +361,8 @@ export default {
         why:
           '512 B/step is already near the floor for seven scalars and three pick names. '
           + 'The overage is trace count, and cutting it costs the interleavings this spec '
-          + 'exists for - activateUpgrade fires 8 times in 8 x 60 and 3 times in 8 x 40',
+          + 'exists for - activateUpgrade fires 9 times in 8 x 76 and 7 in 8 x 60, below its floor, '
+          + 'now that queueUpgrade defers activation by a running pause',
       },
 
       coverage: {
@@ -367,8 +386,8 @@ export default {
         activationAt: 'uint256',
         pausedUntil: 'uint256',
         guardianPauseUsed: 'bool',
-        // Read live through the proxy: the only observable consequence of an
-        // activation actually happening.
+        // Read live through the proxy: the only observable effect of an
+        // activation.
         implVersion: 'uint256',
         admin: 'uint256',
       },
@@ -378,6 +397,10 @@ export default {
           'ghost: when the live window opened. The contract stores only activationAt, so there is nothing on chain to compare against - it exists so inv_windowIsExact can be stated',
         pausedInWindow:
           'ghost: pause duration that landed while an upgrade was pending. Without it, deleting the pendingImplementation check in pauseSpends leaves every invariant satisfied',
+        carriedPause:
+          'ghost: pause still running when the live window was queued, which queueUpgrade adds to activationAt. The contract keeps no record of it, so it exists so inv_windowIsExact stays an equation',
+        unpausedInWindow:
+          'ghost: unpaused seconds the clock spent inside the live window, so inv_exitWindowIsUnpaused can state the exit guarantee independently of how activationAt was computed',
         pauseFirings:
           'ghost: counts pauses so the one-shot latch is constrained by something other than itself',
         resetFirings:
@@ -392,7 +415,7 @@ export default {
         queueUpgrade: { impl: 'uint256' },
         cancelUpgrade: {},
         activateUpgrade: {},
-        // Negative: the driver asserts NotYetActivatable *and its argument*.
+        // Negative path: the driver asserts NotYetActivatable and its argument.
         activateTooEarly: {},
         pauseSpends: { dt: 'uint256' },
         resetGuardianPause: {},

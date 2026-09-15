@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+
 import { MASP } from "../../src/MASP.sol";
 import { YieldIndex } from "../../src/yield/YieldIndex.sol";
 import { YieldOps } from "../../src/yield/YieldOps.sol";
@@ -14,7 +16,7 @@ contract YieldEscrowTest is YieldBase {
     uint64 internal constant N = 1_000_000;
 
     function _feeNote(uint256 seed) internal pure returns (PubInputs.FeeNote memory) {
-        return PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(seed + 1), feeCvDep: [uint256(0), 0] });
+        return PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(seed + 1), feeCvDep: [uint256(0), 0] });
     }
 
     function _cancel(uint256 id, uint64 publicIn, uint256 seed, uint32 submittedAt) internal {
@@ -23,28 +25,135 @@ contract YieldEscrowTest is YieldBase {
         );
     }
 
-    /// A cancellation returns the escrowed units at today's index, so the payer
-    /// keeps what their own money earned while it sat in the venue.
-    function test_cancel_refundsUnitsAtTodaysIndex_includingEscrowYield() public {
+    /// Slot of `MASP._escrowPulled`, pinned by `StorageLayout.t.sol`. The
+    /// mapping is private, so the cap is read from raw storage.
+    uint256 internal constant SLOT_ESCROW_PULLED = 82;
+
+    function _pulledCap(uint256 id) internal view returns (uint256) {
+        return uint256(vm.load(address(masp), keccak256(abi.encode(id, SLOT_ESCROW_PULLED))));
+    }
+
+    /// Settles escrow `id` of `YIELD_ID` into a note, as a relayer's flush would.
+    function _flush(uint256 id, uint64 publicIn, uint256 seed, uint32 submittedAt) internal {
+        PubInputs.TreeUpdateBatch memory tpi;
+        tpi.oldRoot = masp.currentRoot();
+        tpi.newRoot = bytes32(uint256(0xfeed0000) + seed);
+        tpi.startIndex = masp.committedCount();
+        tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
+        tpi.cms[0] = bytes32(seed);
+        tpi.cms[1] = bytes32(seed + 1);
+        tpi.leafAsset[0] = YIELD_ID;
+        tpi.leafPublicIn[0] = publicIn;
+        tpi.isDeposit[0] = 1;
+        tpi.isDeposit[1] = 1;
+
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = id;
+        MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
+        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: submittedAt, fbps: FEE_BPS });
+
+        masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
+    }
+
+    /// Value of `units` of `YIELD_ID` at the current index.
+    function _valueOf(uint256 units) internal view returns (uint256) {
+        return (units * _gross(YIELD_ID)) / _supply(YIELD_ID);
+    }
+
+    /// A cancellation refunds at most what was pulled at submit. The escrow's
+    /// units still share the index while it waits, but every one is burned on
+    /// cancel, so the growth they carried stays with the remaining holders.
+    ///
+    /// Without the cap a deposit that is never flushed would be a fee-free
+    /// position in the venue: it refunds its deposit fee and never pays
+    /// `withdrawBps`.
+    function test_cancel_refundCappedAtSubmitPull_escrowYieldStaysWithHolders() public {
+        // A settled holder, so the escrow's forgone growth has somewhere to go.
+        uint32 holderAt = uint32(vm.getBlockNumber());
+        (uint256 holderId,) = _deposit(YIELD_ID, N, 0x201);
+        _flush(holderId, N, 0x201, holderAt);
+        uint256 holderUnits = masp.yieldState(YIELD_ID).totalNormalized;
+        uint256 feeAfterFlush = masp.yieldState(YIELD_ID).accruedFeeNormalized;
+
         uint32 submittedAt = uint32(vm.getBlockNumber());
         (uint256 id, uint256 pulled) = _deposit(YIELD_ID, N, 0x101);
 
         _earn(1_000 * SCALE);
         vm.roll(block.number + 7_201); // past the default cancelDelay
 
+        uint256 holderValueBefore = _valueOf(holderUnits);
         uint256 before = token.balanceOf(payer);
         _cancel(id, N, 0x101, submittedAt);
         uint256 refunded = token.balanceOf(payer) - before;
 
-        assertGt(refunded, pulled, "refund carries the escrow-window yield");
+        assertEq(refunded, pulled, "refund is exactly the submit-time pull, no escrow-window yield");
 
-        // The holder's liability is fully released. What remains is the
-        // treasury's cut of the growth the escrow itself produced — the
-        // performance fee applies to escrowed funds exactly as it does to
-        // settled ones, since `_accruePerf` runs before the units are burned.
+        // Every escrow unit is burned; the value above the cap accrues to the
+        // holder even net of the performance fee the cancel settled.
         YieldIndex.YieldState memory st = masp.yieldState(YIELD_ID);
-        assertEq(st.totalNormalized, 0, "holder liability fully released");
-        assertGt(st.accruedFeeNormalized, 0, "treasury keeps its cut of the escrow-window growth");
+        assertEq(st.totalNormalized, holderUnits, "escrow units burned in full");
+        assertGt(_valueOf(holderUnits), holderValueBefore, "the escrow's forgone growth went to the holder");
+        assertGt(st.accruedFeeNormalized, feeAfterFlush, "treasury keeps its cut of the escrow-window growth");
+    }
+
+    /// A loss is shared: below the cap the refund is the escrow's floored value
+    /// at the current index, not the pull.
+    function test_cancel_refundIsTheFloorAfterALoss() public {
+        uint32 submittedAt = uint32(vm.getBlockNumber());
+        (uint256 id, uint256 pulled) = _deposit(YIELD_ID, N, 0x101);
+
+        vault.lose(vault.totalAssetsHeld() / 10);
+        vm.roll(block.number + 7_201);
+
+        uint256 nTotal = uint256(N) + Math.ceilDiv(uint256(N) * FEE_BPS, 10_000);
+        uint256 expected = Math.mulDiv(nTotal, _gross(YIELD_ID), _supply(YIELD_ID));
+
+        uint256 before = token.balanceOf(payer);
+        _cancel(id, N, 0x101, submittedAt);
+        uint256 refunded = token.balanceOf(payer) - before;
+
+        assertEq(refunded, expected, "refund is the floored value at the post-loss index");
+        assertLt(refunded, pulled, "and carries its share of the loss");
+    }
+
+    /// The cap is recorded only for a yield escrow, and cleared on both exits
+    /// from the pending state, so no stale cap outlives its escrow.
+    function test_cancel_capIsClearedByFlushAndByCancel() public {
+        uint32 submittedAt = uint32(vm.getBlockNumber());
+        (uint256 flushed, uint256 flushedPull) = _deposit(YIELD_ID, N, 0x101);
+        (uint256 canceled, uint256 canceledPull) = _deposit(YIELD_ID, N / 2, 0x301);
+        (uint256 plain,) = _deposit(PLAIN_ID, N, 0x501);
+
+        assertEq(_pulledCap(flushed), flushedPull, "cap records the pull at submit");
+        assertEq(_pulledCap(canceled), canceledPull, "cap records the pull at submit");
+        assertEq(_pulledCap(plain), 0, "a plain escrow records no cap");
+
+        _flush(flushed, N, 0x101, submittedAt);
+        assertEq(_pulledCap(flushed), 0, "flush clears the cap");
+
+        vm.roll(block.number + 7_201);
+        _cancel(canceled, N / 2, 0x301, submittedAt);
+        assertEq(_pulledCap(canceled), 0, "cancel clears the cap");
+    }
+
+    /// Round trip of a deposit made deliberately unflushable: escrowed, left in
+    /// the venue through a large gain, then canceled. It gets back exactly what
+    /// it paid, so parking funds in escrow is never a free venue position.
+    function test_cancel_unflushableEscrowEarnsNothing() public {
+        uint32 holderAt = uint32(vm.getBlockNumber());
+        (uint256 holderId,) = _deposit(YIELD_ID, N, 0x201);
+        _flush(holderId, N, 0x201, holderAt);
+
+        uint32 submittedAt = uint32(vm.getBlockNumber());
+        (uint256 id, uint256 pulled) = _deposit(YIELD_ID, N * 10, 0x101);
+
+        // The venue doubles.
+        _earn(_gross(YIELD_ID));
+        vm.roll(block.number + 7_201);
+
+        uint256 before = token.balanceOf(payer);
+        _cancel(id, N * 10, 0x101, submittedAt);
+        assertEq(token.balanceOf(payer) - before, pulled, "an unflushed escrow earned nothing");
     }
 
     /// The refund must never exceed the liability it releases: the pull rounds
@@ -100,9 +209,9 @@ contract YieldEscrowTest is YieldBase {
         assertEq(before.totalNormalized - afterFlush.totalNormalized, nFee, "and debited from the holders' pot");
     }
 
-    /// Escrowed funds are put to work at submit, not at flush — otherwise a
-    /// note minted at `n` would claim `n` at the flush-time index while the
-    /// pool had only ever received `n` at the submit-time one.
+    /// Escrowed funds are supplied to the venue at submit, not at flush;
+    /// otherwise a note minted at `n` would claim `n` at the flush-time index
+    /// while the pool received `n` at the submit-time index.
     function test_escrowedFundsEarnBeforeFlush() public {
         _deposit(YIELD_ID, N, 0x101);
         assertGt(vault.balanceOf(address(venue)), 0, "escrow reached the venue at submit");
@@ -112,16 +221,15 @@ contract YieldEscrowTest is YieldBase {
         assertGt(masp.index(YIELD_ID), idxBefore, "and earned while still escrowed");
     }
 
-    /// A drained venue blocks a *refund*, not just a withdrawal.
+    /// A drained venue blocks a refund, not only a withdrawal.
     ///
-    /// `cancel` draws through `_ensureIdle` like every other exit, so R1 venue
-    /// liveness reaches the escrow path too: past `cancelDelay`, a depositor
-    /// still cannot be repaid while the vault is illiquid and the buffer is
-    /// short. This is worse to be surprised by than the withdrawal case,
-    /// because the depositor has no note yet — only a pending escrow.
+    /// `cancel` draws through `_ensureIdle` like every other exit, so the venue
+    /// liveness dependency extends to the escrow path: past `cancelDelay`, a
+    /// depositor cannot be repaid while the vault is illiquid and the buffer is
+    /// short, and at that point holds only a pending escrow, not a note.
     ///
-    /// It stays a liveness failure and never a loss: the escrow is untouched by
-    /// the reverted call, and `emergencyUnwind` takes the venue off the path.
+    /// This is a liveness failure, not a loss: the reverted call leaves the
+    /// escrow intact, and `emergencyUnwind` removes the venue from the path.
     function test_cancel_blockedByDrainedVenue_thenFreedByUnwind() public {
         uint32 submittedAt = uint32(vm.getBlockNumber());
         (uint256 id,) = _deposit(YIELD_ID, N, 0x101);
@@ -129,8 +237,8 @@ contract YieldEscrowTest is YieldBase {
 
         // The vault can service nothing; the 5% buffer cannot cover the refund.
         vault.setLiquidityCap(0);
-        // Partial match: the selector is the assertion, the reported shortfall
-        // and availability are incidental.
+        // Partial match: only the selector is asserted, not the reported
+        // shortfall and availability.
         vm.expectPartialRevert(YieldOps.VenueDrained.selector);
         this.attemptCancel(id, N, 0x101, submittedAt);
         assertTrue(masp.escrowed(id) != bytes32(0), "escrow survives the reverted cancel");
@@ -141,7 +249,8 @@ contract YieldEscrowTest is YieldBase {
         vm.prank(OWNER);
         masp.emergencyUnwind(YIELD_ID);
 
-        // It then dies again — and the refund is served entirely from idle.
+        // The vault becomes illiquid again; the refund is served entirely from
+        // idle.
         vault.setLiquidityCap(0);
         uint256 before = token.balanceOf(payer);
         _cancel(id, N, 0x101, submittedAt);

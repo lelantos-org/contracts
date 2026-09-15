@@ -36,9 +36,9 @@ silent no-op into a named failure — see the `flushOne` note in
 | The live root is always known | `CommitmentTree` | `advance` | Asserted at every step through 26 evictions, not only at the end of a run | as above | 8 × 91 |
 | Nothing is known that has left the ring | `CommitmentTree` | `advance` | Rules out an eviction that failed to unlearn. Not covered elsewhere. | as above | 8 × 91 |
 | The full ring contents match, slot by slot | `CommitmentTree` | `advance` | All 64 slots compared every step. No other suite compares the ring as a whole. | as above | 8 × 91 |
-| The exit window is exactly the delay plus every pause inside it | `DelayedUpgradeProxy` | queue / cancel / activate / activateTooEarly / pause / reset / changeAdmin / advanceTime | `pauseSpends` extends `activationAt` **only if an upgrade is already pending**, so `queue; pause` and `pause; queue` differ from identical inputs. The symbolic suite's 11 proxy checks are all single-call; this is a sequencing asymmetry no single-call proof can see. | the implementation (V1/V2 by `version()`), caller identity | 8 × 61 |
-| An activation actually promotes the implementation | `DelayedUpgradeProxy` | `activateUpgrade` | `implVersion` is read live through the proxy by delegatecall, so an activation that cleared the queue without calling `upgradeToAndCall` diverges. Nothing else would notice. | as above | 8 × 61 |
-| The one-shot pause latch agrees with its own history | `DelayedUpgradeProxy` | `pauseSpends`, `resetGuardianPause` | The bound `pauses - resets <= 1` is satisfied by a reset that failed to clear the latch. Counting *effective* resets pins the live boolean to the counts. | as above | 8 × 61 |
+| The exit window is exactly the delay plus every pause inside it, and holds `UPGRADE_DELAY` unpaused seconds | `DelayedUpgradeProxy` | queue / cancel / activate / activateTooEarly / pause / reset / changeAdmin / advanceTime | `pauseSpends` extends `activationAt` **only if an upgrade is already pending**, and `queueUpgrade` defers by a pause **still running at queue time**, so `queue; pause`, `pause; queue` and cancel-and-requeue mid-pause take different paths. `inv_exitWindowIsUnpaused` counts the unpaused seconds each window actually contained. The symbolic suite's 13 proxy checks are all single-call; no single-call proof sees the interleaving. | the implementation (V1/V2 by `version()`), caller identity | 8 × 77 |
+| An activation actually promotes the implementation | `DelayedUpgradeProxy` | `activateUpgrade` | `implVersion` is read live through the proxy by delegatecall, so an activation that cleared the queue without calling `upgradeToAndCall` diverges. Nothing else would notice. | as above | 8 × 77 |
+| The one-shot pause latch agrees with its own history | `DelayedUpgradeProxy` | `pauseSpends`, `resetGuardianPause` | The bound `pauses - resets <= 1` is satisfied by a reset that failed to clear the latch. Counting *effective* resets pins the live boolean to the counts. | as above | 8 × 77 |
 | The spent set matches the bitmap after every consume | `NullifierSet` | `consume`, `consumeSpent` | `test/symbolic/` proves the isolation property for a *pair* over all 2^256 values. This runs a *sequence* — up to 24 consumes across three buckets — and re-reads the whole set after each. | nothing; live reads throughout | 6 × 25 |
 | A second consume is rejected, and changes nothing | `NullifierSet` | `consumeSpent` | A negative action: the model asserts a *rejection* and the driver wraps the call in `vm.expectRevert(DoubleSpend.selector)`. An invariant run with `fail_on_revert = false` cannot tell a correct rejection from an unrelated revert from a call that never ran. | as above | 6 × 25 |
 | Every pool token is claimed by exactly one thing | `MASP` | submit / flush / cancel / cancelTooEarly / sweep / advanceBlocks / setCancelDelay / setAssetDisabled | `invariant_balanceConservation` checks this at the end of a run. Here it is checked after every step, so the report names the action that broke it. | Groth16, permit2, ERC-1271, the root ring | 20 × 97 |
@@ -46,12 +46,14 @@ silent no-op into a named failure — see the `flushOne` note in
 | A pending deposit's fee is never accrued | `MASP` | as above | `accruedFee + treasury == fees of flushed deposits`. `FeeConfig` documents that escrowed fees are not accrued; nothing checked it. | as above | 20 × 97 |
 | A refund is exactly principal + fee | `MASP` | `cancel` | `payerBalance` moves only on a refund, because submit mints exactly what the deposit costs. That makes it a direct check on refund arithmetic, which no other suite asserts. | as above | 20 × 97 |
 | Cancelling before the delay is rejected | `MASP` | `cancelTooEarly` | Negative action, wrapped in `vm.expectRevert(CancelTooEarly.selector, id, unlock)`. `invariant_lifecycleExclusivity`'s handler rolls past the delay first, so the guard is never exercised there. 9 of the committed cancels land exactly on the unlock block. | as above | 20 × 97 |
-| The cancel delay is a live parameter | `MASP` | `setCancelDelay` | `cancelDeposit` reads `cancelDelay` from storage, and the escrow digest binds `submittedAt` but not the delay — so moving it moves the unlock block of every deposit already in flight. The delay is now compared after every step, and both cancel guards read it. | as above | 20 × 97 |
+| The cancel delay is a live parameter | `MASP` | `setCancelDelay` | `cancelDeposit` reads `cancelDelay` from storage, and the escrow digest binds `submittedAt` but not the delay — so moving it moves the unlock block of every deposit already in flight. A lengthening is only queued (`ExitTerms`), so the model leaves the live delay unchanged on one; the commit is not modelled. The delay is now compared after every step, and both cancel guards read it. | as above | 20 × 97 |
 | Disabling an asset does not strand escrows | `MASP` | `setAssetDisabled` | `disabled` is read in exactly one place, `_validateDeposit`, so it stops new deposits and nothing else. Flush and cancel stay enabled while disabled, so gating either on the flag surfaces as an enabledness divergence instead of silently stranded funds. An absence of a check is exactly what a later refactor breaks. | as above | 20 × 97 |
-| The asking price falls monotonically while the clock runs | `FeeBurner` | accrueFees / buy / wait / setLot / setPaused | The decay is `startPrice >> periods` minus a linear term inside the period. `test/symbolic/README.md` records that halmos cannot enter any of it — division of a symbolic product is a hard wall — so no accepting `buy` is proven anywhere. Here the curve is compared at every step, and the two ends of each jump are held against each other. | `harvest` and the pool, `minLot`, multiple lot tokens | 8 × 81 |
-| `govIn` is a ceiling, and the burn split is not | `FeeBurner` | `buy` | Five roundings run in one call, in two directions. `bidderGov` moves only by `govIn`, so the composite is compared directly rather than inferred; the ghosts bracket the total between the cost basis and the cost basis plus one unit per fill, which a floor cannot sit inside. | as above | 8 × 81 |
-| The restart ratchet never leaves the lot cheaper | `FeeBurner` | `buy` | `startPrice` is rewritten from the price the *previous* `buy` cleared at, scaled by the share that buy took. A sawtooth that only exists across steps: no single-call proof and no end-of-run invariant sees it. Nothing else in the repo touches `buy`. | as above | 8 × 81 |
-| GOV supply falls by exactly what was burned | `FeeBurner` | `buy` | `govSupply` is read live from `totalSupply()` and compared against a ghost accumulated independently. `test/burn/FeeBurner.invariant.t.sol` checks monotonicity, which a burn of the wrong size satisfies. | as above | 8 × 81 |
+| The asking price falls monotonically while the clock runs | `FeeBurner` | accrueFees / buy / wait / setLot / setPaused / setDecayParams | The decay is `startPrice >> periods` minus a linear term inside the period. `test/symbolic/README.md` records that halmos cannot enter any of it — division of a symbolic product is a hard wall — so no accepting `buy` is proven anywhere. Here the curve is compared at every step, and the two ends of each jump are held against each other. | `harvest` and the pool, `restartMultBps` changes, multiple lot tokens | 8 × 97 |
+| `govIn` is a ceiling, and the burn split is not | `FeeBurner` | `buy` | Five roundings run in one call, in two directions. `bidderGov` moves only by `govIn`, so the composite is compared directly rather than inferred; the ghosts bracket the total between the cost basis and the cost basis plus one unit per fill, which a floor cannot sit inside. | as above | 8 × 97 |
+| The restart ratchet never leaves the lot cheaper | `FeeBurner` | `buy` | `startPrice` is rewritten from the price the *previous* `buy` cleared at, scaled by the share that buy took. A sawtooth that only exists across steps: no single-call proof and no end-of-run invariant sees it. Nothing else in the repo touches `buy`. | as above | 8 × 97 |
+| Only a fill of at least `minLot` with non-zero weight re-anchors | `FeeBurner` | `buy` | A clearing fill below `minLot` is a full fill against a balance anyone can donate to; ratcheting on it let a 1-wei donate-and-buy loop double the start price each round. `buy` draws the whole balance as well as fixed amounts, so dust clears and zero-weight fills both run on a started clock, and `startedAt`, `startPrice` and the curve snapshot are compared after each. | as above | 8 × 97 |
+| `setDecayParams` never reprices a running lot | `FeeBurner` | `setDecayParams`, `buy` | The price is not projected, but it reaches the chain through `govIn`: a burner that priced off the globals instead of the lot's `(halfLife, maxHalvings)` snapshot diverges on `bidderGov` at the next fill on a stale curve. Globals and snapshot are both compared. | as above | 8 × 97 |
+| GOV supply falls by exactly what was burned | `FeeBurner` | `buy` | `govSupply` is read live from `totalSupply()` and compared against a ghost accumulated independently. `test/burn/FeeBurner.invariant.t.sol` checks monotonicity, which a burn of the wrong size satisfies. | as above | 8 × 97 |
 
 Runtime: ~60 ms for all five suites. `commitmentTree` is ~46M gas per trace (91
 steps, each re-reading all 64 ring slots); `nullifierSet` is ~1.3M (25 steps
@@ -89,9 +91,11 @@ n = 1 — that is the check `MaspFlowHandler.flushOne` failed.
 **`FeeBurner`'s pool.** `harvest` and `burnAccruedGov` are abstracted away: fee
 tokens simply arrive at the burner, which is what `FeeConfig.sweep` does when the
 burner is the treasury. `harvest` ignores every outcome of the calls it makes, so
-routing them adds state without adding a property. `minLot` is held at zero — the
-dust floor is a single-call guard, which is halmos territory — and one lot token
-is modelled, because the per-token mapping is a mapping.
+routing them adds state without adding a property. `minLot` is one constant, so
+the `BelowMinLot` and `BadMinLot` rejections stay single-call guards, and
+`restartMultBps` is held fixed while `setDecayParams` varies the two parameters a
+lot snapshots. One lot token is modelled, because the per-token mapping is a
+mapping.
 
 **`ProtocolAdmin`.** Considered and cut, so this reads as a decision. Its state is
 role sets over a fixed address set plus mirrored booleans: no arithmetic, no
@@ -121,25 +125,14 @@ nothing. Everything in the matrix above is there because of the fourth column.
 
 ## Findings from writing the models
 
-**A root can be in the ring and not be known.** "Every root still present in the
-ring is still known" reads like an invariant. It is not: `_advanceRoot` unlearns
-the value it evicted without checking whether the same value still occupies
-another slot. Quint refuted it in 13 ms, and `wit_ringRootUnlearned` in
-[`spec/commitment_tree.qnt`](../../spec/commitment_tree.qnt) now witnesses it in
-100% of traces, so it stays visible rather than being rediscovered.
-
-Benign today: production roots come from Poseidon over a strictly growing leaf
-set, so two batches never share one and the duplicate case cannot arise. It is
-recorded because a change that made roots repeatable would turn it into a live
-bug that silently rejects valid proofs.
-
-**The `evicted != newRoot` carve-out is a gas guard, not a correctness one.**
-Its comment says clearing that entry "would mark a root still live in the buffer
-as unknown", but the very next line sets `isKnownRoot[newRoot] = true`
-unconditionally, so the stated failure cannot occur. Confirmed observationally:
-a model without the carve-out replays green against the unmodified contract.
-Both branches of the condition avoid an SSTORE, which is a real saving —
-the comment is what is wrong, not the code.
+**A root could be in the ring and not be known.** "Every root still present in
+the ring is still known" read like an invariant and was not: `_advanceRoot`
+unlearned the value it evicted from the `isKnownRoot` mapping without checking
+whether the same value still occupied another slot. Quint refuted it in 13 ms.
+The mapping is gone: `isKnownRoot` now scans the ring and spends name their
+anchor's slot, so the property holds by construction and
+[`spec/commitment_tree.qnt`](../../spec/commitment_tree.qnt) asserts it as
+`inv_ringRootsAreKnown` over traces that reach duplicate roots in most states.
 
 **The MASP model rediscovers the `flushOne` bug on its own.** Setting
 `actualCount = 1` in `MaspReplay._flush` — the exact mistake

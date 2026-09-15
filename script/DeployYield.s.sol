@@ -11,17 +11,16 @@ import { ERC4626Venue } from "../src/yield/ERC4626Venue.sol";
 /// Yield-asset deploy against an already-deployed MASP: one `ERC4626Venue` per
 /// asset, then the owner registration that binds it.
 ///
-/// Separate from `Deploy.s.sol` and reading its own `{chain}.yield.json`, as
-/// `DeploySwap.s.sol` and `{chain}.swap.json` sit alongside the core deploy.
-/// The existing chain configs are unchanged: `DeployConfig.t.sol` pins their
-/// shape against an explicit file list.
+/// Separate from `Deploy.s.sol` and reading its own `{chain}.yield.json`, in the
+/// same way `DeploySwap.s.sol` reads `{chain}.swap.json`. `DeployConfig.t.sol`
+/// pins the core chain configs' shape against an explicit file list.
 ///
-/// Ordering is forced. `ERC4626Venue` is caller-pinned to the pool, so it
-/// cannot exist before the pool's constructor has run, which is why a yield
-/// asset is registered here rather than in the constructor arrays. Registration
-/// is permanent: `MASP.addYieldAsset` goes through the add-only registry, so an
-/// id's venue cannot be re-pointed afterwards and there is no `setVenue`. A
-/// wrong vault retires the id, which must then be replaced by a new one.
+/// `ERC4626Venue` is caller-pinned to the pool, so it can only be deployed once
+/// the pool exists; a yield asset is therefore registered here rather than in
+/// the initialization arrays. Registration is permanent: `MASP.addYieldAsset`
+/// goes through the add-only registry, so an id's venue cannot be re-pointed
+/// and there is no `setVenue`. A wrong vault requires retiring the id and
+/// registering a new one.
 ///
 /// A yield id is registered alongside the token's existing plain id, not in
 /// place of it. The two differ only in the venue binding, which is how a
@@ -46,6 +45,20 @@ import { ERC4626Venue } from "../src/yield/ERC4626Venue.sol";
 ///       forge script script/DeployYield.s.sol --rpc-url $RPC --broadcast`
 ///
 /// Must be broadcast by the pool's owner: `addYieldAsset` is `onlyOwner`.
+///
+/// Runbook, after this script: seed each new id before announcing it. A fresh
+/// id has no minimum liquidity, so its first and only holder can donate vault
+/// shares to the venue and inflate the index until one unit costs about 1e24
+/// wei; units are `uint48`, so the id becomes unusable at normal sizes. The
+/// donation accrues to whoever holds units, so it is griefing only, and it stops
+/// paying once someone else holds a meaningful share. The operator therefore
+/// shields a seed deposit into the id (for example 1,000 units) into a note held
+/// by the treasury, through the SDK, and waits for it to be flushed; a donation
+/// then mostly enriches the seed's holder. The seed is not scripted here: a flushable
+/// deposit needs a note commitment, a Pedersen value commitment that the
+/// tree-update circuit binds to the amount, and encrypted payloads, all built
+/// off-chain by the wallet. A placeholder deposit with a dummy commitment could
+/// never be flushed, and relayers would have to learn to skip it.
 contract DeployYield is Script {
     string constant DEFAULT_CONFIG = "script/config/mainnet.yield.json";
 
@@ -93,11 +106,11 @@ contract DeployYield is Script {
         }
     }
 
-    /// Everything that must hold *before* a permanent binding is broadcast.
+    /// Everything that must hold before a permanent binding is broadcast.
     ///
     /// The vault's asset is read from the vault itself rather than trusted from
-    /// the config or a documentation page: this is the one check standing
-    /// between a typo and an asset id bound forever to the wrong vault.
+    /// the config, so a mistyped vault address cannot bind an asset id
+    /// permanently to the wrong vault.
     function _preflight(MASP masp, YieldAsset memory a) internal view {
         _requireCode(a.token, "token has no code");
         _requireCode(a.vault, "vault has no code");
@@ -108,8 +121,8 @@ contract DeployYield is Script {
 
         require(IERC4626(a.vault).asset() == a.token, "vault asset does not match token");
 
-        // The id must be free. `addYieldAsset` would revert anyway; failing
-        // here costs no gas and names the problem.
+        // The id must be free. `addYieldAsset` would also revert; checking here
+        // costs no gas and gives a descriptive error.
         try masp.asset(a.id) returns (MASP.AssetEntry memory) {
             revert("asset id already registered");
         } catch { }

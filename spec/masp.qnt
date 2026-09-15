@@ -2,55 +2,57 @@
 //
 // Replayed against a real pool by test/quint/MaspReplay.t.sol.
 //
-// WHAT THIS MODELS
+// SCOPE
 //
 // The lifecycle of one escrowed deposit: `deposit` escrows it, `flushBatch`
 // shields it, `cancelDeposit` refunds it after a delay, `sweep` moves accrued
-// fees to the treasury. It is the same machine
-// `test/invariant/MASP.flow.invariant.t.sol` drives with a fuzzer, written down
-// so it can be checked rather than assumed.
+// fees to the treasury. This is the machine
+// `test/invariant/MASP.flow.invariant.t.sol` drives with a fuzzer, stated
+// explicitly so it can be checked.
 //
-// That matters here more than usual. The flush half of that invariant suite
-// never ran: `flushOne` built a one-leaf batch where `_validateBatchHeader`
-// demands two, so every call reverted and `fail_on_revert = false` rolled the
-// ghost updates back in silence. A model asserted after *every* step cannot
-// have that failure mode - a step that does nothing is a step whose post-state
-// does not match.
+// The model is asserted after every step, so a call that has no effect on the
+// contract produces a post-state mismatch. An invariant suite running with
+// `fail_on_revert = false` lacks this property: a handler whose call always
+// reverts rolls back its ghost updates and passes without signal.
 //
-// ABSTRACTED, and why
+// ABSTRACTED
 //
-//   - Groth16 validity. The driver `vm.mockCall`-stubs the tree-update verifier,
-//     exactly as the invariant suite does. Foundry cannot synthesise a valid
-//     depth-11 proof, and what is interesting here is the escrow bookkeeping
+//   - Groth16 validity. The driver stubs the tree-update verifier with
+//     `vm.mockCall`, as the invariant suite does. Foundry cannot synthesise a
+//     valid depth-11 proof, and the subject here is the escrow bookkeeping
 //     around a proof, not the proof.
 //   - Permit2 and ERC-1271. The driver etches a MockERC1271 onto the payer so
 //     any signature passes.
-//   - Merkle roots. `committedCount` is modelled because it is the leaf
-//     accounting; the root ring is not, because spec/commitment_tree.qnt
-//     already models it in isolation and does it properly.
-//   - Value commitments, ciphertexts, clue keys. Not state-machine relevant.
+//   - Merkle roots. `committedCount` is modelled as leaf accounting; the root
+//     ring is modelled separately in spec/commitment_tree.qnt.
+//   - Value commitments, ciphertexts, clue keys. Not relevant to the state
+//     machine.
 //   - Yield assets, the spend path, upgrades, pausing, multi-asset batches and
 //     multi-deposit batches. One plain asset, one deposit per flush.
-//   - Fee rounding. `_computeAmounts` floors `inAmt * fbps / BPS`, and this
-//     model cannot tell that from a ceiling: the asset's scale is 1e10, which
-//     divides BPS, so the division is exact for every `publicIn` the model can
-//     draw - and for any fee rate, not just this one. Flipping the contract to
-//     ceil-div would be invisible here, and equally invisible to
-//     test/invariant/, which registers the same scale.
+//   - The delayed commit of a cancel-delay raise. `setCancelDelay` models a
+//     lengthening as leaving the live delay unchanged, which is what the
+//     contract does at the call; the queued value, its 30-day notice and
+//     `commitExitTerms` (timestamp-driven, where this model counts blocks)
+//     are covered by test/masp/MASP.deposit.t.sol and MASP.upgrade.t.sol.
+//     Once the delay is shortened, the model therefore never lengthens it
+//     again.
+//   - Fee rounding. `_computeAmounts` floors `inAmt * fbps / BPS`. The asset's
+//     scale is 1e10, a multiple of BPS, so the division is exact for every
+//     `publicIn` the model can draw and for any fee rate. A ceil-div in the
+//     contract is therefore indistinguishable here and in test/invariant/,
+//     which registers the same scale.
 //
-//     `test/masp/MASP.fee.t.sol` is where rounding is covered: it registers an
-//     asset with `scale = 1`, where the division has a remainder. Left there
-//     rather than duplicated here - but stated, because "the model checks the
-//     fee arithmetic" would otherwise be a fair and wrong reading of the
-//     balance invariants below.
+//     Rounding is covered by `test/masp/MASP.fee.t.sol`, which registers an
+//     asset with `scale = 1` so the division has a remainder. The balance
+//     invariants below do not check fee rounding.
 //
 //   - Every rejection `_validateDeposit` performs: zero `publicIn`, zero payer,
 //     recipient or commitment, wrong chain id, unknown or disabled asset,
-//     malformed aux. The driver only ever submits well-formed deposits, so the
-//     model has no notion of a rejected submit. The unit suite covers them.
+//     malformed aux. The driver submits only well-formed deposits, so the model
+//     has no rejected-submit action; the unit suite covers these rejections.
 module masp {
   // Must match the driver's constants. `MaspReplay.setUp` asserts the pool
-  // agrees on CANCEL_DELAY, so a change to either side fails loudly.
+  // agrees on CANCEL_DELAY, so a mismatch fails at setup.
   pure val SCALE = 10000000000        // 1e10
   pure val FEE_BPS = 25
   pure val BPS = 10000
@@ -58,8 +60,9 @@ module masp {
   pure val CANCEL_DELAY_MIN = 3600       // MASP.CANCEL_DELAY_MIN
   pure val CANCEL_DELAY_MAX = 50400      // MASP.CANCEL_DELAY_MAX
 
-  /// The delays `setCancelDelay` may be moved to. Both ends of the permitted
-  /// range plus the default, which is enough to shorten and lengthen.
+  /// The delays `setCancelDelay` may choose: both ends of the permitted range
+  /// plus the default, enough to both shorten the delay and attempt to
+  /// lengthen it (which the contract only queues).
   pure val DELAY_CHOICES = Set(CANCEL_DELAY_MIN, CANCEL_DELAY_DEFAULT, CANCEL_DELAY_MAX)
   pure val LEAVES_PER_DEP = 2         // PubInputs.LEAVES_PER_DEPOSIT
 
@@ -68,14 +71,13 @@ module masp {
   pure val MAX_DEPOSITS = 6
   pure val MAX_PUBLIC_IN = 1000
 
-  /// Block jumps. A constant set rather than a range because `CANCEL_DELAY`
-  /// itself has to be drawable: submitting at `b` and advancing by exactly
-  /// `CANCEL_DELAY` puts the clock on the unlock block, which is the boundary
-  /// `cancel` and `cancelTooEarly` divide. Drawing from `1.to(7400)` would
-  /// reach it with probability 1/7400 and the boundary would go untested.
-  /// One jump per delay that can be in force, so the unlock block is reachable
-  /// exactly whichever delay `setCancelDelay` last chose, plus small jumps to
-  /// land just short of it.
+  /// Block jumps. A constant set rather than a range so the cancel delay itself
+  /// is drawable: submitting at `b` and advancing by exactly the delay puts the
+  /// clock on the unlock block, the boundary `cancel` and `cancelTooEarly`
+  /// divide. A range such as `1.to(7400)` would reach it with probability
+  /// 1/7400. The set holds one jump per delay that can be in force, so the
+  /// unlock block is reachable under whichever delay `setCancelDelay` last
+  /// chose, plus small jumps to land just short of it.
   pure val BLOCK_JUMPS = Set(1, 10, 200, CANCEL_DELAY_MIN, CANCEL_DELAY_DEFAULT, CANCEL_DELAY_MAX)
 
   type Status = Pending | Flushed | Cancelled
@@ -96,33 +98,30 @@ module masp {
   var accruedFee: int
   var treasuryBalance: int
   /// What the payer has been refunded. Every submit mints exactly what the
-  /// deposit costs and the pool pulls all of it, so this only ever moves on a
-  /// cancel - which makes it a direct check on refund arithmetic.
+  /// deposit costs and the pool pulls all of it, so this moves only on a
+  /// cancel and directly checks refund arithmetic.
   var payerBalance: int
   var committedCount: int
-  /// MASP.cancelDelay. A live storage value, not a per-deposit one - see
-  /// `setCancelDelay` below for why that distinction is the point.
+  /// MASP.cancelDelay. A live storage value, not a per-deposit one; see
+  /// `setCancelDelay` for the consequence.
   var cancelDelay: int
-  /// AssetRegistry entry's `disabled` flag for the one asset this models.
+  /// AssetRegistry entry's `disabled` flag for the one modelled asset.
   var assetDisabled: bool
 
-  /// Ghost. Not compared against the chain - `ignoreState` in the config says
-  /// so and why. Incremented whenever a cancel action fires on the wrong side
-  /// of the delay, which the guards are supposed to make impossible. Without
-  /// it the delay is unconstrained by any invariant: mutation testing showed
-  /// that deleting either guard left every invariant satisfied, leaving the
-  /// timing rule resting entirely on the replay.
+  /// Ghost; not compared against the chain (see `ignoreState` in the config).
+  /// Incremented whenever a cancel action fires on the wrong side of the delay,
+  /// which the guards make impossible. Without it the delay is unconstrained by
+  /// any invariant: under mutation testing, deleting either guard satisfies
+  /// every invariant and the timing rule is checked only by the replay.
   var guardViolations: int
 
   /// Ghost. Latches when a deposit is flushed or cancelled while its asset is
-  /// disabled. Witnessed below: the property is that disabling stops new
-  /// inflow without stranding what is already escrowed, and a witness is what
-  /// distinguishes "the traces showed that works" from "the traces never
-  /// tried".
+  /// disabled. Witnessed below: disabling stops new inflow without stranding
+  /// escrowed deposits, and the witness shows the traces exercise that case.
   var settledWhileDisabled: bool
 
-  /// Ghost. Latches when a deposit is cancelled at a block the *default* delay
-  /// would still have forbidden - only possible if `setCancelDelay` shortened
+  /// Ghost. Latches when a deposit is cancelled at a block the default delay
+  /// would still forbid, which is possible only if `setCancelDelay` shortened
   /// the window under an escrow already in flight. Witnessed below.
   var cancelledEarlierThanDefault: bool
 
@@ -157,15 +156,13 @@ module masp {
 
   // --- frames -----------------------------------------------------------
   //
-  // Quint has no `UNCHANGED`, so every action assigns all thirteen variables
-  // and eighty-odd of those lines said only `x' = x`. Grouped by what they
-  // describe: a strict writer-partition is useless here, because almost every
-  // variable has a write-set of its own - twelve groups for thirteen variables.
+  // Quint has no `UNCHANGED`, so every action assigns all thirteen variables.
+  // The frame actions below group the `x' = x` assignments by what the
+  // variables describe; a strict writer-partition would need twelve groups for
+  // thirteen variables, since almost every variable has its own write-set.
   //
-  // An action writing *part* of a group cannot also frame it and spells out the
-  // rest by hand; `flush` below is the shape. The four administrative actions,
-  // which write one variable each, are where this pays: twelve noise lines
-  // become five names.
+  // An action that writes part of a group cannot use that group's frame and
+  // assigns the remaining members explicitly (see `flush`).
 
   /// The escrow book.
   action unchangedEscrows = all {
@@ -174,7 +171,7 @@ module masp {
   }
 
   /// Where the tokens are. `accruedFee` is a claim on `poolBalance` rather than
-  /// a separate pot, which is why it has to be modelled beside it.
+  /// a separate balance, so the two are grouped together.
   action unchangedLedger = all {
     poolBalance' = poolBalance,
     accruedFee' = accruedFee,
@@ -193,8 +190,8 @@ module masp {
 
   action unchangedClock = blockNo' = blockNo
 
-  /// The three ghosts. Nothing on chain corresponds to them; they exist so the
-  /// invariants can be stated against something other than themselves.
+  /// The three ghosts. They have no on-chain counterpart and give the
+  /// invariants an independent source to check against.
   action unchangedGhosts = all {
     guardViolations' = guardViolations,
     settledWhileDisabled' = settledWhileDisabled,
@@ -208,8 +205,8 @@ module masp {
     val fee = feeOf(principal)
     all {
       nextId < MAX_DEPOSITS,
-      // `_validateDeposit` rejects a disabled asset. This is the only place the
-      // flag is read - flush and cancel deliberately do not gate on it.
+      // `_validateDeposit` rejects a disabled asset. This is the only read of
+      // the flag; flush and cancel do not gate on it.
       not(assetDisabled),
       deposits' = deposits.put(nextId, {
         principal: principal,
@@ -231,9 +228,8 @@ module masp {
   }
 
   /// `flushBatch` with one deposit: shields it and accrues the treasury's fee.
-  /// The tokens do not move - the fee was already in the pool - so this is a
-  /// reclassification, which is exactly why `accruedFee` has to be modelled
-  /// separately from `poolBalance`.
+  /// No tokens move (the fee is already in the pool), so this reclassifies the
+  /// fee; hence `accruedFee` is modelled separately from `poolBalance`.
   action flush = {
     nondet id = 0.to(MAX_DEPOSITS - 1).oneOf()
     all {
@@ -271,9 +267,9 @@ module masp {
       accruedFee' = accruedFee,
       treasuryBalance' = treasuryBalance,
       settledWhileDisabled' = (settledWhileDisabled or assetDisabled),
-      // Parenthesised deliberately: `x' = a or b` parses as `(x' = a) or b`,
-      // an action-level disjunction whose first branch just carries the old
-      // value, so the latch silently never fires.
+      // Parenthesised because `x' = a or b` parses as `(x' = a) or b`, an
+      // action-level disjunction whose first branch keeps the old value, so the
+      // latch would never fire.
       cancelledEarlierThanDefault' =
         (cancelledEarlierThanDefault
           or blockNo < deposits.get(id).submittedAt + CANCEL_DELAY_DEFAULT),
@@ -286,12 +282,12 @@ module masp {
     }
   }
 
-  /// Negative path: `cancelDeposit` before the delay must be rejected.
+  /// Negative path: `cancelDeposit` before the delay reverts.
   ///
-  /// The model asserts a rejection - every variable unchanged - and the driver
+  /// The model asserts a rejection (every variable unchanged) and the driver
   /// wraps the call in `vm.expectRevert(CancelTooEarly.selector, id, unlock)`.
-  /// The invariant suite cannot express this: `cancelOne` rolls past the delay
-  /// first, so the guard it depends on is never actually exercised.
+  /// The invariant suite does not exercise this guard: `cancelOne` rolls past
+  /// the delay first.
   action cancelTooEarly = {
     nondet id = 0.to(MAX_DEPOSITS - 1).oneOf()
     all {
@@ -303,8 +299,7 @@ module masp {
         else guardViolations,
       settledWhileDisabled' = settledWhileDisabled,
       cancelledEarlierThanDefault' = cancelledEarlierThanDefault,
-      // Everything else: a rejected cancel must leave the state exactly as it
-      // found it, which is the whole content of this action.
+      // A rejected cancel leaves all other state unchanged.
       unchangedEscrows,
       unchangedLedger,
       unchangedTree,
@@ -341,28 +336,30 @@ module masp {
 
   /// `setCancelDelay`, owner-only, bounded to [MIN, MAX].
   ///
-  /// The reason this is worth an action of its own: `cancelDeposit` computes
-  /// `unlockBlock = submittedAt + cancelDelay` from *storage*, and the escrow
-  /// digest binds `submittedAt` but not the delay. So moving the delay moves
-  /// the unlock block of every deposit already in flight - shortening it can
-  /// make an escrow cancellable immediately, and lengthening it extends a lock
-  /// the payer accepted under different terms.
+  /// `cancelDeposit` computes `unlockBlock = submittedAt + cancelDelay` from
+  /// storage, and the escrow digest binds `submittedAt` but not the delay.
+  /// Changing the delay therefore moves the unlock block of every deposit
+  /// already in flight: shortening it can make an escrow cancellable
+  /// immediately. By design, the delay is a live protocol parameter, not a
+  /// term of each escrow.
   ///
-  /// That is a design decision rather than a defect - the delay is a live
-  /// protocol parameter, not a term of each escrow.
+  /// Lengthening it would extend the lock the payer accepted, so the contract
+  /// only queues a longer delay (`ExitTerms`) and leaves the live value alone;
+  /// it lands through `commitExitTerms` after 30 days. The model keeps the live
+  /// value on a lengthening, so a contract that applied one at once diverges
+  /// here. The queue and the commit are not modelled; see ABSTRACTED.
   ///
-  /// `cancelDelay` is live state, compared against `masp.cancelDelay()` after
-  /// every step, and both cancel guards read it rather than a constant. So a
-  /// contract change to the setter's bounds, or to reading the delay from
-  /// storage at cancel time, diverges here.
+  /// `cancelDelay` is compared against `masp.cancelDelay()` after every step,
+  /// and both cancel guards read it rather than a constant, so a contract
+  /// change to the setter's bounds, or to reading the delay from storage at
+  /// cancel time, diverges here.
   ///
   /// `wit_cancelledEarlierThanDefault` witnesses the consequence: a deposit
   /// cancelled in the window that opens when the delay is shortened beneath it.
-  ///
   action setCancelDelay = {
     nondet newDelay = DELAY_CHOICES.oneOf()
     all {
-      cancelDelay' = newDelay,
+      cancelDelay' = if (newDelay <= cancelDelay) newDelay else cancelDelay,
       assetDisabled' = assetDisabled,
       unchangedEscrows,
       unchangedLedger,
@@ -374,15 +371,13 @@ module masp {
 
   /// `setAssetDisabled`, owner-only.
   ///
-  /// The flag is read in exactly one place - `_validateDeposit` - so it stops
-  /// new deposits and nothing else. `flushBatch` and `cancelDeposit` do not
-  /// consult it, which is what keeps a disable from stranding funds already
-  /// escrowed in that asset.
+  /// The flag is read only in `_validateDeposit`, so it stops new deposits and
+  /// nothing else. `flushBatch` and `cancelDeposit` do not consult it, so
+  /// disabling an asset does not strand funds already escrowed in it.
   ///
-  /// That is an absence of a check, which is precisely the kind of thing a
-  /// later refactor breaks by adding one. Here the model keeps flush and cancel
-  /// enabled while disabled, so gating either of them on the flag would surface
-  /// as an enabledness divergence rather than as silently stranded escrows.
+  /// The model keeps flush and cancel enabled while the asset is disabled, so a
+  /// contract change that gates either on the flag surfaces as an enabledness
+  /// divergence rather than as stranded escrows.
   action setAssetDisabled = {
     nondet disabled = Set(false, true).oneOf()
     all {
@@ -401,36 +396,31 @@ module masp {
   // --- invariants -------------------------------------------------------
 
   /// Every token the pool holds is accounted for by exactly one claim on it.
-  /// Mirrors `invariant_balanceConservation`, but checked after every step
-  /// rather than at the end of a run.
+  /// Mirrors `invariant_balanceConservation`, checked after every step rather
+  /// than at the end of a run.
   val inv_balanceConservation =
     poolBalance == pendingPrincipal + pendingFee + shieldedPrincipal + accruedFee
 
-  /// Ids are dense from zero, and the sum type makes a deposit in two states
-  /// unrepresentable rather than merely uncounted.
+  /// Ids are dense from zero. The sum type makes a deposit in two states
+  /// unrepresentable.
   val inv_lifecycleDense = deposits.keys() == 0.to(nextId - 1)
 
   /// Two leaves per flushed deposit.
-  ///
-  /// `invariant_rootCoherence` documents this in its NatSpec and then asserts
-  /// `committedCount == ghostInserted` against a ghost that counted one. Both
-  /// halves were wrong and cancelled out at 0 == 0, because no flush ever
-  /// landed. Stated here as the arithmetic it actually is.
   val inv_committedCountMatchesFlushed =
     committedCount == LEAVES_PER_DEP * withStatus(Flushed).size()
 
-  /// The treasury is only ever paid out of accrued fees, and only fees from
-  /// deposits that were actually shielded. A pending deposit's fee is escrowed,
-  /// never accrued - `FeeConfig` documents that and nothing checked it.
+  /// The treasury is paid only from accrued fees, and only fees from deposits
+  /// that were shielded. A pending deposit's fee is escrowed, never accrued, as
+  /// documented in `FeeConfig`.
   val inv_feeNeverEscrowed =
     accruedFee + treasuryBalance == sumOver(withStatus(Flushed), d => d.fee)
 
-  /// A refund is exactly what was escrowed: principal plus fee, no more.
+  /// A refund is exactly what was escrowed: principal plus fee.
   val inv_refundsAreExact = payerBalance == cancelledTotal
 
-  /// Nothing goes negative. Solidity would revert on underflow, so a model that
-  /// allowed it would diverge rather than mislead - but it is cheap to rule out
-  /// at the model level, where the counterexample is readable.
+  /// No balance goes negative. Solidity reverts on underflow, so a model that
+  /// allowed it would diverge in the replay; ruling it out in the model yields a
+  /// readable counterexample.
   val inv_noNegativeBalances = and {
     poolBalance >= 0,
     accruedFee >= 0,
@@ -438,14 +428,13 @@ module masp {
     payerBalance >= 0,
   }
 
-  /// Neither cancel action ever fired on the wrong side of the delay. The
-  /// delay is the whole point of the cancel window, and this is the only
-  /// invariant that constrains it - the value-flow invariants above are
-  /// indifferent to *when* a refund happened.
+  /// Neither cancel action fired on the wrong side of the delay. This is the
+  /// only invariant that constrains the delay; the value-flow invariants above
+  /// do not depend on when a refund happened.
   val inv_cancelGuardsRespected = guardViolations == 0
 
   /// The setter's bounds hold for every reachable delay. `cancelDeposit`
-  /// trusts this: an unbounded delay would either strand escrows forever or
+  /// relies on this: an unbounded delay could strand escrows indefinitely or
   /// remove the window entirely.
   val inv_cancelDelayInBounds =
     cancelDelay >= CANCEL_DELAY_MIN and cancelDelay <= CANCEL_DELAY_MAX
@@ -463,27 +452,26 @@ module masp {
 
   // --- witnesses --------------------------------------------------------
 
-  /// A cancel that happened exactly on the unlock block. The boundary between
-  /// `cancel` and `cancelTooEarly` is the whole point of the delay, and a run
-  /// that never lands on it has tested the two sides but not the edge.
+  /// A cancelled deposit whose unlock block equals the current block. A run
+  /// that never lands on the boundary between `cancel` and `cancelTooEarly`
+  /// tests both sides but not the edge.
   val wit_cancelledAtBoundary =
     withStatus(Cancelled).exists(i => blockNo == deposits.get(i).submittedAt + cancelDelay)
 
-  /// A flush and a cancel both happened. Traces that only ever do one leave
-  /// half the lifecycle untouched.
+  /// Both a flush and a cancel happened, so both terminal states are covered.
   val wit_bothTerminalStates =
     withStatus(Flushed).size() > 0 and withStatus(Cancelled).size() > 0
 
   /// Fees were accrued and then swept, so the treasury path ran end to end.
   val wit_sweptAfterFlush = treasuryBalance > 0
 
-  /// A deposit was flushed or cancelled while its asset was disabled - the
-  /// property that a disable stops new inflow without stranding escrows.
+  /// A deposit was flushed or cancelled while its asset was disabled: disabling
+  /// stops new inflow without stranding escrows.
   val wit_settledWhileDisabled = settledWhileDisabled
 
   /// A deposit cancelled in the window that opens when the delay is shortened
-  /// beneath it - the consequence of the delay being live state rather than a
-  /// term of each escrow.
+  /// beneath it, a consequence of the delay being live state rather than a term
+  /// of each escrow.
   val wit_cancelledEarlierThanDefault = cancelledEarlierThanDefault
 
 }

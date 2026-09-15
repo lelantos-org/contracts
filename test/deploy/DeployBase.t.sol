@@ -21,7 +21,7 @@ contract BaseDeployHarness is BaseDeploy {
 }
 
 /// `BaseDeploy._deployMaspCore` wiring: the pool takes no wrapped-native
-/// argument at all, and the `NativeAdapter` is deployed — and pre-armed —
+/// argument, and the `NativeAdapter` is deployed, with its allowances set,
 /// only when the chain config names a wrapped-native token.
 contract DeployBaseTest is Test {
     uint64 internal constant ASSET_WETH = 1;
@@ -86,8 +86,8 @@ contract DeployBaseTest is Test {
         assertEq(expiration, type(uint48).max, "allowance never expires");
     }
 
-    /// Chains with no wrapped-native token skip the adapter; the pool itself
-    /// is unaffected either way.
+    /// Chains with no wrapped-native token skip the adapter; the pool is
+    /// deployed the same way in both cases.
     function test_skipsAdapterWhenNoWrappedNative() public {
         BaseDeploy.MaspCore memory core = harness.deployCore(_params(address(0)));
 

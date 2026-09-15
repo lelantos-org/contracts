@@ -57,14 +57,14 @@ contract DeployTest is BaseDeploy {
 
         vm.startBroadcast();
 
-        // Permit2: prefer the canonical CREATE2 address, overridable via the
-        // PERMIT2 env var; deploy a fresh instance when neither has code, as on
-        // a local anvil. The deploy runs the constructor, so DOMAIN_SEPARATOR is
-        // cached for the real address and chain id; the etch-based helper in
-        // lib/permit2/test/utils/DeployPermit2.sol skips it and bakes a
-        // separator bound to whatever address produced the captured runtime
-        // bytecode, which fails EIP-712 verification with InvalidSigner.
-        // Permit2 pins solc 0.8.17 and MASP 0.8.30, so the bytecode is fetched
+        // Permit2: use the address in the PERMIT2 env var when it has code;
+        // otherwise deploy a fresh instance, as on a local anvil. The deploy runs
+        // the constructor, so DOMAIN_SEPARATOR is cached for the real address and
+        // chain id. The etch-based helper in
+        // lib/permit2/test/utils/DeployPermit2.sol skips the constructor and
+        // bakes in a separator bound to the address that produced the captured
+        // runtime bytecode, which fails EIP-712 verification with InvalidSigner.
+        // Permit2 pins solc 0.8.17 and MASP 0.8.36, so the bytecode is fetched
         // precompiled and deployed with `create`.
         permit2Addr = vm.envOr("PERMIT2", address(0));
         if (permit2Addr == address(0) || permit2Addr.code.length == 0) {
@@ -94,12 +94,11 @@ contract DeployTest is BaseDeploy {
         }
 
         // Fee parameters. Rates are per asset and per leg on chain; this
-        // script applies one pair uniformly across the fixture registry, which
-        // is what a local stack wants. A deployment that needs them to differ
-        // per asset edits the arrays directly, as `Deploy.s.sol` does from
-        // config. Defaults: 25 bps (0.25%) on each leg, treasury =
-        // MASP_TREASURY env var, owner = MASP_OWNER env var (or tx.origin
-        // under broadcast).
+        // script applies one pair uniformly across the fixture registry.
+        // Per-asset rates are set from config by `Deploy.s.sol`. Defaults:
+        // 25 bps (0.25%) on each leg (MASP_DEPOSIT_BPS / MASP_WITHDRAW_BPS),
+        // treasury = MASP_TREASURY (default 0xdEaD), owner = MASP_OWNER (default
+        // tx.origin under broadcast).
         uint16 depositBps = uint16(vm.envOr("MASP_DEPOSIT_BPS", uint256(25)));
         uint16 withdrawBps = uint16(vm.envOr("MASP_WITHDRAW_BPS", uint256(25)));
         p.depositBps = new uint16[](n);
@@ -130,7 +129,7 @@ contract DeployTest is BaseDeploy {
         _logCoreKv(core, p, tokenAddrs);
     }
 
-    /// Strict equality against the registry-supplied symbol. The contracts pair
+    /// Exact match against the registry-supplied symbol. The contracts bind
     /// the wrapped-native token to its `IWrappedNative` ABI by address, so this
     /// label only selects which fixture slot gets a `MockWETH9`. The target
     /// symbol comes from env `WRAPPED_NATIVE_SYMBOL` (default `WETH`; set

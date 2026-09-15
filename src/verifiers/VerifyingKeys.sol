@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-// Groth16 verifying-key constants for the two circuits a spend proves, lifted
-// verbatim from the snarkjs codegen verifiers so `BatchedGroth16Verifier` has a
-// single source of truth for them.
+// Groth16 verifying-key constants for the two circuits a spend proves, copied
+// verbatim from the snarkjs codegen verifiers as the single source of truth for
+// `BatchedGroth16Verifier`.
 //
 // Circuit 1 is `4x6` (`Verifier.sol`), circuit 2 is `tree_update_batch`
 // (`TreeUpdateBatchVerifier.sol`). `Verifier.sol` is not deployed; it is the
@@ -12,19 +12,18 @@ pragma solidity 0.8.36;
 //
 // `alpha`, `beta` and `gamma` are shared: `4x6` is set up against
 // `powersOfTau28_hez_final_17.ptau` and `tree_update_batch` against
-// `powersOfTau28_hez_final_16.ptau`, and both are truncations of the one Hermez
+// `powersOfTau28_hez_final_16.ptau`, both truncations of the same Hermez
 // ceremony, so alpha and beta are the same points; snarkjs fixes gamma to the G2
-// generator. Only `delta`
-// and the `IC` points are per-circuit. That sharing lets the batched verifier
-// fold the two `e(alpha, beta)` terms into one and the two `e(PI_i, gamma)`
-// terms into one: six pairings instead of eight.
+// generator. Only `delta` and the `IC` points are per-circuit. The sharing lets
+// the batched verifier fold the two `e(alpha, beta)` terms into one and the two
+// `e(PI_i, gamma)` terms into one: six pairings instead of eight.
 //
 // Declared at file level rather than as library members: inline assembly can
 // reference a file-level or contract-level `constant` of value type by bare
 // identifier but cannot reference `Lib.CONST`.
 //
-// Rebuilding either circuit against a different ptau diverges the shared values
-// and the batched verifier stops accepting anything (fail-closed). Regenerate
+// Rebuilding either circuit against a different ptau diverges the shared values,
+// and the batched verifier then rejects every proof (fail-closed). Regenerate
 // this file and re-prove every fixture whenever a circuit changes.
 
 // ---------------------------------------------------------------------------
@@ -106,10 +105,10 @@ uint256 constant VK2_IC2Y = 1456494923638303340810689393075566427227500132715068
 //
 // A literal rather than a computed expression, because Solidity cannot fold
 // `keccak256(abi.encode(...))` into a compile-time `constant`. A test recomputes
-// it, so editing any key constant without regenerating this value fails loudly
-// rather than reusing a stale domain.
+// it, so editing any key constant without regenerating this value fails the test
+// suite.
 //
 // Defence in depth: the keys are fixed in bytecode, so a deployment with
-// different keys is a different contract regardless. It costs ~40 gas and keeps
-// any future instantiation from sharing a challenge derivation.
+// different keys is already a different contract. The prefix costs ~40 gas and
+// keeps any other instantiation from sharing a challenge derivation.
 bytes32 constant BATCH_DOMAIN = 0x5121d41dc8f43e2e6a38582a963812feace27c7c992c689f219700c367d75d15;

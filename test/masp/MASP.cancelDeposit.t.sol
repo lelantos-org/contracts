@@ -31,7 +31,7 @@ contract MASPCancelDepositTest is Test {
     address payer = address(0xface);
     address recipient = address(0xb0b);
     address bystander = address(0xdead);
-    /// Plain EOA payer — no code, so the permissionless cancel path applies.
+    /// EOA payer with no code, so the permissionless cancel path applies.
     address eoaPayer = address(0xEA0A);
 
     function setUp() public {
@@ -48,8 +48,8 @@ contract MASPCancelDepositTest is Test {
     }
 
     /// The `feeCvDep` every deposit here is built with: the builders leave it at
-    /// its zero default, and cancel must resupply the same value or the digest
-    /// will not reproduce.
+    /// its zero default, and cancel must resupply the same value for the digest
+    /// to match.
     function _zeroCv() internal pure returns (uint256[2] memory cv) {
         return cv;
     }
@@ -87,7 +87,7 @@ contract MASPCancelDepositTest is Test {
         d.feeCm = bytes32(uint256(0xfee));
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
 
         id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
@@ -96,7 +96,7 @@ contract MASPCancelDepositTest is Test {
         });
     }
 
-    /// Deposit with a codeless payer, via the standing-allowance path so no
+    /// Deposits with a codeless payer via the standing-allowance path, so no
     /// signature is needed. `deposit`'s fixture payer is an etched ERC-1271
     /// stub, which MASP classifies as a contract payer.
     function _submitEoa(uint64 publicIn) internal returns (uint256 id, uint256 inAmt, uint256 fee) {
@@ -136,7 +136,7 @@ contract MASPCancelDepositTest is Test {
             p.fbps,
             eoaPayer,
             p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 
@@ -154,7 +154,7 @@ contract MASPCancelDepositTest is Test {
             p.fbps,
             payer,
             p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 
@@ -196,8 +196,8 @@ contract MASPCancelDepositTest is Test {
         assertEq(token.balanceOf(eoaPayer), total, "payer gets refund");
     }
 
-    /// A contract payer is restricted to cancelling its own deposit: the coin
-    /// returns to it, so it must be the one to observe the refund.
+    /// Only a contract payer may cancel its own deposit: the refund returns to
+    /// it, so it must be the caller that observes the refund.
     function test_revert_contractPayer_thirdPartyCannotCancel() public {
         (uint256 id,,) = _submit(100);
         vm.roll(block.number + masp.cancelDelay());
@@ -214,7 +214,7 @@ contract MASPCancelDepositTest is Test {
             p.fbps,
             payer,
             p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 
@@ -222,7 +222,7 @@ contract MASPCancelDepositTest is Test {
 
     function test_revert_CancelTooEarly() public {
         (uint256 id,,) = _submit(100);
-        // No vm.roll → still in delay window.
+        // No vm.roll, so still inside the delay window.
         uint256 expectedUnlock = block.number + masp.cancelDelay();
         vm.expectRevert(abi.encodeWithSelector(MASP.CancelTooEarly.selector, id, expectedUnlock));
         _cancel(id);
@@ -244,8 +244,8 @@ contract MASPCancelDepositTest is Test {
 
     function test_revert_DepositNotPending_unknownId() public {
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, 999));
-        // Caller picks any preimage; contract reverts on empty slot before
-        // touching the digest, so the choice does not matter.
+        // Any preimage works: the contract reverts on the empty slot before
+        // checking the digest.
         masp.cancelDeposit(
             999,
             0,
@@ -255,7 +255,7 @@ contract MASPCancelDepositTest is Test {
             0,
             address(0),
             0,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(0), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(0), feeCvDep: _zeroCv() })
         );
     }
 
@@ -284,13 +284,13 @@ contract MASPCancelDepositTest is Test {
             p.fbps,
             bystander,
             p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 
     function test_revert_DigestMismatch_wrongSubmittedAt() public {
         // A forged earlier submittedAt cannot bypass the delay: the digest
-        // check runs before the delay check ever trusts the value.
+        // check runs before the delay check reads the value.
         (uint256 id,,) = _submit(100);
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
@@ -303,7 +303,7 @@ contract MASPCancelDepositTest is Test {
             p.fbps,
             payer,
             p.submittedAt - 1,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 
@@ -321,7 +321,7 @@ contract MASPCancelDepositTest is Test {
             p.fbps + 1,
             payer,
             p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 
@@ -339,7 +339,7 @@ contract MASPCancelDepositTest is Test {
             p.fbps,
             payer,
             p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 
@@ -359,8 +359,8 @@ contract MASPCancelDepositTest is Test {
     }
 
     function test_sweep_unaffectedByCancel() public {
-        // Two pending deposits; cancel the first. Neither ever accrued, so
-        // sweep finds nothing and the second deposit's escrow stays whole.
+        // Two pending deposits; the first is cancelled. Neither accrued, so
+        // sweep finds nothing and the second deposit's escrow is intact.
         (uint256 id1,,) = _submit(100);
         (, uint256 inAmt2, uint256 fee2) = _submit(100);
 

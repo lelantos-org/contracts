@@ -3,9 +3,8 @@ pragma solidity 0.8.36;
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-/// ERC20 that re-enters a configured target on `transferFrom`. Verifies that
-/// `MASP.transact`'s `nonReentrant` guard fires against a malicious token in
-/// the registry.
+/// ERC-20 that re-enters a configured target on `transferFrom`, for exercising
+/// the pool's `nonReentrant` guards against a malicious registered token.
 contract ReentrantMockERC20 is ERC20 {
     address public target;
     bytes public reenterCalldata;
@@ -17,8 +16,8 @@ contract ReentrantMockERC20 is ERC20 {
         _mint(to, amt);
     }
 
-    /// Configure the call made back into the target on the next
-    /// `transferFrom`. Set `armed = true` to trigger it.
+    /// Configures the call made back into the target on the next
+    /// `transferFrom`, and arms it.
     function arm(address t, bytes calldata data) external {
         target = t;
         reenterCalldata = data;

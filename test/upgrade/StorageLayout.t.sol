@@ -10,12 +10,12 @@ import { MASPNext } from "../mocks/MASPNext.sol";
 ///
 /// Behind a proxy the layout is the compatibility contract between versions:
 /// inserting or reordering a variable in any base shifts everything below it.
-/// The compiler cannot detect that across separately-compiled implementations,
+/// The compiler cannot detect that across separately compiled implementations,
 /// so it is asserted here. Upgrades may only append after the last slot.
 contract StorageLayoutTest is MASPUpgradeTestBase {
     uint256 internal constant SLOT_ROOTS = 0; // bytes32[64] -> slots 0..63
     uint256 internal constant SLOT_PACKED_COUNTS = 64; // rootIndex | committedCount
-    uint256 internal constant SLOT_IS_KNOWN_ROOT = 65;
+    uint256 internal constant SLOT_RETIRED_KNOWN_ROOT = 65; // reserved gap (`_retiredKnownRootSlot`)
     uint256 internal constant SLOT_OWNER = 66;
     uint256 internal constant SLOT_ASSETS = 67;
     uint256 internal constant SLOT_SPENT_BUCKETS = 68;
@@ -29,6 +29,11 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
     uint256 internal constant SLOT_ESCROWED = 79;
     uint256 internal constant SLOT_NEXT_DEPOSIT_ID = 80;
     uint256 internal constant SLOT_CANCEL_DELAY = 81;
+    /// `_escrowPulled`, the yield-escrow refund cap. A mapping root, so the slot
+    /// itself stays zero; entries live at `keccak256(abi.encode(id, 82))`.
+    uint256 internal constant SLOT_ESCROW_PULLED = 82;
+    /// First slot past the layout.
+    uint256 internal constant SLOT_END = 83;
 
     function _slot(uint256 i) internal view returns (uint256) {
         return uint256(vm.load(address(proxy), bytes32(i)));
@@ -77,7 +82,7 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
 
     // ============== Namespace isolation ======================================
 
-    /// The exit-window state and the pool's sequential slots must not overlap in
+    /// The exit-window state and the pool's sequential slots do not overlap in
     /// either direction.
     function test_poolStateDoesNotDisturbTheUpgradeNamespace() public {
         uint256 before = uint256(vm.load(address(proxy), UpgradeStorage.SLOT));
@@ -122,8 +127,8 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         uint256 id = _deposit(1_000, cm, 0);
         _flush(id, 1_000, cm);
 
-        uint256[82] memory before;
-        for (uint256 i = 0; i < 82; ++i) {
+        uint256[SLOT_END] memory before;
+        for (uint256 i = 0; i < SLOT_END; ++i) {
             before[i] = _slot(i);
         }
 
@@ -133,7 +138,7 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         vm.warp(T0 + UPGRADE_DELAY);
         proxy.activateUpgrade();
 
-        for (uint256 i = 0; i < 82; ++i) {
+        for (uint256 i = 0; i < SLOT_END; ++i) {
             assertEq(_slot(i), before[i], "a pool slot changed across the upgrade");
         }
     }
@@ -141,7 +146,8 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
     /// Slots beyond the layout are free, so an appending upgrade cannot alias
     /// state already in use.
     function test_appendedSlotsStartEmpty() public view {
-        assertEq(_slot(82), 0, "slot after the layout is not free");
-        assertEq(_slot(83), 0);
+        assertEq(_slot(SLOT_ESCROW_PULLED), 0, "a mapping root holds no value");
+        assertEq(_slot(SLOT_END), 0, "slot after the layout is not free");
+        assertEq(_slot(SLOT_END + 1), 0);
     }
 }

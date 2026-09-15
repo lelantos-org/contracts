@@ -5,31 +5,62 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// The pool and wrapper stand-ins `ProtocolAdmin` drives.
 ///
-/// `ProtocolAdmin` reaches its two targets through exactly five selectors —
-/// `setAssetDisabled`, `setHalted`, `emergencyUnwind`, `setAdapterAllowed` and
-/// `Ownable.transferOwnership` — and is otherwise a call forwarder. That is the
-/// whole of what these proofs need. The real `MASP` behind them would drag the
-/// spend path into every path explored, and `svm.createBytes` calldata
-/// dispatched against its full ABI is exactly the non-terminating shape
-/// `test/symbolic/README.md` warns about.
+/// `ProtocolAdmin` calls its two targets through eight selectors
+/// (`setAssetDisabled`, `setHalted`, `emergencyUnwind`, `setAdapterAllowed`,
+/// `Ownable.transferOwnership`, and the proxy's `proxyAdmin`, `changeProxyAdmin`
+/// and `pauseSpends`) and otherwise forwards calls. The real `MASP`
+/// would add the spend path to every explored path, and `svm.createBytes`
+/// calldata dispatched against its full ABI does not terminate (see
+/// `test/symbolic/README.md`).
 ///
-/// Ownership is real `Ownable`, not a stub: the property under proof is that
-/// `execute` cannot move it, and a stubbed owner would prove nothing about the
-/// selector guard that exists to prevent that.
+/// Ownership uses the real `Ownable`: the property under proof is that `execute`
+/// cannot move it, which a stubbed owner could not demonstrate.
 ///
-/// Every setter records rather than acts, so a proof can read back which
-/// direction a guardian switch was driven in.
+/// The proxy admin is a second seat beside ownership, as on
+/// `DelayedUpgradeProxy`: `changeProxyAdmin` and `pauseSpends` are gated on
+/// `proxyAdmin` rather than on `owner`, and `changeProxyAdmin` is the only way
+/// to move it. The real
+/// proxy would forward every other selector to an implementation by
+/// `delegatecall`, which the proofs here do not depend on.
+///
+/// Every setter only records its arguments, so a proof can read back which
+/// direction a guardian switch was set to.
 contract MockAdminTarget is Ownable {
     mapping(uint64 id => bool) public disabled;
     mapping(uint64 id => bool) public halted;
     mapping(address adapter => bool) public adapterAllowed;
 
-    /// Set by any owner-gated call that is neither an ownership move nor one of
-    /// the guardian switches, so a proof can tell "the call went through" from
-    /// "the call was refused" without reading ownership.
+    /// Written by `setParam` and `emergencyUnwind`, so a proof can distinguish a
+    /// forwarded call from a refused one without reading ownership.
     uint256 public touched;
 
-    constructor(address owner_) Ownable(owner_) { }
+    /// The upgrade seat. Starts with the owner, as the deployer holds both until
+    /// the handover.
+    address public proxyAdmin;
+    /// The duration of the last `pauseSpends`, so a proof can read back that the
+    /// guardian's pause reached the proxy.
+    uint256 public pausedFor;
+
+    error NotProxyAdmin();
+    error ZeroAdmin();
+
+    constructor(address owner_) Ownable(owner_) {
+        proxyAdmin = owner_;
+    }
+
+    modifier onlyProxyAdmin() {
+        if (msg.sender != proxyAdmin) revert NotProxyAdmin();
+        _;
+    }
+
+    function changeProxyAdmin(address newAdmin) external onlyProxyAdmin {
+        if (newAdmin == address(0)) revert ZeroAdmin();
+        proxyAdmin = newAdmin;
+    }
+
+    function pauseSpends(uint256 duration) external onlyProxyAdmin {
+        pausedFor = duration;
+    }
 
     function setAssetDisabled(uint64 id, bool value) external onlyOwner {
         disabled[id] = value;
@@ -48,24 +79,22 @@ contract MockAdminTarget is Ownable {
         adapterAllowed[adapter] = value;
     }
 
-    /// Stands in for the ordinary governance surface — `addAsset`,
-    /// `setAssetFee`, `setTreasury` — that `execute` exists to reach. Its only
-    /// job is to make a successful `execute` reachable, so the proofs that
-    /// quantify over calldata are not satisfied vacuously by everything
-    /// reverting.
+    /// Stands in for the ordinary governance surface (`addAsset`, `setAssetFee`,
+    /// `setTreasury`) reached through `execute`. It makes a successful `execute`
+    /// reachable, so proofs quantifying over calldata are not satisfied
+    /// vacuously by every call reverting.
     function setParam(uint256 v) external onlyOwner {
         touched = v;
     }
 }
 
-/// A candidate successor for `migrateAdmin`, which reads back three values
-/// before handing over: the successor's `POOL`, its `WRAPPER`, and whether the
+/// A candidate successor for `migrateAdmin`, which checks three values before
+/// transferring ownership: the successor's `POOL`, its `WRAPPER`, and whether the
 /// calling Timelock administers it.
 ///
-/// All three are settable so a proof can quantify over what a successor claims,
-/// including the three misconfigurations the guards reject — a successor wired
-/// to a different pool, to a different wrapper, or one this Timelock does not
-/// administer.
+/// All three are configurable so a proof can quantify over what a successor
+/// claims, including the three rejected misconfigurations: a different pool, a
+/// different wrapper, or a successor this Timelock does not administer.
 contract MockSuccessorAdmin {
     address public POOL;
     address public WRAPPER;

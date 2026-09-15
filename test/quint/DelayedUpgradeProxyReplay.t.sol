@@ -9,9 +9,8 @@ import { DelayedUpgradeProxySpecReplay } from "./generated/DelayedUpgradeProxySp
 
 /// Driver for [spec/delayed_upgrade_proxy.qnt](../../spec/delayed_upgrade_proxy.qnt).
 ///
-/// The cheapest rig of any spec here: two mock implementations and a proxy, no
-/// tokens, no permit2, no verifiers. It is the same shape as
-/// [test/upgrade/DelayedUpgradeProxy.t.sol](../upgrade/DelayedUpgradeProxy.t.sol)'s
+/// Two mock implementations and a proxy; no tokens, permit2 or verifiers. The
+/// setup matches [test/upgrade/DelayedUpgradeProxy.t.sol](../upgrade/DelayedUpgradeProxy.t.sol)'s
 /// `setUp`, which is scenario-driven where this replays a checked model.
 ///
 /// `abstract` so Foundry does not collect it as a test contract; the generated
@@ -45,8 +44,8 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
             address(v1), abi.encodeCall(MockPoolV1.initialize, (WITHDRAW_BPS)), admins[0], UPGRADE_DELAY, MAX_PAUSE
         );
 
-        // Two copies of each constant exist - the spec's and this file's. The
-        // pool's is the third, and the only one nothing else would catch.
+        // Each constant exists in the spec, in this file, and in the deployed
+        // proxy; these assertions check the proxy's copy.
         assertEq(proxy.UPGRADE_DELAY(), UPGRADE_DELAY, "spec and proxy disagree on UPGRADE_DELAY");
         assertEq(proxy.MAX_PAUSE(), MAX_PAUSE, "spec and proxy disagree on MAX_PAUSE");
         assertEq(block.timestamp, T0, "spec `init` fixes nowTs = 0");
@@ -68,13 +67,13 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
             vm.prank(admin);
             proxy.cancelUpgrade();
         } else if (action == DelayedUpgradeProxySpec.Action.ActivateUpgrade) {
-            // Permissionless on purpose: driven from an address that is not the
-            // admin, so a guard added here would surface immediately.
+            // Permissionless: called from a non-admin address, so an added
+            // caller guard causes a divergence.
             vm.prank(makeAddr("anyone"));
             proxy.activateUpgrade();
         } else if (action == DelayedUpgradeProxySpec.Action.ActivateTooEarly) {
-            // The revert carries the deadline, and asserting the argument is
-            // what makes a contract reporting the wrong one diverge.
+            // The revert carries the deadline; asserting the argument makes a
+            // wrong reported deadline diverge.
             (, uint256 activationAt) = proxy.pendingUpgrade();
             vm.expectRevert(abi.encodeWithSelector(DelayedUpgradeProxy.NotYetActivatable.selector, activationAt));
             proxy.activateUpgrade();
@@ -91,21 +90,17 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
             // Absolute, from an accumulator, rather than
             // `vm.warp(block.timestamp + dt)`.
             //
-            // A relative warp does in fact work *here*: `apply_` is reached
-            // through an external self-call, so its `block.timestamp` is read
-            // fresh in that frame and the via_ir caching that
-            // test/upgrade/DelayedUpgradeProxy.t.sol warns about does not
-            // apply. Tested: switching this line to the relative form leaves
-            // all eight traces green.
+            // A relative warp would also be correct here: `apply_` is reached
+            // through an external self-call, so `block.timestamp` is read fresh
+            // in that frame and the via_ir caching described in
+            // test/upgrade/DelayedUpgradeProxy.t.sol does not apply.
             //
-            // It stays absolute anyway, because the accumulator makes the
-            // driver's clock a function of the model's own `dt` picks rather
-            // than of wherever the chain happened to be. A warp that was
-            // skipped, applied twice, or reordered then shows up as `nowTs`
-            // rather than silently agreeing.
+            // The accumulator makes the driver's clock a function of the model's
+            // `dt` picks rather than of the chain's current time, so a skipped,
+            // duplicated or reordered warp shows up as a `nowTs` divergence.
             //
-            // The caching hazard is real, but it lands on the *read* side - see
-            // `_project`, which is inlined into the replay loop.
+            // The caching hazard applies to the read side; see `_project`, which
+            // is inlined into the replay loop.
             elapsed += picks.dt;
             vm.warp(T0 + elapsed);
         } else {
@@ -124,16 +119,16 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
     // --- projection -------------------------------------------------------
 
     function _project() internal view override returns (DelayedUpgradeProxySpec.State memory s) {
-        // Through an external call, deliberately. `_project` is inlined into
-        // the replay loop, and under `via_ir` the optimizer caches
-        // `block.timestamp` across it - it cannot know a cheatcode moved the
-        // clock mid-frame. So a plain `block.timestamp` here reads T0 on every
-        // step however many times `advanceTime` warped, and every trace
-        // diverges on `nowTs` at the first jump. A staticcall cannot be cached.
+        // Read through an external call. `_project` is inlined into the replay
+        // loop, and under `via_ir` the optimizer caches `block.timestamp` across
+        // it, unaware that a cheatcode moved the clock mid-frame. A plain
+        // `block.timestamp` here would read T0 on every step regardless of
+        // `advanceTime` warps, and every trace would diverge on `nowTs` at the
+        // first jump. A staticcall result is not cached.
         //
-        // test/upgrade/DelayedUpgradeProxy.t.sol records this hazard for warps;
-        // in a replay driver the warp is safe (it happens inside an external
-        // call frame) and the *read* is what bites.
+        // test/upgrade/DelayedUpgradeProxy.t.sol describes this hazard for
+        // warps; in a replay driver the warp happens inside an external call
+        // frame and is safe, and the read is what is affected.
         s.nowTs = this.quintNow() - T0;
 
         (address pending, uint256 activationAt) = proxy.pendingUpgrade();
@@ -144,9 +139,9 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
         s.pausedUntil = until == 0 ? 0 : until - T0;
         s.guardianPauseUsed = proxy.guardianPauseUsed();
 
-        // A live delegatecall through the proxy. This is the field that makes
-        // an activation which cleared the queue without actually upgrading
-        // visible; everything else would still agree.
+        // A live delegatecall through the proxy. This field detects an
+        // activation that clears the queue without upgrading; every other
+        // field would still agree.
         s.implVersion = MockPoolV1(address(proxy)).version();
 
         s.admin = _adminIndex();
@@ -155,8 +150,8 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
     // --- reverse maps -----------------------------------------------------
     //
     // The model addresses implementations and admins by index. Each reverse map
-    // is driver-local bookkeeping, so each fails by name rather than letting an
-    // unmapped address arrive at the comparison dressed as a divergence.
+    // is driver-local bookkeeping and fails by name on an unmapped address
+    // rather than reporting it as a model divergence.
 
     function _implOf(uint256 v) private view returns (address) {
         if (v == 1) return address(v1);

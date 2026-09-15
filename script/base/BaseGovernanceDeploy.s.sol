@@ -53,14 +53,13 @@ abstract contract BaseGovernanceDeploy is Script {
 
     /// Deploys the stack and leaves the role table in its final shape.
     ///
-    /// The deployer takes `DEFAULT_ADMIN_ROLE` on the Timelock and renounces it
-    /// last. Predicting the Governor's address instead, as `BaseSwapDeploy` does
-    /// for the wrapper, is unsafe here: a broadcast is a sequence of independent
-    /// transactions, so a later `require` cannot roll back an earlier one, and a
-    /// Timelock with a mispredicted proposer and no admin is unrecoverable. Every
-    /// step before the renounce is recoverable.
-    /// `deployer` temporarily holds the Timelock's `DEFAULT_ADMIN_ROLE` and then
-    /// renounces it. It must be the address that sends the `grantRole` and
+    /// `deployer` holds the Timelock's `DEFAULT_ADMIN_ROLE` during setup and
+    /// renounces it last. Predicting the Governor's address instead, as
+    /// `BaseSwapDeploy` does for the wrapper, is unsafe here: a broadcast is a
+    /// sequence of independent transactions, so a later `require` cannot roll
+    /// back an earlier one, and a Timelock with a mispredicted proposer and no
+    /// admin is unrecoverable. Every step before the renounce is recoverable.
+    /// `deployer` must be the address that sends the `grantRole` and
     /// `renounceRole` calls: `msg.sender` under `vm.startBroadcast`, or its own
     /// address for an in-process harness.
     function _deployGovernanceStack(GovParams memory p, address deployer) internal returns (GovStack memory s) {
@@ -99,7 +98,7 @@ abstract contract BaseGovernanceDeploy is Script {
 
         _assertRoles(s, p, deployer);
 
-        // Last: every step above is recoverable, this one is not.
+        // Last step: every step above is recoverable; this one is not.
         s.timelock.renounceRole(s.timelock.DEFAULT_ADMIN_ROLE(), deployer);
 
         require(!s.timelock.hasRole(s.timelock.DEFAULT_ADMIN_ROLE(), deployer), "deployer still admin");
@@ -120,8 +119,9 @@ abstract contract BaseGovernanceDeploy is Script {
         }
     }
 
-    /// KEY=value block, in the style `e2e/src/stack.ts` and
-    /// `backend/stack/scripts/deploy-contracts.sh` scrape. New keys are additive.
+    /// KEY=value block in the format `e2e/src/stack.ts` and
+    /// `backend/stack/scripts/deploy-contracts.sh` scrape. Keys are only added,
+    /// never renamed or removed.
     function _logGovKv(GovStack memory s) internal pure {
         console2.log(string.concat("GOV_TOKEN=", vm.toString(address(s.token))));
         console2.log(string.concat("TIMELOCK=", vm.toString(address(s.timelock))));

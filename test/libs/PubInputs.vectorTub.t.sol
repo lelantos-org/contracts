@@ -22,22 +22,21 @@ contract VectorTubHarness {
 /// Pins `compress(TreeUpdateBatch)` against the `tree-update-batch-8` vector
 /// published by the circuits package.
 ///
-/// `test/fixtures/tree_update_batch_vector.json` is a COPY of
-/// `circuits/vectors/tree-update-batch-8.json`; forge cannot read across the
-/// repository boundary. `just vectors-consumers-check` in the circuits repo
-/// fails when the two disagree — without it this suite keeps passing against
-/// whatever layout the copy was taken at, which is the one thing it exists to
-/// rule out.
+/// `test/fixtures/tree_update_batch_vector.json` is a copy of
+/// `circuits/vectors/tree-update-batch-8.json`, since forge cannot read across
+/// the repository boundary. `just vectors-consumers-check` in the circuits repo
+/// fails when the two disagree; without it this suite would pass against a
+/// stale copy of the layout.
 ///
 /// `PubInputs.t.sol` fuzzes `compress == compressRef`, but both are written in
-/// this repo: a misreading of the circuit's 52-slot order would be reproduced
-/// identically on both sides and pass. This drives the struct from the
-/// circuit's own witness and compares against the `(y, z)` the compiled circuit
-/// produced, so the layout is anchored outside the repo.
+/// this repo, so a misreading of the circuit's 52-slot order would be
+/// reproduced on both sides. This suite drives the struct from the circuit's
+/// own witness and compares against the `(y, z)` the compiled circuit
+/// produced, anchoring the layout outside the repo.
 ///
-/// Unlike the 4x6 transact vector there is no substituted slot — the batch circuit takes
-/// every coefficient as a public input, so all 52 come from the vector verbatim
-/// and the published `(y, z)` can be asserted directly.
+/// Unlike the 4x6 transact vector there is no substituted slot: the batch
+/// circuit takes every coefficient as a public input, so all 52 come from the
+/// vector verbatim and the published `(y, z)` is asserted directly.
 contract PubInputsVectorTubTest is Test {
     string internal constant VECTOR = "test/fixtures/tree_update_batch_vector.json";
     uint256 internal constant R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -66,9 +65,9 @@ contract PubInputsVectorTubTest is Test {
         return string.concat(".vectors[", vm.toString(i), "]");
     }
 
-    /// The vector file must be the artifact the circuit published, not a
-    /// hand-edited copy: every assertion below is only as good as its
-    /// provenance.
+    /// Checks the vector file's metadata against the deployed shape; the
+    /// remaining assertions assume the file is the artifact the circuit
+    /// published.
     function test_vectorMetadataMatchesDeployedShape() public view {
         assertEq(vm.parseJsonString(json, ".circuit.template"), "TreeUpdateBatch(11, 8)", "template");
         assertEq(_u(".circuit.coeffCount"), COEFFS, "coeff count");
@@ -99,8 +98,8 @@ contract PubInputsVectorTubTest is Test {
         }
     }
 
-    /// Both the calldata fast path and the memory reference must reproduce the
-    /// `(y, z)` the circuit itself committed to.
+    /// Both the calldata fast path and the memory reference reproduce the
+    /// `(y, z)` the circuit committed to.
     function _runVector(uint256 v) internal view {
         PubInputs.TreeUpdateBatch memory tpi = _loadTpi(v);
         uint256 z = _u(string.concat(_base(v), ".compression.z"));
@@ -128,16 +127,16 @@ contract PubInputsVectorTubTest is Test {
     }
 
     /// The struct fields are loaded from the witness, so a permuted layout on
-    /// the contract side changes `(y, z)`. Guard that the comparison is
-    /// actually sensitive: the vector's own coefficient vector, perturbed, must
-    /// not reproduce what `compress` returns.
+    /// the contract side changes `(y, z)`. Confirms the comparison is
+    /// sensitive: the vector's own preimage, perturbed, does not reproduce what
+    /// `compress` returns.
     function test_layoutComparisonIsSensitive() public view {
         PubInputs.TreeUpdateBatch memory tpi = _loadTpi(2);
 
         uint256[] memory challenge = _challenge(2);
-        // Swap oldRoot and newRoot: same-typed neighbours a contract that
-        // emitted them in the wrong order would produce exactly. They are
-        // words [0] and [1] of both the preimage and the coefficient prefix.
+        // Swaps oldRoot and newRoot, as a contract emitting these same-typed
+        // neighbours in the wrong order would. They are words [0] and [1] of
+        // both the preimage and the coefficient prefix.
         (challenge[0], challenge[1]) = (challenge[1], challenge[0]);
 
         uint256 z = uint256(keccak256(abi.encode(challenge))) % R;
@@ -159,11 +158,10 @@ contract PubInputsVectorTubTest is Test {
         }
     }
 
-    /// The vector's published preimage must be exactly what the contract
-    /// hashes, and its coefficient vector exactly the prefix the contract
-    /// evaluates — checked independently of `(y, z)`, which a compensating
-    /// error in both the layout and the Horner evaluation could otherwise
-    /// hide.
+    /// The vector's published preimage matches its ABI encoding and `z`, and
+    /// its coefficient list is the preimage prefix. Checked independently of
+    /// `(y, z)`, where compensating errors in the layout and the Horner
+    /// evaluation could cancel out.
     function test_coefficientVectorMatchesVector() public view {
         for (uint256 v = 0; v < 3; v++) {
             uint256[] memory challenge = _challenge(v);

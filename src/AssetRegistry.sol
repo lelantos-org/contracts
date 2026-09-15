@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Fees } from "./libs/Fees.sol";
 import { OwnableInit } from "./OwnableInit.sol";
-import { UpgradeStorage } from "./UpgradeStorage.sol";
+import { ExitTerms } from "./libs/ExitTerms.sol";
 
 /// Owner-managed registry of supported assets. Each `id` (the SNARK
 /// `publicAssetId`) binds to an ERC-20 and a public-amount to base-units
@@ -12,7 +12,7 @@ import { UpgradeStorage } from "./UpgradeStorage.sol";
 /// asset blocks new deposits while staying spendable, so notes and escrows can
 /// exit.
 abstract contract AssetRegistry is OwnableInit {
-    /// `token`, `disabled` and both rates share slot 0 (26 of 32 bytes);
+    /// `token`, `disabled` and both rates share slot 0 (25 of 32 bytes);
     /// `scale` is slot 1. `_getAsset` loads both slots, so the rates cost
     /// nothing extra; a field spilling into a third slot would add a cold SLOAD
     /// to every deposit and withdraw.
@@ -32,10 +32,14 @@ abstract contract AssetRegistry is OwnableInit {
 
     event AssetRegistered(uint64 indexed assetId, IERC20 indexed token, uint256 scale);
     event AssetDisabledSet(uint64 indexed assetId, bool disabled);
-    /// Emitted with the rates an asset is registered at, and again on every
-    /// change. Rates are mutable, unlike `scale`, so indexers must follow this
-    /// rather than reading them once. Kept separate from `AssetRegistered` to
-    /// leave that event's shape fixed.
+    /// Emitted with the rates an asset is registered at, on every
+    /// `setAssetFee`, and when a queued withdraw raise is committed. Always
+    /// carries the pair in force afterwards, so a `setAssetFee` whose withdraw
+    /// rate was queued rather than applied reports the unchanged withdraw rate;
+    /// the queued value is announced by `ExitTerms.ExitTermRaisePending`. Rates
+    /// are mutable, unlike `scale`, so indexers must follow this event rather
+    /// than read them once. Separate from `AssetRegistered` so that event's
+    /// shape stays fixed.
     event AssetFeeSet(uint64 indexed assetId, uint16 depositBps, uint16 withdrawBps);
 
     error UnknownAsset(uint64 id);
@@ -46,7 +50,6 @@ abstract contract AssetRegistry is OwnableInit {
     error LengthMismatch();
     error AssetDisabled(uint64 id);
     error AssetFeeTooHigh();
-    error WithdrawFeeRaisedDuringUpgradeWindow();
 
     function asset(uint64 id) external view returns (AssetEntry memory) {
         AssetEntry memory a = _assets[id];
@@ -68,13 +71,13 @@ abstract contract AssetRegistry is OwnableInit {
     /// ids collide when `v*m(a) == v'*m(a')` has a solution with both values
     /// inside the 64-bit range, letting a depositor pay `v` of the cheap asset
     /// and later spend the leaf as the expensive one. `cms[k]` is
-    /// depositor-chosen and carries no transact proof, so nothing else catches
-    /// it.
+    /// depositor-chosen and carries no transact proof, so no other check binds
+    /// the asset.
     ///
     /// Run `just asset-ids <ids>` in the circuits repo over every id a
-    /// deployment intends to register, BEFORE registering it. Small sequential
-    /// ids are separated by a wide margin; unstructured or hash-like ids are
-    /// where this bites.
+    /// deployment intends to register before registering it. Small sequential
+    /// ids are separated by a wide margin; unstructured or hash-like ids carry
+    /// the collision risk.
     function addAsset(uint64 id, IERC20 token, uint256 scale, uint16 depositBps, uint16 withdrawBps)
         external
         onlyOwner
@@ -82,29 +85,41 @@ abstract contract AssetRegistry is OwnableInit {
         _addAsset(id, token, scale, depositBps, withdrawBps);
     }
 
-    /// Replaces this asset's deposit and withdraw rates. Either may be zero.
+    /// Sets this asset's deposit rate and proposes its withdraw rate. Either may
+    /// be zero; both are checked against the ceiling here, whether applied or
+    /// queued.
     ///
-    /// Rates apply from the next operation. A deposit already in escrow keeps
-    /// the rate folded into its digest at submit, so a change cannot re-rate a
-    /// pending deposit or its cancellation. The withdraw leg carries no such
-    /// binding and is read at execution, so raising `withdrawBps` reaches spends
-    /// already proven but not yet mined.
-    /// While an upgrade is queued the withdraw rate may only fall.
+    /// The deposit rate applies from the next deposit. A deposit already in
+    /// escrow keeps the rate folded into its digest at submit, so a change
+    /// cannot reach a pending deposit, its cancellation, or anyone already
+    /// shielded.
     ///
-    /// The withdraw leg is read at execution and capped at 20%, so without this
-    /// an exit fee could be raised against holders leaving during the window.
-    /// The deposit leg is unrestricted: it is snapshotted into the escrow digest
-    /// at submit and so cannot reach existing positions.
+    /// The withdraw rate has no such binding: it is read at execution, so it
+    /// reaches every note in the pool and every spend proven but not yet mined.
+    /// A new rate at or below the live one therefore applies at once and drops
+    /// any queued raise. A higher one is queued in `ExitTerms` and lands only
+    /// through `commitExitTerms` after `ExitTerms.DELAY` of notice (and a full
+    /// `DELAY` after any pause), so holders can leave at the old rate first.
+    /// Re-sending the queued value keeps its timer, so a deposit-only change
+    /// need not restart the notice; see `ExitTerms.propose`.
     function setAssetFee(uint64 id, uint16 depositBps, uint16 withdrawBps) external onlyOwner {
         if (depositBps > Fees.MAX_FEE_BPS || withdrawBps > Fees.MAX_FEE_BPS) revert AssetFeeTooHigh();
         AssetEntry storage a = _assets[id];
         if (address(a.token) == address(0)) revert UnknownAsset(id);
-        if (UpgradeStorage.upgradePending() && withdrawBps > a.withdrawBps) {
-            revert WithdrawFeeRaisedDuringUpgradeWindow();
+        if (ExitTerms.propose(ExitTerms.$().withdrawBps[id], a.withdrawBps, withdrawBps, id, ExitTerms.WITHDRAW_BPS)) {
+            withdrawBps = a.withdrawBps;
         }
         a.depositBps = depositBps;
         a.withdrawBps = withdrawBps;
         emit AssetFeeSet(id, depositBps, withdrawBps);
+    }
+
+    /// Applies a withdraw raise `commitExitTerms` has taken from the queue.
+    /// The id is registered: only `setAssetFee` queues, and it checks.
+    function _commitWithdrawBps(uint64 id, uint16 withdrawBps) internal {
+        AssetEntry storage a = _assets[id];
+        a.withdrawBps = withdrawBps;
+        emit AssetFeeSet(id, a.depositBps, withdrawBps);
     }
 
     /// Owner-only update of an asset's `disabled` flag.
@@ -127,7 +142,7 @@ abstract contract AssetRegistry is OwnableInit {
         if (address(_assets[id].token) == address(0)) revert UnknownAsset(id);
     }
 
-    /// Constructor-time bulk initialization, with the same validation as
+    /// Bulk registration at initialization, with the same validation as
     /// `addAsset`. Rates are parallel arrays because policy is asymmetric per
     /// leg and may differ per asset; every asset is registered at its final
     /// rates or the deploy reverts.

@@ -29,28 +29,27 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 /// Echidna target for the MASP deposit / flush / cancel / sweep state machine.
 ///
-/// This is the same subject as `test/invariant/MASPPendingFee.invariant.t.sol`
-/// and `test/invariant/MASP.flow.invariant.t.sol`, driven by a different
-/// engine. Foundry's invariant runner samples fresh call sequences each run
-/// from a seed corpus; Echidna mutates a corpus it keeps on disk across runs
-/// (`corpusDir` in `echidna.yaml`), so the nightly job compounds — a sequence
-/// that first reached a deep state months ago stays in the pool as a
-/// mutation base. That accumulation, not the property set, is what this file
-/// buys: the properties below are the Foundry ones restated.
+/// Covers the same subject as `test/invariant/MASPPendingFee.invariant.t.sol`
+/// and `test/invariant/MASP.flow.invariant.t.sol` with a different engine.
+/// Foundry's invariant runner samples fresh call sequences each run; Echidna
+/// mutates a corpus it keeps on disk across runs (`corpusDir`, emitted per
+/// contract by `just _echidna-config`), so sequences that reached deep states
+/// remain available as mutation bases. The properties restate the Foundry
+/// ones; the persistent corpus is what this target adds.
 ///
-/// Three deliberate differences from the Foundry handlers, all forced by hevm
-/// having a smaller cheatcode set than Foundry:
+/// Differences from the Foundry handlers, required by hevm's smaller cheatcode
+/// set:
 ///
 ///  - The tree-update verifier is `MockTreeUpdateVerifier`, a real contract,
 ///    where the Foundry suites use `vm.mockCall`. hevm has no `mockCall`.
 ///  - The payer is `EchidnaMaspPayer`, a deployed contract that originates its
 ///    own calls, where the Foundry suites `vm.etch` a stub and `vm.prank` it.
-///  - Block advancement is left to Echidna's own per-call block delay rather
-///    than a `vm.roll` to exactly `cancelDelay`. The Foundry handlers roll
-///    past the delay unconditionally, which makes every cancel succeed and so
-///    never exercises the `cancelDelay` guard; here the guard is live and
-///    Echidna has to find the timing. `maxBlockDelay` in `echidna.yaml` is set
-///    against `CANCEL_DELAY_DEFAULT` (7_200 blocks) so it can.
+///  - Block advancement comes from Echidna's per-call block delay rather than
+///    a `vm.roll` past `cancelDelay`. The Foundry handlers roll past the delay
+///    unconditionally, so every cancel succeeds and the `cancelDelay` guard is
+///    never exercised; here the guard is live and Echidna must find the
+///    timing. `maxBlockDelay` in `echidna.yaml` is sized against
+///    `CANCEL_DELAY_DEFAULT` (7_200 blocks) to make that reachable.
 ///
 /// Ghost bookkeeping is updated only after the pool call returns. A reverting
 /// handler call rolls the whole transaction back, ghosts included, so a
@@ -97,37 +96,35 @@ contract EchidnaMasp {
     uint256 internal ghostPendingTotal;
     /// Sum of `principal + relayerFee` over ids that reached `Flushed`.
     uint256 internal ghostShieldedPrincipal;
-    /// Mirrors `masp.accruedFee(token)`: += fee at flush, zeroed by sweep.
+    /// Mirrors `masp.accruedFee(token)`: += fee at flush and withdraw, zeroed
+    /// by sweep.
     uint256 internal ghostAccrued;
-    /// Most recent `newRoot` written by a successful `flushBatch`, genesis
-    /// before the first one.
+    /// Most recent `newRoot` written by a landed flush, withdraw or transfer;
+    /// genesis before the first.
     bytes32 internal ghostLastRoot;
-    /// Sum of `actualCount` across landed flushes, i.e. 2 * #flushed.
+    /// Leaves inserted by landed calls: `LEAVES_PER_DEPOSIT` per flushed
+    /// deposit plus `TRANSACT_OUT` per withdraw or transfer.
     uint64 internal ghostInserted;
 
     /// Landed-call counters. Public because they are the only externally
-    /// visible evidence that a handler reached the pool rather than hitting
-    /// one of its early returns — `EchidnaMaspReachability.t.sol` gates on
-    /// them, and a human reading an Echidna run wants them too.
+    /// visible evidence that a handler reached the pool rather than one of its
+    /// early returns; `EchidnaMaspReachability.t.sol` gates on them.
     uint256 public flushCount;
     uint256 public cancelCount;
     uint256 public submitCount;
 
-    /// Negative-space violation flags. Each is set by a handler that made a
-    /// call the contract is required to reject and observed it succeed
-    /// instead. They are latched, never cleared: a single breach is the
-    /// finding, and clearing one would let a later well-behaved sequence hide
-    /// it.
+    /// Negative-space violation flags. Each is set by a handler whose call the
+    /// contract must reject but which succeeded. Flags latch and are never
+    /// cleared, so a later well-behaved sequence cannot hide a breach.
     bool internal cancelDigestBreached;
     bool internal flushDigestBreached;
     bool internal earlyCancelAccepted;
     bool internal doubleDrainAccepted;
     bool internal payerGuardBreached;
 
-    /// Attempt counters for the same handlers. A violation flag that never
-    /// gets set proves nothing on its own — it reads identically whether the
-    /// guard held or the handler never reached the call. These separate the
-    /// two, and `EchidnaMaspReachability.t.sol` gates on them.
+    /// Attempt counters for the same handlers. An unset violation flag reads
+    /// the same whether the guard held or the call was never reached; these
+    /// distinguish the two, and `EchidnaMaspReachability.t.sol` gates on them.
     uint256 public cancelTamperAttempts;
     uint256 public flushTamperAttempts;
     uint256 public earlyCancelAttempts;
@@ -152,7 +149,8 @@ contract EchidnaMasp {
     /// Withdraw fees accrued, summed. Also folded into `ghostAccrued`.
     uint256 internal ghostWithdrawFees;
 
-    /// Nullifiers consumed by a landed withdraw, and the set of them.
+    /// Nullifiers consumed by a landed withdraw or transfer, and the set of
+    /// them.
     bytes32[] internal spentNullifiers;
     mapping(bytes32 => bool) internal ghostSpent;
 
@@ -164,14 +162,13 @@ contract EchidnaMasp {
     uint256 public withdrawCount;
 
     /// Set if a `transfer` changed the pool's token balance. A shielded
-    /// transfer moves no tokens by construction, so this can only latch if
-    /// that stops being true.
+    /// transfer must move no tokens.
     bool internal transferMovedTokens;
     uint256 public transferCount;
 
-    /// Multi-deposit flush counters. `flushBatch` takes arrays and `flushOne`
-    /// only ever passes one id, so the batch loop and its per-token fee
-    /// accumulator are exercised at n = 1 and nowhere else.
+    /// Multi-deposit flush counters. `flushOne` passes a single id, so these
+    /// track the n > 1 path through the `flushBatch` loop and its per-token fee
+    /// accumulator.
     uint256 public batchFlushCount;
     /// Set if a batch naming the same deposit twice was accepted.
     bool internal duplicateIdAccepted;
@@ -179,22 +176,20 @@ contract EchidnaMasp {
 
     // --- root ring ---
 
-    /// The most recently evicted roots, newest last, capped so the property
-    /// that reads them stays O(1) rather than growing with the run.
-    ///
-    /// `CommitmentTree` keeps `ROOT_HISTORY` roots in a ring and clears
-    /// `isKnownRoot` for whatever the next push displaces. Nothing else in the
-    /// repo pushes past the wrap, so the eviction branch — and the question of
-    /// whether a spend can still prove inclusion in a tree the pool has
-    /// forgotten — is unexercised.
-    /// Mirrors `CommitmentTree.ROOT_HISTORY`, which is an `internal constant`
-    /// on the contract and so can be neither read from here nor imported.
-    /// `EchidnaMaspReachability.t.sol` pins the two together by asserting that
-    /// `roots(ROOT_HISTORY - 1)` reads and `roots(ROOT_HISTORY)` does not, so
-    /// a change to the ring size fails as an assertion rather than silently
-    /// leaving the eviction properties inspecting the wrong slot.
+    /// Mirrors `CommitmentTree.ROOT_HISTORY`, an `internal constant` that can be
+    /// neither read nor imported from here. `EchidnaMaspReachability.t.sol`
+    /// pins the two together by asserting that `roots(ROOT_HISTORY - 1)` reads
+    /// and `roots(ROOT_HISTORY)` does not, so a ring-size change fails an
+    /// assertion instead of leaving the eviction properties on the wrong slot.
     uint256 internal constant ROOT_HISTORY = 64;
 
+    /// The most recently evicted roots, newest last, capped so the property
+    /// that reads them does bounded work regardless of run length.
+    ///
+    /// `CommitmentTree` keeps `ROOT_HISTORY` roots in a ring, each push
+    /// overwrites the oldest, and spends name their anchor by slot. These
+    /// handlers push past the wrap at pool level, exercising the eviction
+    /// branch and whether a spend can prove inclusion in a forgotten tree.
     uint256 internal constant EVICTED_TRACKED = 16;
     bytes32[EVICTED_TRACKED] internal evictedRoots;
     uint256 internal evictedCount;
@@ -213,9 +208,8 @@ contract EchidnaMasp {
     /// Set if a paused pool accepted a deposit or a spend.
     bool internal pausedDepositAccepted;
     bool internal pausedSpendAccepted;
-    /// Set if a paused pool *rejected* a cancel it should have honoured. This
-    /// is the asymmetry that matters: a pause must not be able to trap
-    /// escrowed funds.
+    /// Set if a paused pool rejected a cancel it must honour: a pause must not
+    /// trap escrowed funds.
     bool internal pausedCancelRejected;
     uint256 public pausedDepositAttempts;
     uint256 public pausedSpendAttempts;
@@ -232,19 +226,18 @@ contract EchidnaMasp {
         ISignatureTransfer p2 = ISignatureTransfer(new DeployPermit2().deployPermit2());
         permit2 = address(p2);
 
-        // Both verifier slots must hold code — `MASP.initialize` rejects a
-        // codeless verifier — and both are told to accept, because the state
-        // machine is the subject here and the pairings are not.
+        // Both verifier slots must hold code (`MASP.initialize` rejects a
+        // codeless verifier) and both accept, because the subject is the state
+        // machine, not the pairings.
         //
-        // What that costs is worth stating. With the spend verifier accepting,
-        // the fuzzer supplies the public inputs a circuit would otherwise have
-        // constrained, so it can "withdraw" value no deposit ever funded.
-        // Value conservation across a spend is the circuit's invariant, not
-        // MASP's, and it is not observable here — `withdrawOne` therefore
-        // bounds itself to the shielded principal the ghost knows was
-        // deposited, and every withdraw property below asserts something MASP
-        // itself owns: nullifier uniqueness, root membership, and the exact
-        // arithmetic of the fee split.
+        // With the spend verifier accepting, the fuzzer supplies public inputs
+        // a circuit would otherwise constrain, and could withdraw value no
+        // deposit funded. Value conservation across a spend is the circuit's
+        // invariant, not MASP's, and is not observable here. `withdrawOne`
+        // therefore bounds itself to the shielded principal the ghost knows was
+        // deposited, and the withdraw properties assert only what MASP owns:
+        // nullifier uniqueness, root membership, and exact fee-split
+        // arithmetic.
         IVerifier tub = IVerifier(address(new MockTreeUpdateVerifier(true)));
         MockBatchVerifier bv = new MockBatchVerifier();
         bv.setResult(true);
@@ -255,11 +248,10 @@ contract EchidnaMasp {
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
             singleAsset(IERC20(address(token)), ASSET_ID, SCALE);
 
-        // Deployed here rather than through `deployPoolUniform` for one
-        // reason: that helper pins the proxy admin to `TEST_PROXY_ADMIN`, and
-        // the guardian pause is `onlyAdmin`. Echidna drives every call from
-        // its own senders and cannot impersonate an address, so the only way
-        // to reach `pauseSpends` at all is for this contract to be the admin.
+        // Deployed directly rather than through `deployPoolUniform`, which pins
+        // the proxy admin to `TEST_PROXY_ADMIN`. The guardian pause is
+        // `onlyAdmin` and Echidna cannot impersonate an address, so this
+        // contract must be the admin to reach `pauseSpends`.
         proxy = DelayedUpgradeProxy(
             payable(address(
                     new DelayedUpgradeProxy(
@@ -284,9 +276,8 @@ contract EchidnaMasp {
         );
         masp = MASP(address(proxy));
 
-        // One standing approval, granted by the payer itself. The Foundry
-        // handlers re-approve on every submit under a prank; there is nothing
-        // to re-approve here since the allowance is already unlimited.
+        // One unlimited standing approval, granted by the payer itself, so
+        // submits need no per-call approval.
         payer.exec(address(token), abi.encodeCall(IERC20.approve, (permit2, type(uint256).max)));
 
         ghostLastRoot = masp.currentRoot();
@@ -298,10 +289,8 @@ contract EchidnaMasp {
 
     /// Submit a fresh deposit.
     ///
-    /// `feeIn` is forced non-zero: with a worthless relayer note the pool
-    /// holds nothing behind it and solvency would hold however it were
-    /// accounted, so the zero case cannot distinguish a correct split from a
-    /// broken one.
+    /// `feeIn` is forced non-zero: a zero-value relayer note has no tokens
+    /// behind it, so solvency would hold under any accounting of the split.
     function submit(uint64 publicInSeed, uint64 feeInSeed) public {
         uint64 publicIn = uint64(1 + (publicInSeed % 1_000));
         uint64 feeIn = uint64(1 + (feeInSeed % 100));
@@ -320,9 +309,10 @@ contract EchidnaMasp {
         d.outCm = bytes32(uint256(0x1000 + nonce));
         d.feeCm = bytes32(uint256(0xfee));
         d.feeIn = feeIn;
+        d.feeAssetId = ASSET_ID;
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
 
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
@@ -349,17 +339,15 @@ contract EchidnaMasp {
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
         // Unconstrained (the SNARK is stubbed) but derived from live state, so
-        // each flush publishes a distinct root and the ring advances as it
-        // would in production. `EchidnaRoots.fresh` carries the reduction and
-        // why it is mandatory.
+        // each flush publishes a distinct root. `EchidnaRoots.fresh` documents
+        // the required field reduction.
         tpi.newRoot = EchidnaRoots.fresh(abi.encode("flushed", id, block.number));
         tpi.startIndex = masp.committedCount();
         // A deposit occupies LEAVES_PER_DEPOSIT (= 2) adjacent leaves: the
         // principal, then the note paying the flusher. `_validateBatchHeader`
-        // requires `actualCount == n * LEAVES_PER_DEPOSIT` and `_drainDeposit`
-        // rebuilds the escrow digest from leaf `p + 1`, so both must be
-        // populated or the call reverts `BatchMisaligned` before touching
-        // state.
+        // requires `actualCount == n * LEAVES_PER_DEPOSIT` (else
+        // `BatchMisaligned`) and `_drainDeposit` rebuilds the escrow digest
+        // from leaf `p + 1`, so both leaves must be populated.
         tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
         _fillDepositLeaves(tpi, 0, id);
 
@@ -382,9 +370,8 @@ contract EchidnaMasp {
 
     /// Cancel one pending deposit, refunding the payer.
     ///
-    /// No roll past `cancelDelay` first: unlike the Foundry handlers this
-    /// leaves the timing guard live, so a call Echidna makes too early reverts
-    /// and the sequence is only counted when the delay genuinely elapsed.
+    /// Does not roll past `cancelDelay`: the timing guard stays live, so an
+    /// early call reverts and only cancels after the delay are counted.
     function cancelOne(uint256 idxSeed) public {
         uint256 id = _firstWithStatus(idxSeed, Status.Pending);
         if (status[id] != Status.Pending) return;
@@ -409,7 +396,10 @@ contract EchidnaMasp {
                     address(payer),
                     preimageSubmittedAt[id],
                     PubInputs.FeeNote({
-                        feeIn: uint48(relayerFeeIn[id]), feeCm: bytes32(uint256(0xfee)), feeCvDep: zCv
+                        feeIn: uint48(relayerFeeIn[id]),
+                        feeAssetId: relayerFeeIn[id] == 0 ? 0 : ASSET_ID,
+                        feeCm: bytes32(uint256(0xfee)),
+                        feeCvDep: zCv
                     })
                 )
             )
@@ -422,10 +412,10 @@ contract EchidnaMasp {
 
     /// `cancelOne` for a caller that has already chosen the deposit.
     ///
-    /// External so `pausedCancelHonoured` can wrap it in try/catch, and by-id
-    /// so the deposit it verified is the deposit that gets cancelled: routing
-    /// back through `cancelOne`'s own scan could land on a different one and
-    /// turn an unrelated rejection into a false report of a trapped refund.
+    /// Public so `pausedCancelHonoured` can wrap it in try/catch, and by id so
+    /// the deposit that caller verified is the one cancelled. `cancelOne`'s
+    /// scan could select a different deposit and turn an unrelated rejection
+    /// into a false trapped-refund report.
     function cancelAt(uint256 id) public {
         if (status[id] != Status.Pending) return;
         _cancel(id);
@@ -441,11 +431,9 @@ contract EchidnaMasp {
 
     /// Write deposit `id`'s pair of leaves into batch slot `slot`.
     ///
-    /// Deposit `i` owns leaves `2i` and `2i + 1` — the principal, then the
-    /// note paying the flusher — and `_drainDeposit` rebuilds the escrow
-    /// digest from both. Shared so a multi-deposit batch is assembled the same
-    /// way as a single one; a batch that filled only the even slots would
-    /// revert for reasons unrelated to whatever the caller meant to test.
+    /// Deposit `i` owns leaves `2i` (principal) and `2i + 1` (the note paying
+    /// the flusher), and `_drainDeposit` rebuilds the escrow digest from both.
+    /// Shared so single- and multi-deposit batches are assembled identically.
     function _fillDepositLeaves(PubInputs.TreeUpdateBatch memory tpi, uint256 slot, uint256 id) internal view {
         uint256 pIdx = slot * PubInputs.LEAVES_PER_DEPOSIT;
         tpi.cms[pIdx] = preimageCm0[id];
@@ -475,10 +463,9 @@ contract EchidnaMasp {
 
     /// Flush two distinct pending deposits in one batch.
     ///
-    /// `flushOne` only ever builds a one-deposit batch, so the loop in
-    /// `flushBatch` and the per-token fee accumulator behind it run at n = 1
-    /// and nowhere else. Accrual is summed across the batch and settled once
-    /// per token, which is a different code path from accruing twice.
+    /// Exercises the `flushBatch` loop at n > 1. Accrual is summed across the
+    /// batch and settled once per token, a different code path from two
+    /// single-deposit flushes.
     function flushMany(uint256 idxSeed) public {
         uint256 first = _firstWithStatus(idxSeed, Status.Pending);
         if (status[first] != Status.Pending) return;
@@ -512,12 +499,11 @@ contract EchidnaMasp {
 
     /// Attempt a batch that names the same pending deposit twice.
     ///
-    /// `_drainDeposit` clears `escrowed[id]` as it goes, and zero is the
-    /// sentinel for "nothing pending", so the second slot must find the entry
-    /// already gone. Accepting it would mint two commitments and pay two
-    /// relayer notes against one escrowed deposit — the drain-once rule, but
-    /// within a single transaction rather than across two, which is the case
-    /// `drainTwice` cannot reach.
+    /// `_drainDeposit` clears `escrowed[id]` as it goes, and zero means
+    /// "nothing pending", so the second slot must find the entry gone.
+    /// Accepting it would mint two commitments and pay two relayer notes
+    /// against one deposit. This is the drain-once rule within a single
+    /// transaction; `drainTwice` covers it across transactions.
     function flushDuplicateId(uint256 idxSeed) public {
         uint256 id = _firstWithStatus(idxSeed, Status.Pending);
         if (status[id] != Status.Pending) return;
@@ -538,9 +524,8 @@ contract EchidnaMasp {
         duplicateIdAttempts += 1;
         try masp.flushBatch(ids, meta, proof, tpi) {
             duplicateIdAccepted = true;
-            // The batch landed, so the ghosts must follow it or every
-            // bookkeeping property fails for the wrong reason and buries the
-            // finding this handler exists to report.
+            // Keep the ghosts in step with the landed batch so the bookkeeping
+            // properties do not fail for an unrelated reason.
             _recordFlushed(id);
             ghostLastRoot = tpi.newRoot;
             ghostInserted += uint64(2 * PubInputs.LEAVES_PER_DEPOSIT);
@@ -574,24 +559,19 @@ contract EchidnaMasp {
     // -----------------------------------------------------------------------
     // Withdraw leg
     //
-    // `withdraw` is where funds leave the pool, and it is the entrypoint with
-    // the least sequence-level coverage in the repo: the unit tests exercise
-    // it directly, but the only invariant suite that touches nullifiers drives
-    // `MASPHarness.consumeNullifierExternal`, i.e. `NullifierSet` in
-    // isolation, never the real spend path. Nothing fuzzes a withdraw against
-    // a pool whose deposit history was itself fuzzed.
+    // Fuzzes the real spend path (`withdraw`, `transfer`) against a pool whose
+    // deposit history is itself fuzzed. The Foundry nullifier invariants drive
+    // `MASPHarness.consumeNullifierExternal`, i.e. `NullifierSet` in isolation.
     // -----------------------------------------------------------------------
 
     /// Build the spend/tree-update pair for a withdrawal of `publicOut`.
     ///
-    /// Split out because `withdrawOne`, `withdrawReplay` and
-    /// `withdrawUnknownRoot` must differ in exactly one field each; sharing
-    /// the construction is what makes a rejection attributable to the guard
-    /// under test rather than to some unrelated malformed field.
+    /// Shared so the spend handlers differ in exactly one field each, making a
+    /// rejection attributable to the guard under test.
     function _spendRequest(uint64 publicOut, uint256 nfSeed, uint256 cmSeed)
         internal
         view
-        returns (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi)
+        returns (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi)
     {
         pi.merkleRoot = masp.currentRoot();
         pi.publicAssetId = ASSET_ID;
@@ -603,8 +583,10 @@ contract EchidnaMasp {
         pi.relayer = address(this); // _validateRequest pins relayer == msg.sender
         SpendFixture.fillOutputs(pi, nfSeed, cmSeed);
 
-        tpi = SpendFixture.batchFor(
-            pi, masp.currentRoot(), EchidnaRoots.fresh(abi.encode("spent", nfSeed, block.number)), masp.committedCount()
+        tpi = SpendFixture.spendTree(
+            EchidnaRoots.fresh(abi.encode("spent", nfSeed, block.number)),
+            masp.committedCount(),
+            uint8(masp.rootIndex())
         );
     }
 
@@ -615,14 +597,12 @@ contract EchidnaMasp {
 
     /// A `publicOut` the pool can actually pay, or 0 when it can pay nothing.
     ///
-    /// The bound is not a convenience. With the spend verifier stubbed to
-    /// accept, an unbounded `publicOut` would let the fuzzer drain escrowed
-    /// deposits, and `echidna_solvency` would then report an insolvency that
-    /// is an artifact of the stub rather than a defect in MASP. Every handler
-    /// that spends goes through here so that none of them can forget it.
+    /// With the spend verifier stubbed to accept, an unbounded `publicOut`
+    /// would drain escrowed deposits and `echidna_solvency` would report an
+    /// insolvency caused by the stub rather than by MASP. Every withdrawing
+    /// handler uses this bound.
     ///
-    /// Zero doubles as the "nothing to withdraw" signal, which is unambiguous
-    /// because a valid amount is always at least 1.
+    /// Zero signals "nothing to withdraw"; a valid amount is at least 1.
     function _boundedPublicOut(uint64 seed) internal view returns (uint64) {
         uint256 maxOut = _shieldedAvailable() / SCALE;
         if (maxOut == 0) return 0;
@@ -633,10 +613,9 @@ contract EchidnaMasp {
     /// The next block of `TRANSACT_IN` never-before-used nullifiers.
     ///
     /// `_validateRequest` rejects a repeat within one call and
-    /// `_consumeNullifier` rejects one across calls, so the happy path needs a
-    /// supply that is fresh by construction; letting the fuzzer pick would
-    /// make a landed spend rare and the whole leg mostly unreachable. Reuse is
-    /// driven deliberately by `withdrawReplay` instead.
+    /// `_consumeNullifier` rejects one across calls, so the happy path uses a
+    /// supply that is fresh by construction; fuzzer-chosen nullifiers would
+    /// make landed spends rare. `withdrawReplay` drives reuse.
     function _nextNullifierSeed() internal returns (uint256 s) {
         s = nullifierCursor;
         nullifierCursor += PubInputs.TRANSACT_IN;
@@ -644,16 +623,13 @@ contract EchidnaMasp {
 
     /// Withdraw shielded funds to `RECIPIENT`.
     ///
-    /// Bounded by the shielded principal the ghost knows was actually
-    /// deposited. That bound is not a convenience: with the spend verifier
-    /// stubbed to accept, an unbounded `publicOut` would let the fuzzer drain
-    /// escrowed deposits, and `echidna_solvency` would report an insolvency
-    /// that is an artifact of the stub rather than a defect in MASP.
+    /// Bounded by the shielded principal the ghost knows was deposited; see
+    /// `_boundedPublicOut`.
     function withdrawOne(uint64 outSeed, uint256 cmSeed) public {
         uint64 publicOut = _boundedPublicOut(outSeed);
         if (publicOut == 0) return;
 
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) =
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) =
             _spendRequest(publicOut, _nextNullifierSeed(), cmSeed);
 
         uint256 outAmt = uint256(publicOut) * SCALE;
@@ -681,18 +657,14 @@ contract EchidnaMasp {
 
     /// Shielded transfer: consume notes, mint notes, move no tokens.
     ///
-    /// The third spend mode, and the one with the sharpest property attached.
-    /// `transfer` takes the same proofs and the same tree update as
-    /// `withdraw`, runs the same nullifier consumption and root advance, and
-    /// then must leave `balanceOf(masp)` bit-identical — MASP's own comment on
-    /// the branch is "No tokens move". Any leak on this path is unbacked value
-    /// leaving the pool, and no balance-sum property elsewhere would attribute
-    /// it here.
+    /// `transfer` takes the same proofs and tree update as `withdraw`, runs the
+    /// same nullifier consumption and root advance, and must leave
+    /// `balanceOf(masp)` unchanged. A per-call balance check attributes any
+    /// token movement to this path, which a balance-sum property cannot.
     function transferShielded(uint256 cmSeed) public {
-        // publicOut = 0 is what makes this a transfer rather than a withdraw;
-        // `_spendRequest` already leaves publicIn at 0.
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) =
-            _spendRequest(0, _nextNullifierSeed(), cmSeed);
+        // publicOut = 0 makes this a transfer; `_spendRequest` sets publicIn
+        // to 0.
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spendRequest(0, _nextNullifierSeed(), cmSeed);
 
         uint256 balanceBefore = token.balanceOf(address(masp));
 
@@ -715,21 +687,19 @@ contract EchidnaMasp {
 
     /// Attempt a withdrawal that reuses a nullifier already consumed.
     ///
-    /// This is the double-spend guard on the real entrypoint. The existing
-    /// invariant coverage asserts it on `NullifierSet` through a harness; here
-    /// it has to survive everything `withdraw` does before reaching
-    /// `_consumeNullifier`.
+    /// Checks the double-spend guard on the real entrypoint, including
+    /// everything `withdraw` does before reaching `_consumeNullifier`.
     function withdrawReplay(uint256 nfIdxSeed, uint64 outSeed, uint256 cmSeed) public {
         if (spentNullifiers.length == 0) return;
         uint64 publicOut = _boundedPublicOut(outSeed);
         if (publicOut == 0) return;
 
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) =
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) =
             _spendRequest(publicOut, _nextNullifierSeed(), cmSeed);
 
-        // Exactly one slot is swapped for a spent nullifier; the other three
-        // stay fresh, so `DuplicateNullifier` (the within-call check) cannot
-        // be what rejects this and only `DoubleSpend` can.
+        // Exactly one slot is swapped for a spent nullifier and the rest stay
+        // fresh, so only `DoubleSpend` can reject this, not the within-call
+        // `DuplicateNullifier` check.
         pi.nullifier[nfIdxSeed % PubInputs.TRANSACT_IN] = spentNullifiers[nfIdxSeed % spentNullifiers.length];
 
         MASP.Proof memory p;
@@ -742,19 +712,21 @@ contract EchidnaMasp {
 
     /// Attempt a withdrawal against a Merkle root the pool never committed.
     ///
-    /// Root membership is what ties a spend to state the tree-update circuit
-    /// actually produced. Accepting an unknown root would let a spend prove
-    /// inclusion in a tree of the caller's own construction.
+    /// Root membership ties a spend to state the tree-update circuit produced.
+    /// Accepting an unknown root would let a spend prove inclusion in a tree of
+    /// the caller's own construction.
     function withdrawUnknownRoot(uint64 outSeed, uint256 cmSeed, uint256 rootSeed) public {
         uint64 publicOut = _boundedPublicOut(outSeed);
         if (publicOut == 0) return;
 
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) =
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) =
             _spendRequest(publicOut, _nextNullifierSeed(), cmSeed);
 
         bytes32 bogus = EchidnaRoots.fresh(abi.encode("unknown-root", rootSeed));
-        if (masp.isKnownRoot(bogus)) return; // astronomically unlikely; skip rather than misreport
+        if (masp.isKnownRoot(bogus)) return; // collision; skip rather than misreport
         pi.merkleRoot = bogus;
+        // Any slot, in range or not: none holds the bogus root.
+        tpi.anchorIndex = uint8(rootSeed >> 8);
 
         MASP.Proof memory p;
         MASP.Proof memory tp;
@@ -771,9 +743,9 @@ contract EchidnaMasp {
     /// The root the next push will displace, or zero if that slot is empty.
     ///
     /// Read before a root-advancing call so the eviction can be recorded
-    /// afterwards. `CommitmentTree._advanceRoot` leaves the entry alone when
-    /// it equals the incoming root, so callers compare against `newRoot`
-    /// before recording.
+    /// afterwards. If the displaced entry equals the incoming root, the slot
+    /// still holds that root after `CommitmentTree._advanceRoot` overwrites it,
+    /// so callers compare against `newRoot` before recording.
     function _pendingEviction() internal view returns (bytes32) {
         uint32 next = uint32((uint256(masp.rootIndex()) + 1) & (ROOT_HISTORY - 1));
         return masp.roots(next);
@@ -781,15 +753,13 @@ contract EchidnaMasp {
 
     /// Record a root the pool has just forgotten.
     ///
-    /// Called from every handler that advances the root — both flush paths,
-    /// withdraw and transfer. Missing one would not make the property unsound,
-    /// only blind: evictions it caused would go unrecorded and
-    /// `withdrawEvictedRoot` would have less to aim at.
+    /// Called from every root-advancing handler: both flush paths, withdraw
+    /// and transfer. A missed call leaves the property sound but gives
+    /// `withdrawEvictedRoot` fewer targets.
     ///
-    /// Roots here are keccak images reduced mod the scalar field, so a value
-    /// re-entering the ring after eviction is not a case worth handling; if it
-    /// somehow did, this would report a false breach rather than miss a real
-    /// one, which is the safe direction.
+    /// Roots are keccak images reduced into the scalar field, so a root
+    /// re-entering the ring after eviction is not handled; if it occurred, the
+    /// result would be a false breach rather than a missed one.
     function _recordEviction(bytes32 evicted, bytes32 newRoot) internal {
         if (evicted == bytes32(0) || evicted == newRoot) return;
         evictedRoots[evictedCount % EVICTED_TRACKED] = evicted;
@@ -798,18 +768,14 @@ contract EchidnaMasp {
 
     /// Advance the root many times in one call.
     ///
-    /// Purely a reachability device, and it earns its place: the ring holds 64
-    /// roots and evicts nothing until it is full, so the eviction properties
-    /// need 64+ landed root advances inside a *single* sequence — Echidna
-    /// resets state between them. Spread across two dozen handlers at
-    /// `seqLen: 400`, transfers land perhaps twenty times, and measurement
-    /// confirmed the eviction branch never once executed in 40k calls. Doing
-    /// the advances in a loop puts the wrap within reach of a few calls
-    /// instead of a few hundred.
+    /// Reachability device. The ring holds 64 roots and evicts nothing until
+    /// full, so the eviction properties need 64+ landed root advances within a
+    /// single sequence (Echidna resets state between sequences). Spread across
+    /// the handler set at `seqLen: 400`, individual advances rarely reach the
+    /// wrap; looping brings it within a few calls.
     ///
-    /// Transfers are the vehicle because they need neither a pending deposit
-    /// nor shielded funds, so they cannot early-return for reasons unrelated
-    /// to the ring.
+    /// Uses transfers because they need neither a pending deposit nor shielded
+    /// funds, so they do not early-return for reasons unrelated to the ring.
     function churnRoots(uint8 nSeed, uint256 cmSeed) public {
         uint256 n = 1 + (uint256(nSeed) % 16);
         for (uint256 i = 0; i < n; i++) {
@@ -820,8 +786,8 @@ contract EchidnaMasp {
     /// Attempt a withdrawal proving inclusion in a root the ring has evicted.
     ///
     /// Distinct from `withdrawUnknownRoot`, which uses a root that was never
-    /// committed at all. This one was genuinely the pool's state once, so it
-    /// is the case a stale-root check is most likely to get wrong.
+    /// committed. An evicted root was valid pool state, which makes it the
+    /// harder case for a stale-root check.
     function withdrawEvictedRoot(uint64 outSeed, uint256 cmSeed, uint256 pickSeed) public {
         if (evictedCount == 0) return;
         uint64 publicOut = _boundedPublicOut(outSeed);
@@ -830,9 +796,11 @@ contract EchidnaMasp {
         uint256 tracked = evictedCount < EVICTED_TRACKED ? evictedCount : EVICTED_TRACKED;
         bytes32 stale = evictedRoots[pickSeed % tracked];
 
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) =
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) =
             _spendRequest(publicOut, _nextNullifierSeed(), cmSeed);
         pi.merkleRoot = stale;
+        // Any slot, including the one the root was evicted from.
+        tpi.anchorIndex = uint8(pickSeed >> 8);
 
         MASP.Proof memory p;
         MASP.Proof memory tp;
@@ -845,34 +813,27 @@ contract EchidnaMasp {
     // -----------------------------------------------------------------------
     // Guardian pause
     //
-    // `whenNotPaused` guards five entry points — withdraw, transfer, deposit,
-    // depositAuthorized and flushBatch — and deliberately does not guard
-    // `cancelDeposit` or `sweep`, because "escrowed funds must stay
-    // recoverable". That asymmetry is the property: a pause must stop the pool
-    // taking on or settling obligations without being able to trap money
-    // already in escrow.
+    // `whenNotPaused` guards five entry points (withdraw, transfer, deposit,
+    // depositAuthorized, flushBatch) and not `cancelDeposit` or `sweep`, so
+    // escrowed funds stay recoverable. Property: a pause stops the pool taking
+    // on or settling obligations without trapping funds already in escrow.
     // -----------------------------------------------------------------------
 
-    /// Trip the guardian pause. Reachable once, by construction: the proxy
-    /// sets `guardianPauseUsed` and refuses a second until governance clears
+    /// Trip the guardian pause. Reachable once: the proxy sets
+    /// `guardianPauseUsed` and refuses a second pause until governance clears
     /// it.
     ///
-    /// The duration is chosen against `maxTimeDelay` in `echidna.yaml`, which
-    /// is 15_000s: this spans enough calls for a block delay to cross the
-    /// 7_200-block cancel delay while the pause is still live, which is what
-    /// `pausedCancelHonoured` needs and what an earlier 3_600s ceiling made
-    /// unreachable. It stays well under `MAX_PAUSE` (7 days), which would
-    /// outlast the sequence and freeze everything else.
+    /// The duration (60_000s to 199_999s) is sized against `maxTimeDelay`
+    /// (15_000s) in `echidna.yaml`: the pause spans several calls, so a block
+    /// delay can cross the 7_200-block cancel delay while it is live, as
+    /// `pausedCancelHonoured` requires. It stays well under `MAX_PAUSE`
+    /// (7 days), which would outlast the sequence and freeze other handlers.
     function pauseSpends(uint32 durSeed) public {
         if (pausedUntil != 0) return;
-        // Only trip the pause when there is escrowed money for it to threaten,
-        // and enough of it to survive the window. The property here is that a
-        // pause cannot trap funds, which needs a deposit still pending when
-        // `pausedCancelHonoured` runs — but `cancelDeposit` is exactly what a
-        // pause does not block, so `cancelOne` and the cancel-flavoured
-        // negative handlers keep draining the escrow while `submit` is frozen
-        // and cannot replace it. Two deposits is the headroom that makes the
-        // window observable.
+        // Requires at least two pending deposits. `pausedCancelHonoured` needs
+        // a deposit still pending during the pause, but cancels are not
+        // blocked, so `cancelOne` and the cancel negative handlers keep
+        // draining escrow while `submit` is frozen and cannot replace it.
         if (_countPending() < 2) return;
         uint256 duration = 60_000 + (uint256(durSeed) % 140_000);
         proxy.pauseSpends(duration);
@@ -900,16 +861,13 @@ contract EchidnaMasp {
 
     /// While paused, a cancel whose delay has elapsed must still be honoured.
     ///
-    /// The one direction of this property that is about funds being stuck
-    /// rather than funds moving: if a pause could block refunds, an admin
-    /// could hold depositors' escrow indefinitely.
+    /// If a pause could block refunds, an admin could hold depositors' escrow
+    /// for the length of the pause.
     function pausedCancelHonoured(uint256 idxSeed) public {
         if (block.timestamp >= pausedUntil) return;
-        // Scans for a pending deposit that is *also* past its delay, rather
-        // than taking the first pending one and giving up when it happens to
-        // be too recent. Those are different searches, and the difference is
-        // this handler's whole reachability: the first pending deposit is
-        // often the newest, and so the one still inside its window.
+        // Scans for a pending deposit that is also past its delay. The first
+        // pending deposit is often the newest and still inside its window, so
+        // taking it would make this handler rarely reach the pool.
         uint256 id = _firstCancellablePending(idxSeed);
         if (id == type(uint256).max) return;
 
@@ -946,29 +904,24 @@ contract EchidnaMasp {
     // -----------------------------------------------------------------------
     // Negative-space handlers
     //
-    // Everything above drives the pool the way an honest caller would, and so
-    // can only ever confirm that correct input is accepted. These make calls
-    // the pool is required to *reject*, and record it when one is not. That is
-    // the half of `cancelDeposit`/`flushBatch` no fuzzer in this repo reaches
-    // today: the Foundry handlers always resupply a correct preimage, so the
-    // digest binding, the payer restriction and the drain-once rule are
-    // asserted by unit tests at a handful of points and by nothing at all
-    // across sequences.
+    // The handlers above drive the pool as an honest caller and so only
+    // confirm that correct input is accepted. These make calls the pool must
+    // reject and record any that succeed. The Foundry handlers always supply a
+    // correct preimage, so across sequences the digest binding, the payer
+    // restriction and the drain-once rule are covered only here.
     //
-    // Each handler swallows the revert it expects. That is safe here only
-    // because these calls are supposed to have no effect: if one does succeed,
-    // the state change lands, the ghosts go stale, and the bookkeeping
-    // properties above fail alongside the specific flag set here.
+    // Each handler swallows the revert it expects. This is safe because the
+    // calls must have no effect: if one succeeds, its state change lands, the
+    // ghosts go stale, and the bookkeeping properties fail alongside the
+    // specific flag.
     // -----------------------------------------------------------------------
 
     /// Derive a guaranteed-different value for one digest field.
     ///
-    /// XOR with a non-zero mask rather than a fuzzer-chosen replacement: a
-    /// replacement can collide with the original, and a "tampered" call that
-    /// carried the original value would be accepted for entirely correct
-    /// reasons and be recorded as a breach. `| 1` keeps the mask non-zero
-    /// under truncation to any width, so the difference survives the cast to
-    /// uint16/uint32/uint48.
+    /// XOR with a non-zero mask rather than a fuzzer-chosen replacement, which
+    /// could equal the original and be correctly accepted, then recorded as a
+    /// breach. `| 1` keeps the mask non-zero under truncation to any width, so
+    /// the difference survives the cast to uint16/uint32/uint48.
     function _mask(uint256 mutation) internal pure returns (uint256) {
         return uint256(keccak256(abi.encode(mutation))) | 1;
     }
@@ -976,15 +929,13 @@ contract EchidnaMasp {
     /// Attempt `cancelDeposit` with exactly one digest field corrupted.
     ///
     /// Every field folded into `_depositDigest` is reachable through
-    /// `fieldSeed`, so this asserts the binding as a whole rather than
-    /// spot-checking one argument. A success means a caller can cancel a
-    /// deposit on terms other than the ones it was escrowed under — refunding
-    /// a different amount, a different asset, or to a different payer.
+    /// `fieldSeed`, so this checks the whole binding. A success means a caller
+    /// can cancel a deposit on terms other than those it was escrowed under:
+    /// a different amount, asset, or payer.
     ///
-    /// Skipped while the deposit is still inside its cancel window: there the
-    /// call would revert `CancelTooEarly` before the digest is ever compared,
-    /// which proves nothing about the binding. `cancelTooEarly` covers that
-    /// guard separately.
+    /// Skipped while the deposit is inside its cancel window, where the call
+    /// reverts `CancelTooEarly` before the digest is compared. `cancelTooEarly`
+    /// covers that guard.
     function cancelTampered(uint256 idxSeed, uint8 fieldSeed, uint256 mutation) public {
         uint256 id = _firstWithStatus(idxSeed, Status.Pending);
         if (status[id] != Status.Pending) return;
@@ -1003,8 +954,9 @@ contract EchidnaMasp {
         uint32 submittedAt = preimageSubmittedAt[id];
         uint48 feeIn = uint48(relayerFeeIn[id]);
         bytes32 feeCm = bytes32(uint256(0xfee));
+        uint64 feeAssetId = feeIn == 0 ? 0 : ASSET_ID;
 
-        uint8 field = uint8(fieldSeed % 10);
+        uint8 field = uint8(fieldSeed % 11);
         if (field == 0) cm = bytes32(uint256(cm) ^ m);
         else if (field == 1) cv[0] ^= m;
         else if (field == 2) assetId = uint64(uint64(assetId) ^ uint64(m));
@@ -1014,6 +966,7 @@ contract EchidnaMasp {
         else if (field == 6) submittedAt = uint32(uint32(submittedAt) ^ uint32(m));
         else if (field == 7) feeIn = uint48(uint48(feeIn) ^ uint48(m));
         else if (field == 8) feeCm = bytes32(uint256(feeCm) ^ m);
+        else if (field == 9) feeAssetId = uint64(feeAssetId ^ uint64(m));
         else feeCv[0] ^= m;
 
         cancelTamperAttempts += 1;
@@ -1030,7 +983,7 @@ contract EchidnaMasp {
                     fbps,
                     who,
                     submittedAt,
-                    PubInputs.FeeNote({ feeIn: feeIn, feeCm: feeCm, feeCvDep: feeCv })
+                    PubInputs.FeeNote({ feeIn: feeIn, feeAssetId: feeAssetId, feeCm: feeCm, feeCvDep: feeCv })
                 )
             )
         ) returns (
@@ -1043,15 +996,15 @@ contract EchidnaMasp {
     /// Attempt `flushBatch` with one field of the escrow preimage corrupted.
     ///
     /// The flush leg rebuilds the same digest from `tpi` plus `DepositMeta`
-    /// instead of from call arguments, so it is a separate reconstruction with
-    /// its own opportunities to drop a field. A success means a flusher can
-    /// mint a commitment for a deposit that was escrowed on different terms.
+    /// rather than from call arguments, an independent reconstruction. A
+    /// success means a flusher can mint a commitment for a deposit escrowed on
+    /// different terms.
     function flushTampered(uint256 idxSeed, uint8 fieldSeed, uint256 mutation) public {
         uint256 id = _firstWithStatus(idxSeed, Status.Pending);
         if (status[id] != Status.Pending) return;
 
         uint256 m = _mask(mutation);
-        uint8 field = uint8(fieldSeed % 7);
+        uint8 field = uint8(fieldSeed % 8);
 
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
@@ -1079,6 +1032,8 @@ contract EchidnaMasp {
         else if (field == 3) tpi.cms[1] = bytes32(uint256(tpi.cms[1]) ^ m);
         else if (field == 4) tpi.leafPublicIn[1] = uint64(uint48(uint48(tpi.leafPublicIn[1]) ^ uint48(m)));
         else if (field == 5) meta[0].payer = address(uint160(uint160(meta[0].payer) ^ uint160(m)));
+        // The fee leaf's asset: bound only through the digest's `feeAssetId`.
+        else if (field == 6) tpi.leafAsset[1] = uint64(tpi.leafAsset[1] ^ uint64(m));
         else meta[0].fbps = uint16(uint16(meta[0].fbps) ^ uint16(m));
 
         uint256[] memory ids = new uint256[](1);
@@ -1093,10 +1048,9 @@ contract EchidnaMasp {
 
     /// Attempt an honest `cancelDeposit` before the delay has elapsed.
     ///
-    /// The preimage is correct, so the only thing that can reject this is the
-    /// timing guard. `cancelOne` establishes that a cancel eventually
-    /// succeeds; this establishes that it cannot succeed early, which is the
-    /// half that keeps a flusher's window from being stolen out from under it.
+    /// The preimage is correct, so only the timing guard can reject this.
+    /// `cancelOne` shows a cancel eventually succeeds; this shows it cannot
+    /// succeed early, which protects the flusher's window.
     function cancelTooEarly(uint256 idxSeed) public {
         uint256 id = _firstWithStatus(idxSeed, Status.Pending);
         if (status[id] != Status.Pending) return;
@@ -1111,9 +1065,9 @@ contract EchidnaMasp {
 
     /// Attempt to drain a deposit that has already been flushed or cancelled.
     ///
-    /// `escrowed[id]` is cleared on the way out of both, and zero is the
-    /// sentinel for "nothing pending", so this is the replay guard for a
-    /// double refund or a second commitment minted from one deposit.
+    /// Both paths clear `escrowed[id]`, and zero means "nothing pending", so
+    /// this checks the replay guard against a double refund or a second
+    /// commitment from one deposit.
     function drainTwice(uint256 idxSeed) public {
         uint256 id = _firstWithStatus(idxSeed, Status.Flushed);
         if (status[id] != Status.Flushed) {
@@ -1130,12 +1084,12 @@ contract EchidnaMasp {
 
     /// Attempt an honest `cancelDeposit` sent by someone other than the payer.
     ///
-    /// The payer here is a contract, and MASP restricts cancellation to the
-    /// payer itself whenever `payer.code.length != 0` — a contract payer has
-    /// to observe its own refund, because a refund delivered by a third party
-    /// is indistinguishable on-chain from a flush and would strand whoever
-    /// funded it. This handler is that third party: it calls the pool
-    /// directly rather than through `payer.exec`.
+    /// The payer is a contract, and MASP restricts cancellation to the payer
+    /// itself whenever `payer.code.length != 0`: a contract payer must observe
+    /// its refund arriving, because a refund delivered by a third-party call is
+    /// indistinguishable on-chain from a flush and would strand the funder's
+    /// claim. This handler calls the pool directly rather than through
+    /// `payer.exec`.
     function cancelAsStranger(uint256 idxSeed) public {
         uint256 id = _firstWithStatus(idxSeed, Status.Pending);
         if (status[id] != Status.Pending) return;
@@ -1147,9 +1101,8 @@ contract EchidnaMasp {
         if (ok) payerGuardBreached = true;
     }
 
-    /// The correct cancel preimage for `id`. Shared by the handlers whose
-    /// subject is a guard other than the digest, so that a rejection there can
-    /// only have come from the guard under test.
+    /// The correct cancel preimage for `id`. Used by handlers testing a guard
+    /// other than the digest, so a rejection can only come from that guard.
     function _honestCancelCalldata(uint256 id, uint256[2] memory zCv) internal view returns (bytes memory) {
         return abi.encodeCall(
             MASP.cancelDeposit,
@@ -1162,7 +1115,12 @@ contract EchidnaMasp {
                 FEE_BPS,
                 address(payer),
                 preimageSubmittedAt[id],
-                PubInputs.FeeNote({ feeIn: uint48(relayerFeeIn[id]), feeCm: bytes32(uint256(0xfee)), feeCvDep: zCv })
+                PubInputs.FeeNote({
+                    feeIn: uint48(relayerFeeIn[id]),
+                    feeAssetId: relayerFeeIn[id] == 0 ? 0 : ASSET_ID,
+                    feeCm: bytes32(uint256(0xfee)),
+                    feeCvDep: zCv
+                })
             )
         );
     }
@@ -1181,18 +1139,18 @@ contract EchidnaMasp {
     // -----------------------------------------------------------------------
     // Bookkeeping
     //
-    // Ported from test/invariant/. The shape of the pool's own ledger, checked
-    // against a shadow the handlers maintain.
+    // Mirrors test/invariant/: the pool's ledger checked against a shadow the
+    // handlers maintain.
     // -----------------------------------------------------------------------
 
     /// Solvency: the pool holds every still-escrowed total, every flushed
-    /// principal not yet withdrawn (including the relayer notes minted against
-    /// it), and whatever fee is claimable by sweep — and nothing else. Sweep
-    /// can never reach escrowed funds, and neither can a withdrawal.
+    /// principal not yet withdrawn (including relayer notes), and the fee
+    /// claimable by sweep, and nothing else. Neither sweep nor a withdrawal can
+    /// reach escrowed funds.
     ///
     /// A withdrawal removes `outAmt` from shielded principal but only `net`
-    /// from the balance; the fee stays behind in `accruedFee`. Both sides move
-    /// by `net`, so the identity is preserved rather than merely rebased.
+    /// from the balance; the fee stays in `accruedFee`. Both sides move by
+    /// `net`.
     function echidna_solvency() public view returns (bool) {
         return token.balanceOf(address(masp))
             == ghostPendingTotal + _shieldedAvailable() + masp.accruedFee(IERC20(address(token)));
@@ -1202,16 +1160,16 @@ contract EchidnaMasp {
     /// says it does — up at flush by the deposit's submit-time fee, up at
     /// withdraw by the unshield fee, and to zero at sweep.
     ///
-    /// Submit and cancel are absent from that list on purpose: escrowed fees
-    /// have not been earned yet and must stay refundable. An accrual on either
-    /// path shows up here as ghost divergence.
+    /// Submit and cancel never accrue: escrowed fees are not yet earned and
+    /// must stay refundable. An accrual on either path appears as ghost
+    /// divergence.
     function echidna_feeAccrualAccounted() public view returns (bool) {
         return masp.accruedFee(IERC20(address(token))) == ghostAccrued;
     }
 
-    /// Root coherence: the live root is the last one a flush wrote, it is
-    /// always inside the known-roots ring, and the committed leaf count is
-    /// exactly two per flushed deposit.
+    /// Root coherence: the live root is the last one a root-advancing call
+    /// wrote, it is inside the known-roots ring, and the committed leaf count
+    /// equals the leaves inserted by flushes (two per deposit) and spends.
     function echidna_rootCoherence() public view returns (bool) {
         return masp.currentRoot() == ghostLastRoot && masp.isKnownRoot(masp.currentRoot())
             && masp.committedCount() == ghostInserted;
@@ -1238,11 +1196,10 @@ contract EchidnaMasp {
     /// Escrow storage agrees with the lifecycle ghost: `escrowed[id]` is
     /// non-zero for exactly the ids this handler believes are pending.
     ///
-    /// The bookkeeping properties compare the pool's balances against ghost
-    /// sums; this compares the pool's own per-deposit storage against the
-    /// ghost, which is what catches a drain that moved funds without clearing
-    /// the slot (leaving it replayable) or a clear that did not move funds
-    /// (stranding them). Neither shows up as a balance discrepancy on its own.
+    /// Compares per-deposit storage, not balances, against the ghost. Catches
+    /// a drain that moved funds without clearing the slot (leaving it
+    /// replayable) or a clear that did not move funds (stranding them);
+    /// neither appears as a balance discrepancy on its own.
     function echidna_escrowMatchesLifecycle() public view returns (bool) {
         uint256 n = allIds.length;
         for (uint256 i = 0; i < n; i++) {
@@ -1256,10 +1213,9 @@ contract EchidnaMasp {
     /// pool via `sweep` is sitting in the treasury, and nothing else ever
     /// reached it.
     ///
-    /// `echidna_solvency` only sees the pool's side of the transfer, so a
-    /// sweep that moved more than `accruedFee`, or moved it somewhere other
-    /// than the treasury, satisfies it as long as the pool's own arithmetic is
-    /// self-consistent. This pins the other end.
+    /// `echidna_solvency` sees only the pool's side, so a sweep that moved more
+    /// than `accruedFee`, or moved it elsewhere, passes it if the pool's
+    /// arithmetic is self-consistent. This checks the receiving end.
     function echidna_treasuryConservation() public view returns (bool) {
         return token.balanceOf(address(0xfee)) == ghostSwept;
     }
@@ -1267,12 +1223,11 @@ contract EchidnaMasp {
     // -----------------------------------------------------------------------
     // Guards
     //
-    // The negative space. Everything the handlers above do, an honest caller
-    // could do; these hold that what the pool must refuse, it refuses.
+    // Negative space: calls the pool must refuse are refused.
     // -----------------------------------------------------------------------
 
     /// The escrow digest binds every field it commits to: no `cancelDeposit`
-    /// with a corrupted preimage has ever been accepted.
+    /// with a corrupted preimage is accepted.
     function echidna_cancelDigestBinds() public view returns (bool) {
         return !cancelDigestBreached;
     }
@@ -1283,22 +1238,22 @@ contract EchidnaMasp {
         return !flushDigestBreached;
     }
 
-    /// No deposit has ever been cancelled before `cancelDelay` elapsed.
+    /// No deposit is cancelled before `cancelDelay` elapses.
     function echidna_cancelDelayEnforced() public view returns (bool) {
         return !earlyCancelAccepted;
     }
 
-    /// No deposit has ever been drained twice.
+    /// No deposit is drained twice.
     function echidna_noDoubleDrain() public view returns (bool) {
         return !doubleDrainAccepted;
     }
 
-    /// A contract payer's deposit has never been cancelled by anyone else.
+    /// A contract payer's deposit is never cancelled by anyone else.
     function echidna_payerGuardEnforced() public view returns (bool) {
         return !payerGuardBreached;
     }
 
-    /// No `flushBatch` naming the same deposit twice has been accepted.
+    /// No `flushBatch` naming the same deposit twice is accepted.
     function echidna_noDuplicateIdInBatch() public view returns (bool) {
         return !duplicateIdAccepted;
     }
@@ -1309,26 +1264,23 @@ contract EchidnaMasp {
     // The legs that move funds out of the pool, and the one that must not.
     // -----------------------------------------------------------------------
 
-    /// No nullifier has ever been consumed twice through `withdraw`.
-    ///
-    /// The double-spend guard on the real entrypoint, as opposed to on
-    /// `NullifierSet` in isolation.
+    /// No nullifier is consumed twice through `withdraw`: the double-spend
+    /// guard on the real entrypoint rather than on `NullifierSet` in isolation.
     function echidna_noNullifierReuse() public view returns (bool) {
         return !nullifierReuseAccepted;
     }
 
-    /// No withdrawal has ever been accepted against a root the pool never
-    /// committed.
+    /// No withdrawal is accepted against a root the pool never committed.
     function echidna_unknownRootRejected() public view returns (bool) {
         return !unknownRootAccepted;
     }
 
-    /// Every nullifier a landed withdrawal consumed still reads as spent.
+    /// Every nullifier consumed by a landed spend (withdraw or transfer) still
+    /// reads as spent.
     ///
-    /// Consuming is only half of it: the bitmap packs 256 nullifiers per slot,
-    /// so a write that clobbered its neighbours would retire a note and then
-    /// silently un-retire another. Checking the whole set on every call is
-    /// what catches that.
+    /// The bitmap packs 256 nullifiers per slot, so a write that clobbered its
+    /// neighbours would retire one note and un-retire another. Checking the
+    /// whole set on every call detects that.
     function echidna_spentNullifiersStaySpent() public view returns (bool) {
         uint256 n = spentNullifiers.length;
         for (uint256 i = 0; i < n; i++) {
@@ -1340,19 +1292,18 @@ contract EchidnaMasp {
     /// The unshield fee split is exact: net plus fee is the gross, to the wei.
     ///
     /// `_unshieldLeg` computes `fee = outAmt * bps / 10_000` and sends
-    /// `outAmt - fee`, so any wei the split fails to account for is a wei that
-    /// left shielded principal and reached neither the recipient nor the
-    /// treasury. Summed across every withdrawal, so a residue that only
-    /// appears at particular amounts still shows up.
+    /// `outAmt - fee`; any unaccounted wei left shielded principal without
+    /// reaching the recipient or the accrued fee. Summed across all
+    /// withdrawals, so a residue at particular amounts still appears.
     function echidna_withdrawFeeSplitExact() public view returns (bool) {
         return ghostWithdrawnNet + ghostWithdrawFees == ghostWithdrawnGross;
     }
 
-    /// The recipient received exactly the net of every withdrawal, and nothing
-    /// besides.
+    /// The recipient holds exactly the net of every withdrawal, and nothing
+    /// else.
     ///
-    /// The pool-side view cannot tell a transfer of the right size to the
-    /// wrong address from a correct one; this is the other end of it.
+    /// The pool-side view cannot distinguish a correctly sized transfer to the
+    /// wrong address from a correct one; this checks the receiving end.
     function echidna_recipientCredited() public view returns (bool) {
         return token.balanceOf(RECIPIENT) == ghostWithdrawnNet;
     }
@@ -1360,8 +1311,8 @@ contract EchidnaMasp {
     /// A shielded transfer never changes the pool's token balance.
     ///
     /// Checked inside the handler across the single call rather than as a
-    /// standing sum, because every other handler moves the balance on purpose
-    /// — only a per-call comparison can attribute a movement to `transfer`.
+    /// standing sum, because other handlers move the balance; only a per-call
+    /// comparison attributes a movement to `transfer`.
     function echidna_transferMovesNoTokens() public view returns (bool) {
         return !transferMovedTokens;
     }
@@ -1369,27 +1320,26 @@ contract EchidnaMasp {
     // -----------------------------------------------------------------------
     // Root ring and pause
     //
-    // State the pool forgets on purpose, and state it freezes on purpose.
+    // Root eviction and the guardian pause.
     // -----------------------------------------------------------------------
 
-    /// Every root the ring buffer still holds reads as known.
-    ///
-    /// The buffer and the `isKnownRoot` map are written together but read
-    /// apart, so a spend is only as safe as their agreement. Bounded work:
-    /// `ROOT_HISTORY` reads regardless of how long the run has gone on.
+    /// Every root the ring buffer holds reads as known, and `rootIndexOf`
+    /// names a slot holding it (the index a relayer passes as `anchorIndex`).
+    /// Work is bounded by `ROOT_HISTORY` slots.
     function echidna_rootRingConsistent() public view returns (bool) {
         for (uint256 j = 0; j < ROOT_HISTORY; j++) {
             bytes32 r = masp.roots(j);
-            if (r != bytes32(0) && !masp.isKnownRoot(r)) return false;
+            if (r == bytes32(0)) continue;
+            (bool found, uint256 index) = masp.rootIndexOf(r);
+            if (!found || masp.roots(index) != r || !masp.isKnownRoot(r)) return false;
         }
         return true;
     }
 
     /// No root the ring has evicted still reads as known.
     ///
-    /// The other half of the ring's contract. A root that survives eviction in
-    /// the map lets a spend prove inclusion in a tree state the pool has
-    /// already forgotten.
+    /// A root still found after eviction would let a relayer anchor a spend to
+    /// a tree state the pool has forgotten.
     function echidna_evictedRootsUnknown() public view returns (bool) {
         uint256 tracked = evictedCount < EVICTED_TRACKED ? evictedCount : EVICTED_TRACKED;
         for (uint256 i = 0; i < tracked; i++) {
@@ -1398,7 +1348,7 @@ contract EchidnaMasp {
         return true;
     }
 
-    /// No withdrawal against an evicted root has been accepted.
+    /// No withdrawal against an evicted root is accepted.
     function echidna_evictedRootRejected() public view returns (bool) {
         return !evictedRootAccepted;
     }
@@ -1416,10 +1366,9 @@ contract EchidnaMasp {
     /// A pause never traps escrowed funds: a cancel past its delay is still
     /// honoured while the pool is paused.
     ///
-    /// `cancelDeposit` and `sweep` are excluded from `whenNotPaused` on
-    /// purpose. A deliberate asymmetry is exactly the kind of thing a later
-    /// refactor tidies away, at which point an admin could freeze depositors'
-    /// money for the length of a pause and nothing else here would notice.
+    /// `cancelDeposit` and `sweep` are excluded from `whenNotPaused`. If
+    /// `cancelDeposit` were paused, an admin could freeze depositors' funds for
+    /// the length of a pause.
     function echidna_pauseCannotTrapFunds() public view returns (bool) {
         return !pausedCancelRejected;
     }
@@ -1427,31 +1376,29 @@ contract EchidnaMasp {
     // -----------------------------------------------------------------------
     // Optimization targets
     //
-    // Only consulted under `testMode: optimization` (`just echidna-optimize`),
-    // where Echidna maximises the returned value instead of asserting it. The
-    // properties above answer "does this ever break"; these answer "how far
-    // can it drift", which is the question that separates a bounded rounding
-    // residue from a leak that grows with volume. Both should report 0.
+    // Used only under `testMode: optimization` (`just echidna-optimize`), where
+    // Echidna maximises the returned value. The properties above check whether
+    // an invariant breaks; these measure how far it drifts, which separates a
+    // bounded rounding residue from a leak that grows with volume. Both are
+    // expected to report 0.
     // -----------------------------------------------------------------------
 
     /// Largest shortfall between what the pool owes and what it holds.
     ///
-    /// Signed and oriented so that positive means insolvent — the pool cannot
-    /// cover its escrowed deposits, shielded principal and claimable fees.
-    /// `echidna_solvency` already fails on any non-zero deviation, so a run
-    /// that reports a maximum above 0 here is reporting a bug the property
-    /// suite would also catch; the value is what says how bad.
+    /// Signed; positive means insolvent (the pool cannot cover escrowed
+    /// deposits, shielded principal and claimable fees). `echidna_solvency`
+    /// fails on any non-zero deviation; this value measures the magnitude.
     function optimize_solvencyDeficit() public view returns (int256) {
         uint256 owed = ghostPendingTotal + _shieldedAvailable() + masp.accruedFee(IERC20(address(token)));
         return int256(owed) - int256(token.balanceOf(address(masp)));
     }
 
     /// Largest divergence, either direction, between the pool's `accruedFee`
-    /// and what the flush/sweep history says it should be.
+    /// and the value implied by the flush/withdraw/sweep history.
     ///
-    /// Unsigned deviation rather than a signed one: over-accrual takes fees
-    /// out of funds that are still refundable to a depositor, under-accrual
-    /// strands them in the pool, and neither direction is the benign one.
+    /// Absolute deviation: over-accrual takes fees from funds still refundable
+    /// to a depositor and under-accrual strands them in the pool, so neither
+    /// direction is benign.
     function optimize_feeAccrualDrift() public view returns (int256) {
         uint256 actual = masp.accruedFee(IERC20(address(token)));
         uint256 delta = actual > ghostAccrued ? actual - ghostAccrued : ghostAccrued - actual;

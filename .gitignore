@@ -55,3 +55,4 @@ test/fixtures/quint/*/.itf/
 test/echidna/*.generated.yaml
 test/echidna/corpus/
 crytic-export/
+audit-context

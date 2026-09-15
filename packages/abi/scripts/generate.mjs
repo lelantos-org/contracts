@@ -1,8 +1,8 @@
 // Generates the shipped ABI sources from the Foundry build in `out/`.
 //
-// Each entry below is resolved by its *source path*, not by artifact file
-// name: `out/` is keyed on basename, so a `Verifier.sol` in `lib/` would
-// otherwise be indistinguishable from ours. Every artifact's
+// Each entry below is resolved by its source path, not by artifact file name:
+// `out/` is keyed on basename, so a `Verifier.sol` in `lib/` would otherwise be
+// indistinguishable from the one in `src/`. Every artifact's
 // `metadata.settings.compilationTarget` is checked against the expected
 // source path before its ABI is emitted.
 //
@@ -11,9 +11,9 @@
 //   src/index.ts             — barrel of named `<contract>Abi` exports
 //   json/<Contract>.json     — plain ABI array, for non-TS consumers
 //
-// `dist/` is wiped here too. tsc does not prune its own outDir, so a renamed or
-// dropped contract would otherwise leave a stale module behind — and the `./*`
-// subpath export would keep it importable and publishable.
+// `dist/` is also wiped. tsc does not prune its outDir, so a renamed or removed
+// contract would otherwise leave a stale module that the `./*` subpath export
+// keeps importable and publishable.
 
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -75,9 +75,8 @@ const CONTRACTS = [
  * Contracts under `src/` that are intentionally not published, and why.
  *
  * Every other `src/` contract with a non-empty ABI must appear in `CONTRACTS`;
- * `assertNoDrift` fails the build otherwise. Without that check a newly added
- * contract is simply absent from the package, which is not visible until a
- * consumer needs it.
+ * `assertNoDrift` fails the build otherwise, so a newly added contract cannot be
+ * left out of the package unnoticed.
  */
 const EXCLUDED = new Map([
     ["src/UpgradeStorage.sol:UpgradeStorage", "internal-only library; empty ABI"],
@@ -90,9 +89,17 @@ const EXCLUDED = new Map([
     ["src/swap/UniV3Adapter.sol:ISwapRouter02", "external router surface, transcribed locally"],
     ["src/swap/UniV4Adapter.sol:IUniversalRouter", "external router surface, transcribed locally"],
     ["src/yield/YieldOps.sol:IERC4626Asset", "helper interface declared alongside its consumer"],
+    ["src/libs/DepositOps.sol:DepositOps", "delegatecall-only Permit2 pull plumbing; no events or errors of its own"],
+    // Excluded provisionally so the package regenerates; publication of these
+    // not yet decided. `ExitTerms`' event and errors already surface in `maspAbi`.
+    ["src/bundler/Bundler.sol:Bundler", "publication not yet decided"],
+    ["src/bundler/Bundler.sol:IBundlerDeployer", "publication not yet decided"],
+    ["src/bundler/BundlerFactory.sol:BundlerFactory", "publication not yet decided"],
+    ["src/interfaces/IProtocolAdmin.sol:IUpgradeProxyAdmin", "admin plumbing; not a consumer surface"],
+    ["src/libs/ExitTerms.sol:ExitTerms", "internal library; its event and errors surface in maspAbi"],
 ]);
 
-/** Duplicate names silently overwrite an output file or break the barrel. */
+/** Rejects duplicate names, which would overwrite an output file or break the barrel. */
 function assertUnique() {
     for (const key of ["contract", "export"]) {
         const seen = new Set();
@@ -106,7 +113,7 @@ function assertUnique() {
 /**
  * Fails when a `src/` contract with a non-empty ABI is neither published nor
  * listed in `EXCLUDED`. Walks the Foundry build rather than the source tree, so
- * it sees exactly what solc produced.
+ * it checks what solc produced.
  */
 function assertNoDrift() {
     const known = new Set([...CONTRACTS.map((e) => `${e.source}:${e.contract}`), ...EXCLUDED.keys()]);

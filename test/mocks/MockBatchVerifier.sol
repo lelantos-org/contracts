@@ -5,15 +5,15 @@ import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 
 /// Stand-in for `BatchedGroth16Verifier` in tests that are not about pairing.
 ///
-/// Must implement `IBatchVerifier`: `MASP`'s constructor probes the spend
-/// verifier by calling `verifyBatch`, and an address without that function
-/// reverts the deployment.
+/// Implements `IBatchVerifier`: `MASP.initialize` probes the spend verifier by
+/// calling `verifyBatch`, and an address without that function reverts
+/// initialization.
 ///
 /// Set the answer with `setResult` rather than `vm.mockCall`. A blanket mock on
-/// this selector also intercepts the constructor probe of any `MASP` deployed
-/// later in the same test.
+/// this selector also intercepts the initialization probe of any `MASP`
+/// deployed later in the same test.
 contract MockBatchVerifier is IBatchVerifier {
-    /// Answer returned for every instance.
+    /// Answer returned for every call.
     bool public result;
 
     function setResult(bool result_) external {

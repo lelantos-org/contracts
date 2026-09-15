@@ -16,9 +16,9 @@ contract TubCompressHarness {
 /// verifier, and pins the public-signal order the contract feeds it.
 ///
 /// Layout tests establish only that the coefficient vector is assembled
-/// correctly. This runs a proof through the verifier, so a verifier keyed to a
-/// different ceremony, or a `(y, z)` ordering flipped on one side, is caught
-/// here rather than in production.
+/// correctly. This suite runs proofs through the verifier, so it catches a
+/// verifier keyed to a different ceremony or a `(y, z)` ordering flipped on
+/// one side.
 ///
 /// Proofs come from `script/fixtures/gen_proof_fixture.sh`, which proves the
 /// published witness vectors against the release artifacts and asserts each
@@ -68,8 +68,8 @@ contract TreeUpdateBatchVerifierVectorTest is Test {
         pub = [pv[0], pv[1]];
     }
 
-    /// The proof fixture must have been generated from the vector this repo
-    /// also pins the layout against, and at the deployed shape.
+    /// The proof fixture is generated from the same vector the layout tests
+    /// pin against, at the deployed shape.
     function test_fixtureProvenance() public view {
         assertEq(vm.parseJsonString(proofs, ".source.template"), "TreeUpdateBatch(11, 8)", "template");
         assertEq(
@@ -98,16 +98,16 @@ contract TreeUpdateBatchVerifierVectorTest is Test {
     }
 
     /// The circuit's public signals are the output `y` first, then the public
-    /// input `z`; `PubInputs.compress` returns them in exactly that order. A
-    /// verifier keyed to the opposite order would accept the swap.
+    /// input `z`; `PubInputs.compress` returns them in that order. A verifier
+    /// keyed to the opposite order would accept the swap.
     function test_revert_swappedPublicSignals() public view {
         (uint256[2] memory a, uint256[2][2] memory b, uint256[2] memory c, uint256[2] memory pub) = _proof(0);
         assertTrue(pub[0] != pub[1], "signals must differ for the swap to be meaningful");
         assertFalse(verifier.verifyProof(a, b, c, [pub[1], pub[0]]), "swapped (z, y) must not verify");
     }
 
-    /// The end-to-end binding: the struct the contract receives, compressed by
-    /// the contract's own code path, must be what the proof commits to.
+    /// End-to-end binding: the struct the contract receives, compressed by the
+    /// contract's own code path, equals what the proof commits to.
     function test_compressOfWitnessMatchesProofSignals() public view {
         for (uint256 v = 0; v < N; v++) {
             PubInputs.TreeUpdateBatch memory tpi;
@@ -133,8 +133,8 @@ contract TreeUpdateBatchVerifierVectorTest is Test {
         }
     }
 
-    /// A batch header the depositor did not prove — one extra leaf slot claimed
-    /// — moves `z` and must fail. Covers the case the layout tests cannot: a
+    /// A batch header that was not proven (one extra leaf slot claimed) moves
+    /// `z` and fails verification. Covers what the layout tests cannot: a
     /// correct layout paired with a proof for different data.
     function test_revert_tamperedHeader() public view {
         PubInputs.TreeUpdateBatch memory tpi;
@@ -157,7 +157,7 @@ contract TreeUpdateBatchVerifierVectorTest is Test {
     }
 
     /// Each proof is bound to its own batch: replaying one vector's proof under
-    /// another's public signals must fail.
+    /// another's public signals fails.
     function test_revert_crossVectorReplay() public view {
         (uint256[2] memory a, uint256[2][2] memory b, uint256[2] memory c,) = _proof(0);
         (,,, uint256[2] memory otherPub) = _proof(1);

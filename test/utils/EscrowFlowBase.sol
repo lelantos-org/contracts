@@ -22,12 +22,11 @@ import { deployPoolUniform, singleAsset } from "./PoolDeployer.sol";
 import { Stubs } from "./Stubs.sol";
 import { TestConstants } from "./TestConstants.sol";
 
-/// A real pool plus the escrow flow that puts real state into it: `deposit`
-/// followed by `flushBatch`, which is where the tree actually advances and where
-/// `FeeConfig._accrueFee` actually runs.
+/// A real pool and the escrow flow that populates its state: `deposit` followed
+/// by `flushBatch`, which advances the tree and runs `FeeConfig._accrueFee`.
 ///
-/// Suites requiring real pool state — accrued fees, a non-empty tree, a pending
-/// escrow — extend this rather than reimplementing the flow. The tree-update
+/// Suites requiring real pool state (accrued fees, a non-empty tree, a pending
+/// escrow) extend this rather than reimplementing the flow. The tree-update
 /// SNARK is mocked; proof validity is covered by the fixture-driven tests.
 ///
 /// Warps and rolls use absolute values: under `via_ir` the optimizer may cache
@@ -39,8 +38,8 @@ abstract contract EscrowFlowBase is Test {
     uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
     uint256 internal constant T0 = 1_000_000;
 
-    /// The relayer fee note every deposit here carries. Value zero, but the leaf
-    /// is minted either way, so a deposit always occupies two leaves.
+    /// The relayer fee note every deposit here carries. It has zero value, but
+    /// its leaf is still inserted, so a deposit always occupies two leaves.
     bytes32 internal constant FEE_CM = bytes32(uint256(0xfee));
 
     TreeUpdateBatchGroth16Verifier internal tubVerifier;
@@ -70,8 +69,8 @@ abstract contract EscrowFlowBase is Test {
         Stubs.installPermissiveERC1271(payer);
     }
 
-    /// Pool construction. Defaults to the shared proxy wiring; suites that
-    /// exercise the upgrade surface override it to retain their own proxy.
+    /// Deploys the pool. Defaults to the shared proxy wiring; suites that
+    /// exercise the upgrade surface override it to control their own proxy.
     function _deployTestPool() internal virtual returns (MASP) {
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = _genesisAsset();
         return deployPoolUniform(
@@ -120,20 +119,20 @@ abstract contract EscrowFlowBase is Test {
 
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
         return masp.deposit(d, sig, aux[0], aux[1]);
     }
 
-    /// Fund and escrow in one step.
+    /// Funds the payer and escrows a deposit in one step.
     function _deposit(uint64 publicIn, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
         _fundPayer(publicIn);
         return _depositCall(publicIn, cm, nonce);
     }
 
     /// Flushes one escrowed deposit, advancing the tree and accruing the
-    /// treasury's fee. A deposit occupies two adjacent leaves — principal and the
-    /// note paying the flusher — so the tree advances by two.
+    /// treasury's fee. A deposit occupies two adjacent leaves (principal and the
+    /// note paying the flusher), so the tree advances by two.
     function _flush(uint256 id, uint64 publicIn, bytes32 cm) internal {
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
@@ -164,7 +163,7 @@ abstract contract EscrowFlowBase is Test {
         vm.clearMockedCalls();
     }
 
-    /// Deposit then flush. Returns the treasury fee accrued by the flush.
+    /// Deposits then flushes. Returns the treasury fee accrued by the flush.
     function _depositAndFlush(uint64 publicIn, bytes32 cm) internal returns (uint256 fee) {
         uint256 inAmt = uint256(publicIn) * SCALE;
         fee = (inAmt * FEE_BPS) / 10_000;

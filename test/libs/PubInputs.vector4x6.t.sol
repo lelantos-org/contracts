@@ -27,24 +27,25 @@ contract Vector4x6Harness {
 /// Pins `compress(Transact)` against the `transact-4x6` vector published by
 /// the circuits package (version 0.11.2).
 ///
-/// The other layout tests check the contract against reference code written in
-/// this repo, so a misreading of the circuit would be reproduced identically on
-/// both sides and pass. This one drives the struct from the circuit's own
-/// witness and compares to the `(y, z)` the compiled circuit produced, so the
-/// 42-slot order is anchored outside the repo.
+/// The other layout tests check the contract against reference code in this
+/// repo, where a misreading of the circuit would be reproduced on both sides.
+/// This one drives the struct from the circuit's own witness and compares to
+/// the `(y, z)` the compiled circuit produced, anchoring the 70-word challenge
+/// and 46-coefficient order outside the repo.
 ///
-/// `auxDigest` is the one word that cannot come from the vector: the SDK derives
-/// it from its own abi-hash module while the contract recomputes it from aux
-/// calldata, by design. The final challenge word is therefore substituted with
-/// the contract-computed digest and `(y, z)` re-derived over the result; every
-/// other word is the vector's verbatim.
+/// `auxDigest` is the one word not taken from the vector: the SDK derives it
+/// from its own abi-hash module while the contract recomputes it from aux
+/// calldata. The final challenge word is therefore substituted with the
+/// contract-computed digest and `(y, z)` re-derived over the result; every
+/// other word is taken verbatim from the vector.
 ///
-/// Two vectors, and the split is the property under test: `compression.challenge`
-/// is all 69 logical public inputs and is what `z` hashes; the 46 the circuit
-/// pins are what `y` evaluates. The 23 in between — the four address words, the
-/// clue triples, the aux digest — bind through `z` alone. As coefficients they
-/// were free variables a prover could solve `y = Σ c[k]·z^k` with after reading
-/// `z`, since the circuit constrains none of them.
+/// The vector carries two lists, and their split is the property under test:
+/// `compression.challenge` is all 70 logical public inputs and is what `z`
+/// hashes; the 46 the circuit pins are what `y` evaluates. The 24 in between
+/// (the five address and chain words, the clue triples, the aux digest) bind
+/// through `z` alone. The circuit constrains none of them, so as coefficients
+/// they would be free variables a prover could use to solve
+/// `y = Σ c[k]·z^k` after computing `z`.
 contract PubInputsVector4x6Test is Test {
     string internal constant VECTOR = "test/fixtures/transact_4x6_vector.json";
     uint256 internal constant R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -65,9 +66,9 @@ contract PubInputsVector4x6Test is Test {
         return string.concat(".vectors[", vm.toString(i), "]");
     }
 
-    /// The vector file must be the artifact the circuit published, not a
-    /// hand-edited copy: every assertion below is only as good as its
-    /// provenance.
+    /// Checks the vector file's metadata against the deployed shape; the
+    /// remaining assertions assume the file is the artifact the circuit
+    /// published.
     function test_vectorMetadataMatchesDeployedShape() public view {
         assertEq(vm.parseJsonString(json, ".circuit.template"), "Transact(11, 4, 6)", "template");
         assertEq(_u(".circuit.coeffCount"), PubInputs.TRANSACT_COEFFS, "coeff count");
@@ -100,11 +101,12 @@ contract PubInputsVector4x6Test is Test {
         pi.chainId = _u(string.concat(b, ".chain_id"));
         pi.payer = address(uint160(_u(string.concat(b, ".payer_address"))));
         pi.relayer = address(uint160(_u(string.concat(b, ".relayer_address"))));
+        pi.intentHash = _u(string.concat(b, ".intent_hash"));
     }
 
-    /// Clue coefficients are read off `aux`, so the aux blobs must reproduce
-    /// the witness's clue values — `clueBits` via the 2-byte ciphertext prefix
-    /// the contract parses.
+    /// Clue words are read from `aux`, so the aux blobs reproduce the witness's
+    /// clue values, with `clueBits` in the 2-byte ciphertext prefix the
+    /// contract parses.
     function _loadAux(uint256 v) internal view returns (AuxValidation.Output[6] memory aux) {
         string memory b = string.concat(_base(v), ".witness");
         for (uint256 k = 0; k < PubInputs.TRANSACT_OUT; k++) {
@@ -115,8 +117,8 @@ contract PubInputsVector4x6Test is Test {
         }
     }
 
-    /// The 69-word challenge preimage, with the final word — the aux digest —
-    /// replaced by what the contract recomputes. See the contract docs.
+    /// The 70-word challenge preimage, with the final word (the aux digest)
+    /// replaced by the contract-computed value.
     function _expectedChallenge(uint256 v, uint256 digest) internal view returns (uint256[] memory c) {
         uint256 n = PubInputs.TRANSACT_CHALLENGE_WORDS;
         c = new uint256[](n);
@@ -127,8 +129,8 @@ contract PubInputsVector4x6Test is Test {
     }
 
     /// The 46 coefficients the polynomial evaluates, read from the vector's own
-    /// list rather than sliced out of the preimage — so a disagreement about
-    /// WHICH words are coefficients fails here rather than being reproduced.
+    /// list rather than sliced from the preimage, so a disagreement about which
+    /// words are coefficients fails instead of being reproduced.
     function _expectedCoeffs(uint256 v) internal view returns (uint256[] memory c) {
         uint256 n = PubInputs.TRANSACT_COEFFS;
         c = new uint256[](n);
@@ -171,8 +173,8 @@ contract PubInputsVector4x6Test is Test {
     }
 
     /// Every word is the vector's own, so a permuted layout on the contract side
-    /// changes `(y, z)`. Guard that the comparison is actually sensitive:
-    /// perturbing one word must break it.
+    /// changes `(y, z)`. Confirms the comparison is sensitive: perturbing the
+    /// expected layout breaks the match.
     function test_layoutComparisonIsSensitive() public view {
         PubInputs.Transact memory pi = _loadPi(0);
         AuxValidation.Output[6] memory aux = _loadAux(0);
@@ -180,10 +182,9 @@ contract PubInputsVector4x6Test is Test {
         uint256[] memory challenge = _expectedChallenge(0, digest);
         uint256[] memory coeffs = _expectedCoeffs(0);
 
-        // Swap two same-typed neighbours: a contract that emitted them in the
-        // wrong order would produce exactly this vector. Nullifiers 0 and 1 are
-        // words 1 and 2 of both vectors, so the perturbation reaches `z` and `y`
-        // alike.
+        // Swaps two same-typed neighbours, as a contract emitting them in the
+        // wrong order would. Nullifiers 0 and 1 are words 1 and 2 of both lists,
+        // so the perturbation reaches both `z` and `y`.
         (challenge[1], challenge[2]) = (challenge[2], challenge[1]);
         (coeffs[1], coeffs[2]) = (coeffs[2], coeffs[1]);
         uint256 z = uint256(keccak256(abi.encode(challenge))) % R;
@@ -193,13 +194,13 @@ contract PubInputsVector4x6Test is Test {
         assertTrue(got[0] != y || got[1] != z, "permuted layout must not match");
     }
 
-    /// The words hashed but not evaluated still bind, and that is the whole
-    /// reason they may be unconstrained in the circuit.
+    /// Words hashed but not evaluated still bind; this is what allows them to be
+    /// unconstrained in the circuit.
     ///
-    /// Moving the recipient leaves the coefficient vector untouched — it is not
-    /// a coefficient — so if it did not reach `z` the contract would derive the
-    /// same `(y, z)` for a different payee and a relayer could redirect any
-    /// withdrawal. Both outputs must move.
+    /// The recipient is not a coefficient, so changing it leaves the coefficient
+    /// vector untouched. If it did not reach `z`, the contract would derive the
+    /// same `(y, z)` for a different payee and a relayer could redirect a
+    /// withdrawal. Both outputs change.
     function test_challengeOnlyWordsStillBind() public view {
         PubInputs.Transact memory pi = _loadPi(2);
         AuxValidation.Output[6] memory aux = _loadAux(2);

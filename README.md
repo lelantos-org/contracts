@@ -29,7 +29,7 @@ An asset id may route its idle custody into an ERC-4626 vault; notes under such 
 
 The pool is deployed behind [`DelayedUpgradeProxy`](src/DelayedUpgradeProxy.sol) and is not deployable without one — its constructor calls `_disableInitializers()`, so a bare implementation cannot be initialized and all setup runs in `initialize`.
 
-`YieldOps` is an external library reached by `delegatecall`. It runs in the pool's context against the pool's storage and holds no state or privileges of its own; it sits at its own address because the pool is close to the EIP-170 limit.
+`YieldOps` and `DepositOps` are external libraries reached by `delegatecall`. They run in the pool's context against the pool's storage and hold no state or privileges of their own; they sit at their own addresses because the pool is close to the EIP-170 limit. `DepositOps` carries the deposit's two-token Permit2 pulls (a relayer fee note paid in another asset); the single-token pulls stay inline in the pool.
 
 ```mermaid
 flowchart TB
@@ -59,6 +59,7 @@ flowchart TB
   M --> V["BatchedGroth16Verifier<br/>spend proof pair"]
   M --> V2["TreeUpdateBatchGroth16Verifier<br/>flush"]
   M -.->|"delegatecall"| YO["YieldOps<br/>external library"]
+  M -.->|"delegatecall"| DO["DepositOps<br/>external library"]
   YO --> YV["ERC4626Venue<br/>one per (assetId, vault)"]
   YV --> VAULT["ERC-4626 vault"]
   M --> P2["Permit2"]
@@ -77,7 +78,7 @@ Pool administration is held by [`ProtocolAdmin`](src/governance/ProtocolAdmin.so
 
 `ProtocolAdmin` splits the owner role in two. The Timelock reaches everything through `execute`; a guardian holds only four one-way switches — `disableAsset`, `haltYield`, `emergencyUnwind`, `disallowAdapter` — whose boolean arguments are fixed in bytecode. `execute` rejects both `Ownable` ownership selectors, leaving `migrateAdmin` and its four checks as the only route by which ownership can leave the contract.
 
-Upgrades are queued, not applied. `DelayedUpgradeProxy` activates a queued implementation only after `UPGRADE_DELAY`, which is `immutable` and has no setter; until then the current implementation serves every call, so holders may withdraw under the terms in force when they entered. `activateUpgrade` is permissionless. A guardian pause halts every proof-dependent entry point and defers any pending activation by the pause duration, so the window measures unpaused time; `cancelDeposit` and `sweep` stay open, keeping escrowed funds recoverable. While an upgrade is pending, `setAssetFee` may only lower the withdraw rate.
+Upgrades are queued, not applied. `DelayedUpgradeProxy` activates a queued implementation only after `UPGRADE_DELAY`, which is `immutable` and has no setter; until then the current implementation serves every call, so holders may withdraw under the terms in force when they entered. `activateUpgrade` is permissionless. A guardian pause halts every proof-dependent entry point and defers any pending activation by the pause duration, so the window measures unpaused time; `cancelDeposit` and `sweep` stay open, keeping escrowed funds recoverable. Raises to the terms a holder exits under (`withdrawBps`, `perfBps`, `cancelDelay`) are queued for 30 days, measured from the raise and extended past any pause, and applied only through the permissionless `commitExitTerms`; the deploy script requires `upgradeDelay` to be no longer, so a raise cannot land inside an upgrade window whatever the call order.
 
 Protocol fees accrue to [`FeeBurner`](src/burn/FeeBurner.sol), which is the pool's `treasury`. It sells accrued fee tokens for the governance token in a descending-price auction and burns the proceeds; `priceOf` reads no external state, so the price cannot be moved by manipulating a market.
 
@@ -115,6 +116,7 @@ A venue that cannot service a draw reverts `VenueDrained` with the spend's nulli
 | `burn/FeeBurner.sol` | Pool treasury. Auctions fee tokens for the governance token and burns the proceeds. |
 | `yield/YieldIndex.sol` | Yield-index storage, owner controls, and the `isYieldAsset` / `index` / `yieldState` views. |
 | `yield/YieldOps.sol` | Every non-trivial yield operation. External library, `delegatecall`ed by the pool. |
+| `libs/DepositOps.sol` | Two-token deposit pulls (Permit2 batch) for a relayer note in another asset. External library, `delegatecall`ed by the pool. |
 | `yield/IYieldVenue.sol` | Venue surface the pool drives: `deposit`, `withdraw`, `totalAssets`, `maxWithdraw`. |
 | `yield/ERC4626Venue.sol` | Generic ERC-4626 venue, one per `(assetId, vault)`, pinned to its pool and otherwise immutable. |
 | `libs/Fees.sol` | `BPS_DENOMINATOR` and `MAX_FEE_BPS`, shared by `FeeConfig` and `AssetRegistry`. |
@@ -158,11 +160,12 @@ Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 
 | Contract | Runtime (B) | Margin (B) |
 | --- | --- | --- |
-| `MASP` | 22 166 | 2 410 |
+| `MASP` | 23 929 | 647 |
 | `LelantosGovernor` | 16 373 | 8 203 |
 | `LelantosToken` | 7 823 | 16 753 |
 | `SwapWrapper` | 7 814 | 16 762 |
 | `YieldOps` | 6 921 | 17 655 |
+| `DepositOps` | 2 009 | 22 567 |
 | `FeeBurner` | 6 536 | 18 040 |
 | `NativeAdapter` | 6 012 | 18 564 |
 | `ProtocolAdmin` | 4 133 | 20 443 |

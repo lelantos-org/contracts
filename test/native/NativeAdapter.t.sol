@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
+import { Test, Vm } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
@@ -20,6 +20,7 @@ import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockWETH9 } from "../mocks/MockWETH9.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
+import { GasBurner } from "../mocks/GasBurner.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
 import { deployPoolUniform, twoAssets } from "../utils/PoolDeployer.sol";
@@ -27,11 +28,11 @@ import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
 /// `NativeAdapter` end-to-end: wrap-on-deposit, unwrap-on-withdraw, and the
-/// refund path for adapter-owned escrows. MASP itself is ERC-20 only, so every
-/// native leg here is the adapter's.
+/// refund path for adapter-owned escrows. MASP is ERC-20 only, so every native
+/// leg here belongs to the adapter.
 ///
-/// Both Groth16 verifiers are mocked to `true`: the proofs are not the subject,
-/// the wrapping bookkeeping is.
+/// Both Groth16 verifiers are mocked to accept; the subject is the wrapping
+/// bookkeeping, not the proofs.
 contract NativeAdapterTest is Test {
     uint64 internal constant ASSET_ERC20 = 1; // plain ERC-20 (not WETH)
     uint64 internal constant ASSET_WETH = 2; // WETH-backed asset
@@ -119,13 +120,15 @@ contract NativeAdapterTest is Test {
         pi.merkleRoot = masp.currentRoot();
     }
 
-    function _tpi(PubInputs.Transact memory pi) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
-        return SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdead)), masp.committedCount());
+    /// Anchored at `pi.merkleRoot`'s slot; an unknown root gets slot 0.
+    function _tpi(PubInputs.Transact memory pi) internal view returns (PubInputs.SpendTree memory) {
+        (, uint256 anchorIndex) = masp.rootIndexOf(pi.merkleRoot);
+        return SpendFixture.spendTree(bytes32(uint256(0xdead)), masp.committedCount(), uint8(anchorIndex));
     }
 
-    /// Cancel straight at the pool, naming the adapter as payer. Kept out of
-    /// the test body so the 8-argument call does not blow the stack under the
-    /// coverage build.
+    /// Cancels directly at the pool, naming the adapter as payer. Kept out of
+    /// the test body so the 8-argument call does not exceed the stack limit
+    /// under the coverage build.
     function _poolCancel(uint256 id, uint64 publicIn, uint32 submittedAt) internal {
         masp.cancelDeposit(
             id,
@@ -136,11 +139,11 @@ contract NativeAdapterTest is Test {
             FEE_BPS,
             address(adapter),
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
     }
 
-    /// Deposit `publicIn` units of the WETH asset through the adapter.
+    /// Deposits `publicIn` units of the WETH asset through the adapter.
     function _deposit(address from, uint64 publicIn, uint256 value) internal returns (uint256 id) {
         vm.deal(from, value);
         vm.prank(from);
@@ -165,8 +168,8 @@ contract NativeAdapterTest is Test {
         assertEq(amount, total, "record holds the pulled amount");
     }
 
-    /// The caller may overshoot instead of mirroring MASP's fee math; the
-    /// surplus comes back as native coin, not WETH.
+    /// The caller may overpay instead of replicating MASP's fee math; the
+    /// surplus is returned as native coin, not WETH.
     function test_depositNative_returnsExcess() public {
         uint64 publicIn = 3;
         uint256 total = _total(publicIn);
@@ -200,7 +203,7 @@ contract NativeAdapterTest is Test {
     }
 
     /// The adapter must be `payer`: it is the only address whose Permit2
-    /// allowance the pool can pull against here.
+    /// allowance the pool can pull against.
     function test_depositNative_revert_AdapterNotPayer() public {
         PubInputs.DepositRequest memory d = _request(ASSET_WETH, 1);
         d.payer = DEPOSITOR;
@@ -210,8 +213,8 @@ contract NativeAdapterTest is Test {
         adapter.depositNative{ value: 1 ether }(d, _aux1(), _aux1());
     }
 
-    /// A non-wrapped-native asset id cannot drain the wrap: the adapter holds
-    /// no such token, so the pool's Permit2 pull reverts.
+    /// A non-wrapped-native asset id cannot spend the wrapped coin: the adapter
+    /// holds no such token, so the pool's Permit2 pull reverts.
     function test_depositNative_revert_wrongAsset() public {
         vm.deal(DEPOSITOR, 1 ether);
         vm.prank(DEPOSITOR);
@@ -240,7 +243,7 @@ contract NativeAdapterTest is Test {
             ASSET_WETH,
             FEE_BPS,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
 
         assertEq(DEPOSITOR.balance, total, "funder made whole in native");
@@ -260,14 +263,14 @@ contract NativeAdapterTest is Test {
             ASSET_WETH,
             FEE_BPS,
             uint32(vm.getBlockNumber()),
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
     }
 
-    /// The pool refuses a cancel of a contract payer's deposit from anyone but
-    /// that contract. Without it, a third party could settle the pool leg
-    /// directly and park the refund here with nothing on-chain left to tell it
-    /// apart from a flushed deposit — stranding the funder's claim.
+    /// The pool accepts a cancel of a contract payer's deposit only from that
+    /// contract. Otherwise a third party could settle the pool leg directly and
+    /// leave the refund here, indistinguishable on-chain from a flushed deposit,
+    /// stranding the funder's claim.
     function test_pool_rejectsThirdPartyCancelOfAdapterDeposit() public {
         uint64 publicIn = 3;
         uint256 total = _total(publicIn);
@@ -278,7 +281,7 @@ contract NativeAdapterTest is Test {
         vm.expectRevert(MASP.PayerNotSender.selector);
         _poolCancel(id, publicIn, submittedAt);
 
-        // The adapter-driven path still settles it.
+        // The adapter-driven path settles it.
         adapter.cancelNative(
             id,
             uint48(publicIn),
@@ -287,19 +290,19 @@ contract NativeAdapterTest is Test {
             ASSET_WETH,
             FEE_BPS,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
         assertEq(DEPOSITOR.balance, total, "funder paid out");
     }
 
     /// A flushed deposit zeroes `escrowed[id]` and returns nothing. Its record
-    /// is stale, and paying it out would spend some other escrow's coin, so the
+    /// is stale, and paying it out would spend another escrow's coin, so the
     /// settled-deposit check rejects it before any refund is attempted.
     function test_cancelNative_revert_DepositAlreadySettled_afterFlush() public {
         uint64 publicIn = 3;
         uint256 total = _total(publicIn);
         uint256 flushedId = _deposit(DEPOSITOR, publicIn, total);
-        // A second, still-pending escrow whose funds would be the ones at risk.
+        // A second, pending escrow whose funds would be at risk.
         _deposit(address(0xCAFE), publicIn, total);
 
         _flush(flushedId, publicIn, masp.committedCount());
@@ -313,13 +316,13 @@ contract NativeAdapterTest is Test {
             ASSET_WETH,
             FEE_BPS,
             uint32(vm.getBlockNumber()),
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
-        // Flush moves no coin out of the pool, so both deposits are still there.
+        // Flush moves no coin out of the pool, so both deposits remain.
         assertEq(weth.balanceOf(address(masp)), 2 * total, "the surviving escrow is untouched");
     }
 
-    /// Flush an adapter-owned deposit, leaving its record behind unfunded.
+    /// Flushes an adapter-owned deposit, leaving its record unfunded.
     function _flush(uint256 id, uint64 publicIn, uint64 startIndex) internal {
         _mockVerifiers();
         uint256[] memory ids = new uint256[](1);
@@ -345,9 +348,9 @@ contract NativeAdapterTest is Test {
         masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
     }
 
-    /// A stale record left by a flushed deposit must not hold up an ordinary
-    /// cancel: that path proves funding by delta across its own pool call and
-    /// consults no shared state.
+    /// A stale record left by a flushed deposit does not block an ordinary
+    /// cancel: that path proves funding by balance delta across its own pool
+    /// call and consults no shared state.
     function test_cancelNative_unaffectedByStaleFlushedRecord() public {
         uint64 publicIn = 3;
         uint256 total = _total(publicIn);
@@ -366,7 +369,7 @@ contract NativeAdapterTest is Test {
             ASSET_WETH,
             FEE_BPS,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
         );
 
         assertEq(address(0xCAFE).balance, total, "live escrow refunded");
@@ -375,7 +378,7 @@ contract NativeAdapterTest is Test {
 
     // --- withdraw ----------------------------------------------------------
 
-    /// Fund the pool with WETH so an unshield has backing.
+    /// Funds the pool with WETH so an unshield has backing.
     function _armWithdraw(uint256 amount) internal {
         vm.deal(address(this), amount);
         weth.deposit{ value: amount }();
@@ -407,9 +410,9 @@ contract NativeAdapterTest is Test {
         assertEq(masp.accruedFee(IERC20(address(weth))), fee, "fee stays wrapped in the pool");
     }
 
-    /// Wrapped coin sitting on the adapter for any reason must not leak into
-    /// the unshield measurement, nor be spent by it. The delta is what makes
-    /// that hold.
+    /// Wrapped coin already held by the adapter is neither counted in the
+    /// unshield measurement nor spent by it, because the payout is measured by
+    /// balance delta.
     function test_withdrawNative_ignoresPreExistingBalance() public {
         uint256 parked = 4 ether;
         weth.mint(address(adapter), parked);
@@ -426,10 +429,37 @@ contract NativeAdapterTest is Test {
         assertEq(weth.balanceOf(address(adapter)), parked, "pre-existing balance untouched");
     }
 
+    /// The pool call forwards this call's argument bytes, so a pool revert
+    /// surfaces unchanged; here, a wrong anchor slot.
+    function test_withdrawNative_bubblesPoolRevert() public {
+        _armWithdraw(7 * SCALE);
+        PubInputs.Transact memory pi = _transactPi(ASSET_WETH, 7);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
+        tpi.anchorIndex = 9;
+        vm.expectRevert(MASP.UnknownRoot.selector);
+        adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _aux3());
+    }
+
+    /// Bytes past the ABI encoding are forwarded to the pool, whose decoder
+    /// ignores them as the adapter's does.
+    function test_withdrawNative_trailingCalldata_forwarded() public {
+        uint64 publicOut = 7;
+        uint256 gross = uint256(publicOut) * SCALE;
+        _armWithdraw(gross);
+        PubInputs.Transact memory pi = _transactPi(ASSET_WETH, publicOut);
+        bytes memory cd = bytes.concat(
+            abi.encodeCall(NativeAdapter.withdrawNative, (_emptyProof(), pi, _emptyProof(), _tpi(pi), _aux3())),
+            hex"deadbeef"
+        );
+        (bool ok,) = address(adapter).call(cd);
+        assertTrue(ok, "withdraw landed");
+        assertEq(DEPOSITOR.balance, gross - (gross * FEE_BPS) / 10_000, "payer paid");
+    }
+
     function test_withdrawNative_revert_AdapterNotRecipient() public {
         PubInputs.Transact memory pi = _transactPi(ASSET_WETH, 1);
         pi.recipient = DEPOSITOR;
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
         vm.expectRevert(NativeAdapter.AdapterNotRecipient.selector);
         adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _aux3());
     }
@@ -437,7 +467,7 @@ contract NativeAdapterTest is Test {
     function test_withdrawNative_revert_AdapterNotRelayer() public {
         PubInputs.Transact memory pi = _transactPi(ASSET_WETH, 1);
         pi.relayer = address(0xCA11);
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
         vm.expectRevert(NativeAdapter.AdapterNotRelayer.selector);
         adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _aux3());
     }
@@ -450,27 +480,66 @@ contract NativeAdapterTest is Test {
         _mockVerifiers();
 
         PubInputs.Transact memory pi = _transactPi(ASSET_ERC20, publicOut);
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
         vm.expectRevert(NativeAdapter.NothingUnshielded.selector);
         adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _aux3());
     }
 
-    /// The payer is a raw-native destination; one that rejects the push must
-    /// surface `NativeTransferFailed` rather than stranding the funds.
-    function test_withdrawNative_revert_NativeTransferFailed() public {
+    /// A payer that rejects the push, burns gas, or writes state in `receive`
+    /// is paid in full, without its code running and without failing the spend.
+    /// Inside a bundle, a failing payout would otherwise fail the items after it.
+    function test_withdrawNative_rejectingPayer_forceSent() public {
+        _assertForceSent(address(new NativeRejector()));
+    }
+
+    function test_withdrawNative_gasBurningPayer_forceSent() public {
+        _assertForceSent(address(new GasBurner()));
+    }
+
+    function test_withdrawNative_stateWritingPayer_forceSent() public {
+        NativeStateWriter payer = new NativeStateWriter();
+        _assertForceSent(address(payer));
+        assertEq(payer.received(), 0, "payer code never wrote state");
+    }
+
+    function _assertForceSent(address payer) internal {
         uint64 publicOut = 7;
-        _armWithdraw(uint256(publicOut) * SCALE);
+        uint256 gross = uint256(publicOut) * SCALE;
+        uint256 net = gross - (gross * FEE_BPS) / 10_000;
+        _armWithdraw(gross);
 
         PubInputs.Transact memory pi = _transactPi(ASSET_WETH, publicOut);
-        pi.payer = address(new NativeRejector());
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
-        vm.expectRevert(NativeAdapter.NativeTransferFailed.selector);
-        adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _aux3());
+        pi.payer = payer;
+
+        vm.expectEmit(true, true, true, true, address(adapter));
+        emit NativeAdapter.NativeForceSent(payer, net);
+        uint256 paid = adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), _tpi(pi), _aux3());
+
+        assertEq(paid, net, "returned net matches");
+        assertEq(payer.balance, net, "payer paid in raw native");
+        assertEq(address(adapter).balance, 0, "adapter holds no native");
+    }
+
+    /// A payer that takes the push on the stipend is paid directly, with no
+    /// force-send.
+    function test_withdrawNative_stipendPayer_notForceSent() public {
+        uint64 publicOut = 7;
+        _armWithdraw(uint256(publicOut) * SCALE);
+        PubInputs.Transact memory pi = _transactPi(ASSET_WETH, publicOut);
+        pi.payer = address(new NativeAcceptor());
+
+        vm.recordLogs();
+        adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), _tpi(pi), _aux3());
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            assertTrue(logs[i].topics[0] != NativeAdapter.NativeForceSent.selector, "no force-send");
+        }
+        assertGt(pi.payer.balance, 0, "payer paid");
     }
 
     // --- misc --------------------------------------------------------------
 
-    /// Raw native is only ever expected from the unwrap leg.
+    /// Raw native is accepted only from the wrapped-native contract (the unwrap leg).
     function test_receive_rejectsNonWrappedNativeSender() public {
         vm.deal(address(this), 1 ether);
         (bool ok, bytes memory data) = address(adapter).call{ value: 1 }("");
@@ -490,7 +559,7 @@ contract NativeAdapterTest is Test {
         assertEq(expiration, type(uint48).max, "allowance never expires");
     }
 
-    /// MASP no longer accepts raw native at all.
+    /// MASP does not accept raw native.
     function test_pool_rejectsRawNative() public {
         vm.deal(address(this), 1 ether);
         (bool ok,) = address(masp).call{ value: 1 }("");
@@ -498,9 +567,23 @@ contract NativeAdapterTest is Test {
     }
 }
 
-/// Rejects raw native, forcing the `_sendNative` low-level call to fail.
+/// Rejects raw native, forcing the `_sendNative` push to fail.
 contract NativeRejector {
     receive() external payable {
         revert("no native");
     }
+}
+
+/// Writes storage on receipt, which the 2300 stipend cannot pay for.
+contract NativeStateWriter {
+    uint256 public received;
+
+    receive() external payable {
+        received += msg.value;
+    }
+}
+
+/// Accepts native on the stipend.
+contract NativeAcceptor {
+    receive() external payable { }
 }

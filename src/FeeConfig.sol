@@ -9,7 +9,8 @@ import { Fees } from "./libs/Fees.sol";
 import { OwnableInit } from "./OwnableInit.sol";
 
 /// Per-token fee accrual, drained to `treasury` by the permissionless `sweep`.
-/// Fees accrue at flush, so `accruedFee` never holds escrowed funds.
+/// Deposit fees accrue at flush and withdraw fees at unshield, so `accruedFee`
+/// never holds escrowed funds.
 ///
 /// There is no pool-wide rate: every asset carries its own deposit and withdraw
 /// rates in its `AssetRegistry` entry, set at registration and mutable only

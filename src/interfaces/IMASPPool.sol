@@ -5,7 +5,7 @@ import { PubInputs } from "../libs/PubInputs.sol";
 import { AuxValidation } from "../libs/AuxValidation.sol";
 
 /// The MASP surface the adapters call. `NativeAdapter` and `SwapWrapper`
-/// require the same four functions and share this declaration.
+/// share this declaration.
 ///
 /// Solidity does not check a hand-written interface against the contract it
 /// describes, and a mismatched signature is a wrong selector at runtime rather
@@ -18,11 +18,20 @@ interface IMASPPool {
         uint256[2] c;
     }
 
+    /// `AssetRegistry.AssetEntry`, ABI-identical.
+    struct AssetEntry {
+        address token;
+        bool disabled;
+        uint16 depositBps;
+        uint16 withdrawBps;
+        uint256 scale;
+    }
+
     function withdraw(
         Proof calldata p,
         PubInputs.Transact calldata pi,
         Proof calldata tp,
-        PubInputs.TreeUpdateBatch calldata tpi,
+        PubInputs.SpendTree calldata tpi,
         AuxValidation.Output[6] calldata aux
     ) external;
 
@@ -36,7 +45,9 @@ interface IMASPPool {
 
     /// `feeNote` is the relayer leaf's half of the escrow digest preimage. A
     /// canceller reads it from the deposit's `DepositEscrowed` event; the pool
-    /// rejects any other value.
+    /// rejects any other value. Returns the refunds paid to `payer`: `total`
+    /// in the deposit asset's token, and `feeRefunded` in the fee asset's token
+    /// when the relayer note was in another asset (zero otherwise).
     function cancelDeposit(
         uint256 id,
         uint48 publicIn,
@@ -47,8 +58,10 @@ interface IMASPPool {
         address payer,
         uint32 submittedAt,
         PubInputs.FeeNote calldata feeNote
-    ) external;
+    ) external returns (uint256 total, uint256 feeRefunded);
 
     /// Per-deposit escrow digest; zero once flushed or canceled.
     function escrowed(uint256 id) external view returns (bytes32);
+
+    function asset(uint64 id) external view returns (AssetEntry memory);
 }

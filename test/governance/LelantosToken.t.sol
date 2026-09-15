@@ -8,9 +8,9 @@ import { Votes } from "@openzeppelin/contracts/governance/utils/Votes.sol";
 
 import { LelantosToken } from "../../src/governance/LelantosToken.sol";
 
-/// The governance token's two load-bearing properties: that nothing can inflate
-/// it, and that its ERC-6372 clock is coherent. Both are relied on by
-/// `LelantosGovernor` and neither is checked by the compiler.
+/// Governance token properties `LelantosGovernor` relies on and the compiler
+/// does not check: supply cannot be inflated, and the ERC-6372 clock is
+/// consistent.
 contract LelantosTokenTest is Test {
     LelantosToken internal token;
 
@@ -34,8 +34,8 @@ contract LelantosTokenTest is Test {
         assertEq(token.totalBurned(), 0);
     }
 
-    /// There must be no way to inflate supply. The ABI carries no `mint`, so this
-    /// pins the absence at the dispatch level rather than trusting the source.
+    /// Supply cannot be inflated. Checks at the dispatch level that no `mint` or
+    /// `owner` entry point exists.
     function test_hasNoMintFunction() public {
         (bool ok,) = address(token).call(abi.encodeWithSignature("mint(address,uint256)", address(this), 1));
         assertFalse(ok, "a mint entry point exists");
@@ -62,10 +62,9 @@ contract LelantosTokenTest is Test {
 
     // ============== ERC-6372 clock ===========================================
 
-    /// Warps use absolute timestamps throughout this suite. Under `via_ir` the
-    /// optimizer may cache `block.timestamp` within a call — legal, since it cannot
-    /// change mid-transaction — which `vm.warp` then invalidates, so
-    /// `vm.warp(block.timestamp + n)` is not reliable in a test body.
+    /// Warps use absolute timestamps. Under `via_ir` the optimizer may cache
+    /// `block.timestamp` within a call, which `vm.warp` invalidates, so
+    /// `vm.warp(block.timestamp + n)` is unreliable in a test body.
     function test_clockIsTimestamp() public {
         vm.warp(1_000);
         assertEq(token.clock(), uint48(1_000));
@@ -74,16 +73,15 @@ contract LelantosTokenTest is Test {
     }
 
     /// `Votes.CLOCK_MODE` reverts `ERC6372InconsistentClock` when `clock()` is
-    /// overridden without it. Overriding exactly one is a silent, total break of
-    /// governance, so the pair is pinned here.
+    /// overridden without it. Overriding only one breaks governance, so the
+    /// pair is pinned here.
     function test_clockModeDoesNotRevertAndDeclaresTimestamp() public view {
         assertEq(token.CLOCK_MODE(), "mode=timestamp");
     }
 
     // ============== Delegation ===============================================
 
-    /// A balance is not voting weight until it is delegated. This is the single
-    /// most common governance-launch surprise.
+    /// A balance carries no voting weight until it is delegated.
     function test_balanceIsNotVotesUntilDelegated() public {
         assertEq(token.getVotes(RECIPIENT), 0, "undelegated balance must carry no weight");
         vm.prank(RECIPIENT);
@@ -98,8 +96,8 @@ contract LelantosTokenTest is Test {
     }
 
     /// Quorum reads `getPastTotalSupply`. `Votes._transferVotingUnits` checkpoints
-    /// the total only on mint and burn — a transfer must not move it, or the quorum
-    /// denominator would wander with ordinary activity.
+    /// the total only on mint and burn, so transfers do not move the quorum
+    /// denominator.
     function test_pastTotalSupplyTracksBurnsButNotTransfers() public {
         vm.warp(1_000);
         vm.prank(RECIPIENT);
@@ -113,16 +111,16 @@ contract LelantosTokenTest is Test {
 
         vm.warp(3_000);
         assertEq(token.getPastTotalSupply(2_999), SUPPLY - 1_000e18, "burn did not lower total supply");
-        // The burn is visible from its own timepoint onward, not only later.
+        // The burn is visible from its own timepoint onward.
         assertEq(token.getPastTotalSupply(2_000), SUPPLY - 1_000e18);
         assertEq(token.getPastTotalSupply(1_999), SUPPLY, "burn leaked backwards");
     }
 
     // ============== Nonces diamond ===========================================
 
-    /// `ERC20Permit` and `ERC20Votes` both inherit `Nonces`. If the override picked
-    /// the wrong parent the two would keep separate counters, and a signature valid
-    /// for one path would be replayable against the other.
+    /// `ERC20Permit` and `ERC20Votes` both inherit `Nonces`. The two paths share
+    /// one counter; separate counters would make a signature valid for one path
+    /// replayable against the other.
     function test_permitAndDelegateBySigShareOneNonce() public {
         vm.prank(RECIPIENT);
         token.transfer(alice, 1e18);

@@ -8,8 +8,9 @@ import { LelantosToken } from "../../src/governance/LelantosToken.sol";
 import { FeeBurner } from "../../src/burn/FeeBurner.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 
-/// Drives random buys, waits and fee arrivals against one lot, accumulating
-/// ghost totals the invariants check against.
+/// Drives random buys, waits, fee arrivals, donate-and-clear loops and decay
+/// parameter changes against one lot, accumulating ghost totals the invariants
+/// check against.
 contract FeeBurnerHandler is Test {
     FeeBurner public immutable BURNER;
     LelantosToken public immutable GOV;
@@ -21,6 +22,12 @@ contract FeeBurnerHandler is Test {
     uint256 public ghostRescued;
     uint256 public ghostFeesIn;
     uint256 public lastSupply;
+    /// Successful fills below `minLot`, which are admitted only as clearing
+    /// fills. Shows the dust path ran at all.
+    uint256 public ghostDustFills;
+    /// Of those, fills that moved `startPrice`, `startedAt` or the lot's decay
+    /// curve snapshot. A sub-`minLot` fill must never re-anchor.
+    uint256 public ghostDustReanchors;
 
     address[] internal bidders;
 
@@ -41,18 +48,59 @@ contract FeeBurnerHandler is Test {
         uint256 bal = TOKEN.balanceOf(address(BURNER));
         if (bal == 0) return;
         amount = bound(amount, 1, bal);
+        _buy(_bidder(seed), amount);
+    }
+
+    /// The donate-and-clear loop: while the balance is under `minLot`, donate a
+    /// sub-`minLot` amount and buy the whole balance back, `rounds` times in one
+    /// block. Any resting balance of `minLot` or more is cleared first by an
+    /// ordinary fill, so the loop always starts from dust.
+    function donateAndClearDust(uint256 seed, uint256 dust, uint256 rounds) external {
+        (,, uint128 minLot,,,,) = BURNER.lots(IERC20(address(TOKEN)));
+        if (minLot < 2) return;
         address who = _bidder(seed);
 
+        uint256 bal = TOKEN.balanceOf(address(BURNER));
+        if (bal >= minLot && !_buy(who, bal)) return;
+
+        rounds = bound(rounds, 1, 8);
+        for (uint256 i = 0; i < rounds; ++i) {
+            bal = TOKEN.balanceOf(address(BURNER));
+            if (bal >= minLot - 1) return;
+            uint256 d = bound(dust, 1, minLot - 1 - bal);
+            TOKEN.mint(address(BURNER), d);
+            ghostFeesIn += d;
+            dust = uint256(keccak256(abi.encode(dust)));
+            if (!_buy(who, bal + d)) return;
+        }
+    }
+
+    /// Buys `amount` and records the ghosts. A fill below `minLot` is checked
+    /// against the lot's clock before and after.
+    function _buy(address who, uint256 amount) internal returns (bool ok) {
+        (, uint48 startedAt, uint128 minLot, uint32 halfLife, uint8 maxHalvings, uint256 startPrice,) =
+            BURNER.lots(IERC20(address(TOKEN)));
         uint256 supplyBefore = GOV.totalSupply();
         vm.prank(who);
         try BURNER.buy(IERC20(address(TOKEN)), amount, type(uint256).max, who) returns (uint256) {
+            ok = true;
             ghostBought += amount;
             ghostBurned += supplyBefore - GOV.totalSupply();
             lastSupply = GOV.totalSupply();
-        } catch { }
+        } catch {
+            return false;
+        }
+        if (amount >= minLot) return true;
+
+        ++ghostDustFills;
+        (, uint48 startedAt2,, uint32 halfLife2, uint8 maxHalvings2, uint256 startPrice2,) =
+            BURNER.lots(IERC20(address(TOKEN)));
+        if (
+            startPrice2 != startPrice || startedAt2 != startedAt || halfLife2 != halfLife || maxHalvings2 != maxHalvings
+        ) ++ghostDustReanchors;
     }
 
-    /// Fees arriving is a plain transfer in — exactly how `sweep` delivers them.
+    /// Models fee arrival as a plain transfer in, which is how `sweep` delivers fees.
     function accrueFees(uint256 amount) external {
         amount = bound(amount, 1, 1_000e18);
         TOKEN.mint(address(BURNER), amount);
@@ -63,11 +111,22 @@ contract FeeBurnerHandler is Test {
         vm.warp(block.timestamp + bound(secs, 1, 10 days));
     }
 
-    function reseed(uint256 startPrice, uint256 minPrice) external {
+    function reseed(uint256 startPrice, uint256 minPrice, uint256 minLot) external {
         startPrice = bound(startPrice, 1e6, 1e24);
         minPrice = bound(minPrice, 1, startPrice);
+        minLot = bound(minLot, 1, 10e18);
         vm.prank(OWNER);
-        BURNER.setLot(IERC20(address(TOKEN)), true, startPrice, minPrice, 0);
+        BURNER.setLot(IERC20(address(TOKEN)), true, startPrice, minPrice, uint128(minLot));
+    }
+
+    /// Changes the global curve. A running lot keeps its snapshot until it is
+    /// reseeded or re-anchored.
+    function setDecayParams(uint256 halfLife, uint256 maxHalvings, uint256 restartMultBps) external {
+        halfLife = bound(halfLife, 1, 30 days);
+        maxHalvings = bound(maxHalvings, 1, 32);
+        restartMultBps = bound(restartMultBps, 10_000, 50_000);
+        vm.prank(OWNER);
+        BURNER.setDecayParams(uint32(halfLife), uint8(maxHalvings), uint16(restartMultBps));
     }
 
     function rescue(uint256 amount) external {
@@ -80,7 +139,7 @@ contract FeeBurnerHandler is Test {
     }
 }
 
-/// The properties that must hold no matter how the auction is driven.
+/// Properties that hold under any sequence of auction actions.
 contract FeeBurnerInvariantTest is Test {
     uint256 internal constant SUPPLY = 1_000_000_000e18;
 
@@ -111,27 +170,27 @@ contract FeeBurnerInvariantTest is Test {
         }
 
         vm.prank(owner);
-        burner.setLot(IERC20(address(token)), true, 2e18, 1e12, 0);
+        burner.setLot(IERC20(address(token)), true, 2e18, 1e12, 1e18);
         token.mint(address(burner), 1_000e18);
 
         handler = new FeeBurnerHandler(burner, gov, token, owner, bidders);
         targetContract(address(handler));
     }
 
-    /// Fixed supply, no mint: the total can only ever fall.
+    /// Supply is fixed with no mint, so the total never increases.
     function invariant_supplyNeverIncreases() public view {
         assertLe(gov.totalSupply(), SUPPLY);
     }
 
-    /// Every wei of GOV that left circulation was burned by a sale — the public
-    /// claim `INITIAL_SUPPLY - totalSupply()` makes.
+    /// All GOV removed from circulation is burned by a sale, so
+    /// `INITIAL_SUPPLY - totalSupply()` equals the total burned.
     function invariant_burnedMatchesSupplyDelta() public view {
         assertEq(SUPPLY - gov.totalSupply(), handler.ghostBurned());
         assertEq(gov.totalBurned(), handler.ghostBurned());
     }
 
-    /// GOV is received and burned inside one call, so none may rest here. A
-    /// balance would mean value was paid in and neither burned nor forwarded.
+    /// GOV is received and burned within one call, so the burner holds none. A
+    /// non-zero balance indicates GOV paid in that was neither burned nor forwarded.
     function invariant_burnerHoldsNoGov() public view {
         assertEq(gov.balanceOf(address(burner)), 0);
     }
@@ -144,16 +203,34 @@ contract FeeBurnerInvariantTest is Test {
         );
     }
 
-    /// The floor always holds, so a lot can never decay toward free.
+    /// The price never decays below the lot's floor.
     function invariant_priceNeverBelowFloor() public view {
-        (bool enabled,,,, uint256 minPrice) = burner.lots(IERC20(address(token)));
+        (bool enabled,,,,,, uint256 minPrice) = burner.lots(IERC20(address(token)));
         if (!enabled) return;
         assertGe(burner.priceOf(IERC20(address(token))), minPrice);
     }
 
     function invariant_startPriceNeverBelowFloor() public view {
-        (bool enabled,,, uint256 startPrice, uint256 minPrice) = burner.lots(IERC20(address(token)));
+        (bool enabled,,,,, uint256 startPrice, uint256 minPrice) = burner.lots(IERC20(address(token)));
         if (!enabled) return;
         assertGe(startPrice, minPrice);
+    }
+
+    /// A fill below `minLot` gets in only by clearing the balance, which anyone
+    /// can shrink to dust by donating first, so it never moves the start price,
+    /// the clock or the curve snapshot.
+    function invariant_dustFillsNeverRatchet() public view {
+        assertEq(handler.ghostDustReanchors(), 0);
+    }
+
+    /// An enabled lot always carries a non-zero `minLot` and a usable curve
+    /// snapshot: a zero half-life would divide by zero in `priceOf`.
+    function invariant_enabledLotHasMinLotAndCurve() public view {
+        (bool enabled,, uint128 minLot, uint32 halfLife, uint8 maxHalvings,,) = burner.lots(IERC20(address(token)));
+        if (!enabled) return;
+        assertGt(minLot, 0);
+        assertGt(halfLife, 0);
+        assertGt(maxHalvings, 0);
+        assertLe(maxHalvings, 32);
     }
 }

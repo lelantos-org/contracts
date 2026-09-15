@@ -5,6 +5,7 @@ import { TimelockController } from "@openzeppelin/contracts/governance/TimelockC
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
+import { DelayedUpgradeProxy } from "../../src/DelayedUpgradeProxy.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { LelantosToken } from "../../src/governance/LelantosToken.sol";
@@ -13,16 +14,16 @@ import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 import { FeeBurner } from "../../src/burn/FeeBurner.sol";
 
 import { MASPTestBase } from "../utils/MASPTestBase.sol";
+import { TEST_PROXY_ADMIN } from "../utils/PoolDeployer.sol";
 
-/// Stands the whole governance stack up over a **real** `MASP` and a real
-/// `SwapWrapper`, with ownership already handed over, so every lifecycle test
-/// exercises the actual `onlyOwner` boundary rather than a mock of it.
+/// Deploys the governance stack over a real `MASP` and `SwapWrapper` with
+/// ownership and the pool's proxy admin handed over, so lifecycle tests
+/// exercise the production `onlyOwner` and `onlyAdmin` boundaries.
 ///
-/// Time handling: every warp in this suite targets an **absolute** timestamp read
-/// back from the Governor (`proposalSnapshot`, `proposalDeadline`, `proposalEta`).
-/// Under `via_ir` the optimizer may cache `block.timestamp` within a call — legal,
-/// since it cannot change mid-transaction — which `vm.warp` then invalidates, so
-/// `vm.warp(block.timestamp + n)` silently misbehaves in a test body.
+/// Every warp targets an absolute timestamp read back from the Governor
+/// (`proposalSnapshot`, `proposalDeadline`, `proposalEta`). Under `via_ir` the
+/// optimizer may cache `block.timestamp` within a call, which `vm.warp`
+/// invalidates, so `vm.warp(block.timestamp + n)` is unreliable in a test body.
 abstract contract GovTestBase is MASPTestBase {
     uint256 internal constant SUPPLY = 1_000_000_000e18;
     uint48 internal constant VOTING_DELAY = 2 days;
@@ -36,7 +37,7 @@ abstract contract GovTestBase is MASPTestBase {
     uint16 internal constant RESTART_MULT_BPS = 20_000;
     uint16 internal constant BURN_BPS = 10_000;
 
-    /// Deploy-time genesis time, so warps have somewhere to start.
+    /// Genesis timestamp at deploy; the base for absolute warps.
     uint256 internal constant T0 = 1_000_000;
 
     LelantosToken internal gov;
@@ -58,8 +59,8 @@ abstract contract GovTestBase is MASPTestBase {
 
         gov = new LelantosToken("Lelantos", "LNT", SUPPLY, distributor);
 
-        // Deployed with the test contract as admin, exactly as the script does, so
-        // the roles can be wired and then the admin renounced as the last step.
+        // Deployed with the test contract as admin, as the deploy script does, so
+        // the roles can be wired and the admin renounced as the last step.
         timelock = new TimelockController(TIMELOCK_DELAY, new address[](0), _openExecutor(), address(this));
 
         governor = new LelantosGovernor(
@@ -78,29 +79,33 @@ abstract contract GovTestBase is MASPTestBase {
 
         protocolAdmin = new ProtocolAdmin(address(masp), address(wrapper), address(timelock), guardian);
 
-        // Handover, in the order the real runbook uses: treasuries first, so the
-        // first fee routing needs no proposal, then ownership.
+        // Handover in the runbook order: treasuries first, so the first fee
+        // routing needs no proposal, then ownership.
         vm.startPrank(OWNER);
         masp.setTreasury(address(burner));
         masp.transferOwnership(address(protocolAdmin));
         vm.stopPrank();
         wrapper.transferOwnership(address(protocolAdmin));
+        // Then the proxy admin, as `HandoverOwnership.s.sol` does last:
+        // `migrateAdmin` refuses to move ownership without it.
+        vm.prank(TEST_PROXY_ADMIN);
+        _poolProxy().changeProxyAdmin(address(protocolAdmin));
 
-        // Last: the deployer gives up its foothold.
+        // Last step: the deployer renounces its admin role.
         timelock.renounceRole(timelock.DEFAULT_ADMIN_ROLE(), address(this));
 
         _distributeAndDelegate();
     }
 
-    /// `EXECUTOR_ROLE` held by `address(0)` = anyone may execute a matured
+    /// `EXECUTOR_ROLE` held by `address(0)` lets anyone execute a matured
     /// operation. Execution carries no discretion, only liveness.
     function _openExecutor() private pure returns (address[] memory e) {
         e = new address[](1);
         e[0] = address(0);
     }
 
-    /// 20% of supply to each of three voters, all self-delegated. Well clear of
-    /// both the proposal threshold and a 3% quorum.
+    /// Transfers 20% of supply to each of three self-delegated voters, above
+    /// both the proposal threshold and the 3% quorum.
     function _distributeAndDelegate() private {
         vm.startPrank(distributor);
         gov.transfer(voter1, SUPPLY / 5);
@@ -115,8 +120,13 @@ abstract contract GovTestBase is MASPTestBase {
         vm.prank(voter3);
         gov.delegate(voter3);
 
-        // Delegation must be strictly in the past before it counts anywhere.
+        // Delegated weight counts only from a strictly earlier timepoint.
         vm.warp(T0 + 1);
+    }
+
+    /// The pool's proxy surface, which answers its reserved selectors itself.
+    function _poolProxy() internal view returns (DelayedUpgradeProxy) {
+        return DelayedUpgradeProxy(payable(address(masp)));
     }
 
     // ============== Proposal helpers =========================================
@@ -153,7 +163,7 @@ abstract contract GovTestBase is MASPTestBase {
         governor.execute(targets, values, calldatas, keccak256(bytes(description)));
     }
 
-    /// Propose and carry it to `Succeeded`, stopping before `queue`.
+    /// Proposes and votes through to `Succeeded`, stopping before `queue`.
     function _proposeAndSucceed(
         address[] memory targets,
         uint256[] memory values,

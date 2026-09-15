@@ -11,42 +11,38 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 // from another file: Solidity rejects a library's `internal constant` there.
 // `SpendFixtureWidthTest` pins the two together, and pins both against the
 // `Output[6]` in `AuxValidation.validate`, so a shape change that misses one
-// of them fails as an assertion rather than as a silently short aux array.
+// of them fails as an assertion rather than as a short aux array.
 uint256 constant SPEND_OUTPUTS = 6;
 
-/// Scaffolding every MASP spend test needs before it can assert on anything.
+/// Common scaffolding for MASP spend tests.
 ///
-/// The three pieces below are not free parameters. `MASP._spend` requires
-/// `tpi.actualCount == TRANSACT_OUT`, `tpi.cms[k] == pi.outCm[k]` for every
-/// `k`, and an aux payload in every slot that passes `AuxValidation`. Restating
-/// those rules in each test file meant a change to the transact shape had to be
-/// re-applied by hand in all of them, and a slot missed in one showed up as a
-/// `BatchMisaligned` or `CiphertextTooShort` several layers from the edit that
-/// caused it.
+/// These values are constrained: `MASP` requires pairwise-distinct nullifiers,
+/// a tree position at `committedCount` with the anchor's ring slot, and an aux
+/// payload in every slot that passes `AuxValidation`. Centralising them means a
+/// change to the transact shape is applied once, instead of surfacing as
+/// `BatchMisaligned` or `CiphertextTooShort` in every test file that restates
+/// the rules.
 ///
 /// Everything here is sized from `PubInputs.TRANSACT_OUT` / `.length` rather
-/// than a literal, so the shape is stated once and a future arity change is a
-/// single edit in `PubInputs.sol`.
+/// than a literal, so an arity change is a single edit in `PubInputs.sol`.
 ///
-/// What is *not* here: `merkleRoot`, the public amounts, and the party
-/// addresses. Those differ per test because they are usually the thing under
-/// test, so callers still set them explicitly.
+/// Not covered: `merkleRoot`, the public amounts, and the party addresses.
+/// These are usually the subject of a test, so callers set them explicitly.
 library SpendFixture {
-    /// Fill `nullifier` and `outCm` with consecutive values from each seed.
+    /// Fills `nullifier` and `outCm` with consecutive values from each seed.
     ///
     /// Nullifiers must be pairwise distinct or `MASP` rejects the spend with
     /// `DuplicateNullifier`; consecutive values from one seed guarantee that
-    /// for any width. The seeds stay caller-supplied so a test that wants
-    /// recognisable values in a trace can still choose them — only the *count*
-    /// is derived.
+    /// for any width. The seeds are caller-supplied so values are recognisable
+    /// in a trace; only the count is derived.
     function fillOutputs(PubInputs.Transact memory pi, uint256 nullifierSeed, uint256 outCmSeed) internal pure {
         fillNullifiers(pi, nullifierSeed);
         fillCommitments(pi, outCmSeed);
     }
 
-    /// `fillOutputs`, one array at a time. A test whose subject *is* the
-    /// nullifiers (the double-spend fuzz, say) sets those itself and uses
-    /// `fillCommitments` for the half it does not care about.
+    /// `fillOutputs`, one array at a time. A test whose subject is the
+    /// nullifiers (for example the double-spend fuzz) sets those itself and uses
+    /// `fillCommitments` for the other array.
     function fillNullifiers(PubInputs.Transact memory pi, uint256 seed) internal pure {
         for (uint256 k; k < pi.nullifier.length; ++k) {
             pi.nullifier[k] = bytes32(seed + k);
@@ -59,30 +55,33 @@ library SpendFixture {
         }
     }
 
-    /// The tree-update batch a spend's `pi` must be paired with.
+    /// The tree-update argument a spend is paired with, anchored at ring slot 0:
+    /// the genesis root, which every pool suite's spends prove against until
+    /// `ROOT_HISTORY` roots evict it.
     ///
-    /// `actualCount` and `cms` are deliberately not parameters: MASP pins both
-    /// to the spend's outputs, so anything else is a test bug rather than a
-    /// case worth expressing. The remaining batch fields stay zero — a spend's
-    /// `outCvDep` defaults to zero too, and `isDeposit == 0` marks a spend leaf.
-    function batchFor(PubInputs.Transact memory pi, bytes32 oldRoot, bytes32 newRoot, uint64 startIndex)
+    /// Only `newRoot`, `startIndex` and the anchor slot are left to the caller.
+    /// MASP builds the rest of the batch image from `pi` itself
+    /// (`PubInputs.compressSpend`).
+    function spendTree(bytes32 newRoot, uint64 startIndex) internal pure returns (PubInputs.SpendTree memory) {
+        return spendTree(newRoot, startIndex, 0);
+    }
+
+    /// `spendTree` with the anchor at `anchorIndex`, the slot
+    /// `CommitmentTree.rootIndexOf` reports for `pi.merkleRoot`.
+    function spendTree(bytes32 newRoot, uint64 startIndex, uint8 anchorIndex)
         internal
         pure
-        returns (PubInputs.TreeUpdateBatch memory tpi)
+        returns (PubInputs.SpendTree memory tpi)
     {
-        tpi.oldRoot = oldRoot;
         tpi.newRoot = newRoot;
         tpi.startIndex = startIndex;
-        tpi.actualCount = uint64(pi.outCm.length);
-        for (uint256 k; k < pi.outCm.length; ++k) {
-            tpi.cms[k] = pi.outCm[k];
-        }
+        tpi.anchorIndex = anchorIndex;
     }
 
     /// One aux payload per output, each carrying `ciphertext` and a clue and
-    /// ephemeral point that are on-curve and in the prime-order subgroup — the
-    /// checks `AuxValidation.validate` runs. Use it for any test whose subject
-    /// is not the aux payload itself.
+    /// ephemeral point that are on-curve and in the prime-order subgroup, as
+    /// `AuxValidation.validate` checks. For tests whose subject is not the aux
+    /// payload.
     function uniformAux(bytes memory ciphertext)
         internal
         pure

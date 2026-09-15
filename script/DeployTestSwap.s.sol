@@ -6,6 +6,8 @@ import { console2 } from "forge-std/Script.sol";
 import { UniV3Adapter } from "../src/swap/UniV3Adapter.sol";
 import { UniV4Adapter } from "../src/swap/UniV4Adapter.sol";
 import { SwapWrapper } from "../src/swap/SwapWrapper.sol";
+import { Bundler } from "../src/bundler/Bundler.sol";
+import { BundlerFactory } from "../src/bundler/BundlerFactory.sol";
 import { MockQuoterV2 } from "../test/swap/mocks/MockQuoterV2.sol";
 import { MockSwapRouter02 } from "../test/swap/mocks/MockSwapRouter02.sol";
 import { MockUniversalRouter } from "../test/swap/mocks/MockUniversalRouter.sol";
@@ -27,8 +29,10 @@ interface ISeedableRouter {
 /// Test/anvil swap stack: deploys the UniV3 mocks (`MockQuoterV2`,
 /// `MockSwapRouter02`) and the UniV4 mocks (`MockV4Quoter`,
 /// `MockUniversalRouter`), both adapters and `SwapWrapper`, then seeds the
-/// linear-rate tables across the four canonical fee tiers. Run after
-/// `DeployTest.s.sol`, whose KEY=value output supplies the env vars below.
+/// linear-rate tables across the four canonical fee tiers, then deploys the
+/// `BundlerFactory` over MASP, the native adapter and the wrapper, and
+/// optionally the relayer's `Bundler`. Run after `DeployTest.s.sol`, whose KEY=value output
+/// supplies the env vars below.
 ///
 /// Required env (populated from DeployTest output):
 ///   MASP                — MASP address
@@ -39,6 +43,12 @@ interface ISeedableRouter {
 /// Optional:
 ///   MASP_OWNER, MASP_TREASURY — wrapper owner / treasury (defaults match
 ///                                DeployTest)
+///   NATIVE_ADAPTER      — DeployTest's adapter; unset leaves the Bundlers
+///                          without `withdrawNative`
+///   BUNDLER_OPERATOR    — creates the broadcaster's Bundler with this operator
+///                          and logs it as `BUNDLER`; unset skips it
+///   BUNDLER_OWNER       — transfers that Bundler to this owner; unset leaves
+///                          the broadcaster owning it
 ///
 /// Assumes the 3-asset fixture (test/fixtures/asset_registry.json). For
 /// a different asset count update `_swapRate` accordingly.
@@ -55,6 +65,8 @@ contract DeployTestSwap is BaseSwapDeploy {
         address univ4Adapter;
         address mockUniversalRouter;
         address wrapper;
+        address bundlerFactory;
+        address bundler;
     }
 
     function run() external returns (Deployed memory d) {
@@ -62,6 +74,7 @@ contract DeployTestSwap is BaseSwapDeploy {
         address permit2 = vm.envAddress("PERMIT2");
         address owner = vm.envOr("MASP_OWNER", tx.origin);
         address treasury = vm.envOr("MASP_TREASURY", 0x000000000000000000000000000000000000dEaD);
+        address nativeAdapter = vm.envOr("NATIVE_ADAPTER", address(0));
 
         address[] memory tokens = new address[](3);
         tokens[0] = vm.envAddress("TOKEN_1");
@@ -71,6 +84,7 @@ contract DeployTestSwap is BaseSwapDeploy {
 
         _requireCode(masp, "MASP has no code");
         _requireCode(permit2, "Permit2 has no code");
+        if (nativeAdapter != address(0)) _requireCode(nativeAdapter, "NATIVE_ADAPTER has no code");
 
         vm.startBroadcast();
 
@@ -84,10 +98,12 @@ contract DeployTestSwap is BaseSwapDeploy {
         // Output scales linearly with `amountIn`, so the demo UI shows
         // plausible numbers; price impact and per-tier divergence are not
         // modelled. Both venues get the same rate, so the metaquoter race is a
-        // genuine tie and either venue may win it.
+        // tie and either venue may win it.
         _seedVenue(ISeedableQuoter(address(q)), ISeedableRouter(address(r)), tokens);
         _seedVenue(ISeedableQuoter(address(q4)), ISeedableRouter(address(r4)), tokens);
         _prepareTokens(w, tokens);
+        BundlerFactory factory = _deployBundlerFactory(masp, nativeAdapter, address(w));
+        Bundler bundler = _createBundlerFromEnv({ factory: factory, ownerRequired: false });
 
         vm.stopBroadcast();
 
@@ -98,7 +114,9 @@ contract DeployTestSwap is BaseSwapDeploy {
             univ4Quoter: address(q4),
             univ4Adapter: address(a4),
             mockUniversalRouter: address(r4),
-            wrapper: address(w)
+            wrapper: address(w),
+            bundlerFactory: address(factory),
+            bundler: address(bundler)
         });
 
         console2.log(string.concat("UNIV3_QUOTER=", vm.toString(d.univ3Quoter)));
@@ -108,14 +126,15 @@ contract DeployTestSwap is BaseSwapDeploy {
         console2.log(string.concat("UNIV4_ADAPTER=", vm.toString(d.univ4Adapter)));
         console2.log(string.concat("MOCK_UNIVERSAL_ROUTER=", vm.toString(d.mockUniversalRouter)));
         console2.log(string.concat("SWAP_WRAPPER=", vm.toString(d.wrapper)));
+        _logBundlerKv(factory, bundler);
     }
 
     /// Seeds one venue's rate tables for every directed pair across the four
     /// canonical fee tiers.
     ///
     /// Both venues' mocks expose the same two `setRate` shapes, so one
-    /// implementation serves both — called once per venue rather than holding
-    /// all four mock handles live at once, which exceeds the stack limit.
+    /// implementation serves both. It is called once per venue because holding
+    /// all four mock handles at once exceeds the stack limit.
     function _seedVenue(ISeedableQuoter quoter, ISeedableRouter router, address[] memory tokens) private {
         uint24[4] memory fees = [uint24(100), uint24(500), uint24(3000), uint24(10000)];
         for (uint256 i; i < tokens.length; ++i) {

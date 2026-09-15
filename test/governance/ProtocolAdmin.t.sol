@@ -5,7 +5,9 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
+import { DelayedUpgradeProxy } from "../../src/DelayedUpgradeProxy.sol";
 import { MASP } from "../../src/MASP.sol";
+import { IUpgradeProxyAdmin } from "../../src/interfaces/IProtocolAdmin.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { ERC4626Venue } from "../../src/yield/ERC4626Venue.sol";
 import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
@@ -13,10 +15,9 @@ import { MockERC4626 } from "../mocks/MockERC4626.sol";
 
 import { GovTestBase } from "./GovTestBase.sol";
 
-/// The guardian's authority, and its limits. The design claim being tested is
-/// that the guardian can only ever *reduce* what the protocol does — every
-/// function below hardcodes its direction, and nothing here can re-enable,
-/// re-rate, or repoint anything.
+/// Guardian authority and its limits. The guardian can only reduce protocol
+/// functionality: each guardian function hardcodes its direction, and none can
+/// re-enable, re-rate, or repoint anything.
 contract ProtocolAdminTest is GovTestBase {
     uint64 internal constant YIELD_ID = 2;
 
@@ -35,7 +36,7 @@ contract ProtocolAdminTest is GovTestBase {
         );
     }
 
-    // ============== Guardian can turn things off =============================
+    // ============== Guardian disable switches ================================
 
     function test_guardianDisablesAsset() public {
         vm.prank(guardian);
@@ -72,20 +73,77 @@ contract ProtocolAdminTest is GovTestBase {
         assertTrue(masp.yieldState(YIELD_ID).halted, "unwind did not halt");
     }
 
-    // ============== ...and nothing else ======================================
+    /// The guardian halts spends through the proxy, as its admin, and the pause
+    /// is reported like the other switches.
+    function test_guardianPausesSpends() public {
+        vm.expectEmit(address(protocolAdmin));
+        emit ProtocolAdmin.GuardianAction(IUpgradeProxyAdmin.pauseSpends.selector, 0, address(masp));
+        vm.prank(guardian);
+        protocolAdmin.pauseSpends(1 days);
 
-    /// There is no re-enable path on the guardian surface at all. Undoing any of
-    /// the four costs a full proposal — that asymmetry is the whole safety
-    /// argument for granting the role.
+        // `setUp` leaves the clock at T0 + 1.
+        assertEq(_poolProxy().spendsPausedUntil(), T0 + 1 + 1 days, "spends not paused");
+        assertTrue(_poolProxy().guardianPauseUsed(), "latch not set");
+    }
+
+    /// The proxy's latch holds through `ProtocolAdmin`: the guardian cannot chain
+    /// pauses into an indefinite freeze.
+    function test_revert_GuardianPauseAlreadyUsed_secondGuardianPause() public {
+        vm.prank(guardian);
+        protocolAdmin.pauseSpends(1 days);
+
+        vm.prank(guardian);
+        vm.expectRevert(DelayedUpgradeProxy.GuardianPauseAlreadyUsed.selector);
+        protocolAdmin.pauseSpends(1 days);
+    }
+
+    /// Only governance re-arms the guardian's pause, by a proposal carrying
+    /// `resetGuardianPause` through `execute`.
+    function test_governanceReArmsGuardianPauseViaExecute() public {
+        vm.prank(guardian);
+        protocolAdmin.pauseSpends(1 days);
+
+        _passAdminCall(address(masp), abi.encodeCall(DelayedUpgradeProxy.resetGuardianPause, ()), "re-arm pause");
+        assertFalse(_poolProxy().guardianPauseUsed(), "governance could not re-arm the pause");
+
+        vm.prank(guardian);
+        protocolAdmin.pauseSpends(1 days);
+        assertTrue(_poolProxy().guardianPauseUsed());
+    }
+
+    function test_randomCallerCannotPauseSpends() public {
+        address attacker = makeAddr("attacker");
+        bytes32 guardianRole = protocolAdmin.GUARDIAN_ROLE();
+
+        vm.prank(attacker);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, attacker, guardianRole)
+        );
+        protocolAdmin.pauseSpends(1 days);
+        assertFalse(_poolProxy().guardianPauseUsed());
+    }
+
+    // ============== Guardian limits ==========================================
+
+    /// The guardian surface has no re-enable path. Undoing any of the switches,
+    /// or re-arming the one-shot pause, requires a full proposal; this asymmetry
+    /// is what makes granting the role safe.
     function test_guardianCannotReEnableAnything() public {
         vm.prank(guardian);
         protocolAdmin.disableAsset(ASSET_ID);
+        vm.prank(guardian);
+        protocolAdmin.pauseSpends(1 days);
 
         vm.prank(guardian);
         vm.expectRevert();
         protocolAdmin.execute(address(masp), abi.encodeCall(AssetRegistry.setAssetDisabled, (ASSET_ID, false)));
 
+        vm.prank(guardian);
+        vm.expectRevert();
+        protocolAdmin.execute(address(masp), abi.encodeCall(DelayedUpgradeProxy.resetGuardianPause, ()));
+
         assertTrue(masp.asset(ASSET_ID).disabled, "guardian re-enabled an asset");
+        assertTrue(_poolProxy().guardianPauseUsed(), "guardian re-armed its own pause");
     }
 
     function test_guardianCannotExecute() public {
@@ -112,7 +170,7 @@ contract ProtocolAdminTest is GovTestBase {
         protocolAdmin.disableAsset(ASSET_ID);
     }
 
-    /// Re-enabling is possible, but only the long way round.
+    /// Re-enabling is possible only through a governance proposal.
     function test_governanceCanReEnableWhatTheGuardianDisabled() public {
         vm.prank(guardian);
         protocolAdmin.disableAsset(ASSET_ID);
@@ -126,8 +184,7 @@ contract ProtocolAdminTest is GovTestBase {
 
     // ============== Role management ==========================================
 
-    /// The guardian is not entrenched: the Timelock administers the role and can
-    /// rotate it by proposal.
+    /// The Timelock administers the guardian role and can rotate it by proposal.
     function test_governanceCanRotateTheGuardian() public {
         address newGuardian = makeAddr("newGuardian");
         bytes32 role = protocolAdmin.GUARDIAN_ROLE();
@@ -152,8 +209,8 @@ contract ProtocolAdminTest is GovTestBase {
 
     // ============== execute() guards =========================================
 
-    /// Self-calls would let `execute` reach the role surface with
-    /// `msg.sender == address(this)`.
+    /// Self-calls are rejected; they would let `execute` reach the role surface
+    /// with `msg.sender == address(this)`.
     function test_executeRejectsSelfCall() public {
         (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
             address(protocolAdmin),
@@ -167,8 +224,25 @@ contract ProtocolAdminTest is GovTestBase {
         governor.execute(t, v, c, keccak256(bytes(d)));
     }
 
-    /// A failing target must surface its own error, or a rejected proposal is
-    /// undiagnosable.
+    /// `execute` cannot move the pool's proxy admin, whatever the target: that
+    /// seat leaves only with ownership, through `migrateAdmin`.
+    function test_executeRejectsChangeProxyAdmin() public {
+        bytes memory call = abi.encodeCall(DelayedUpgradeProxy.changeProxyAdmin, (makeAddr("elsewhere")));
+
+        vm.prank(address(timelock));
+        vm.expectRevert(ProtocolAdmin.ProxyAdminCallForbidden.selector);
+        protocolAdmin.execute(address(masp), call);
+
+        // The guard reads the selector alone, so another target is refused too.
+        vm.prank(address(timelock));
+        vm.expectRevert(ProtocolAdmin.ProxyAdminCallForbidden.selector);
+        protocolAdmin.execute(address(wrapper), call);
+
+        assertEq(_poolProxy().proxyAdmin(), address(protocolAdmin), "execute moved the proxy admin");
+    }
+
+    /// A failing target's revert data is bubbled up, so a rejected proposal is
+    /// diagnosable.
     function test_executeBubblesTargetRevert() public {
         vm.prank(address(timelock));
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(999)));

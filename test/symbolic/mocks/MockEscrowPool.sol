@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { IMASPPool } from "../../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../../src/libs/AuxValidation.sol";
 
-/// The smallest ERC-20 that can deliver a solver-chosen balance delta.
+/// Minimal token that can deliver a solver-chosen balance delta.
 ///
-/// `MaspEscrowSatellite` measures every amount it records as the difference
-/// between two `balanceOf` reads, so proofs about that accounting need a token
-/// whose balances move by a symbolic quantity. OpenZeppelin's `ERC20` would
-/// serve, but it drags allowance bookkeeping and `ERC20Permit`'s EIP-712
-/// machinery into paths none of these properties are about.
+/// `MaspEscrowSatellite` measures every recorded amount as the difference
+/// between two `balanceOf` reads, so its proofs need balances that move by a
+/// symbolic quantity. OpenZeppelin's `ERC20` would add allowance bookkeeping and
+/// EIP-712 logic that none of these properties need.
 ///
-/// `balanceOf` is the only function the satellite calls on it. `credit` and
-/// `debit` exist for the pool stand-in below to move balances without an
-/// allowance ledger, which is the part being elided.
+/// The satellite calls only `balanceOf`. `credit` and `debit` let the pool mock
+/// below move balances without an allowance ledger.
 contract MockEscrowToken {
     mapping(address account => uint256) public balanceOf;
 
@@ -29,22 +28,22 @@ contract MockEscrowToken {
 
 /// Stand-in for the pool a satellite escrows into.
 ///
-/// A satellite reaches `MASP` through exactly three functions: it escrows with
-/// `depositAuthorized`, reads `escrowed` to tell a live deposit from a settled
-/// one, and cancels with `cancelDeposit`. It observes the result of the first
-/// and last only as a token balance delta — it cannot see the pool's deposit
-/// fee or the relayer note, which is why it measures rather than recomputes.
+/// A satellite reaches `MASP` through three functions: `depositAuthorized` to
+/// escrow, `escrowed` to distinguish a live deposit from a settled one, and
+/// `cancelDeposit` to cancel. It observes the effect of the first and last only
+/// as a token balance delta, since it cannot see the pool's deposit fee or the
+/// relayer note.
 ///
-/// Everything the real pool does behind those calls is proved in
-/// `MASPEscrow.symbolic.t.sol`. What is under proof here is the satellite's own
-/// accounting, which has to hold whatever the pool moves — so both amounts are
-/// settable and the proofs quantify over them.
+/// The real pool's escrow behaviour is covered by `MASPEscrow.symbolic.t.sol`.
+/// Here the subject is the satellite's accounting, which must hold for any
+/// amount the pool moves, so both amounts are settable and the proofs quantify
+/// over them.
 ///
-/// That quantification is the point. On a yield asset the refund is the
-/// escrowed units valued at the current index, so it exceeds the amount pulled
-/// at submit by whatever the funds earned while escrowed, and neither figure is
-/// known to the satellite in advance. A proof that fixed the refund to the pull
-/// would miss the case the floor check exists to allow.
+/// On a yield asset the refund is the escrowed units valued at the current
+/// index, capped at the pull, so it can fall below the recorded amount by
+/// rounding or a venue loss, and the satellite knows the figure only from the
+/// pool's return value. The delivered and reported refunds are therefore set
+/// independently, so a proof can quantify over a pool that misreports.
 contract MockEscrowPool {
     MockEscrowToken public immutable TOKEN;
 
@@ -53,11 +52,26 @@ contract MockEscrowPool {
     uint256 public nextId = 1;
     /// Taken from the satellite on `depositAuthorized`.
     uint256 public pull;
-    /// Returned to the satellite on `cancelDeposit`.
+    /// Delivered to the satellite on `cancelDeposit`.
     uint256 public refund;
+    /// Reported by `cancelDeposit` as the refund paid.
+    uint256 public reported;
+
+    /// Registry token per asset id, for callers that resolve one through
+    /// `asset`. Unset ids resolve to the zero address.
+    mapping(uint64 id => address token) public assetToken;
 
     constructor(MockEscrowToken token) {
         TOKEN = token;
+    }
+
+    function setAssetToken(uint64 id, address token) external {
+        assetToken[id] = token;
+    }
+
+    /// The registry entry of `id`; only its token is populated.
+    function asset(uint64 id) external view returns (IMASPPool.AssetEntry memory entry) {
+        entry.token = assetToken[id];
     }
 
     function setPull(uint256 v) external {
@@ -68,16 +82,19 @@ contract MockEscrowPool {
         refund = v;
     }
 
-    /// Marks `id` live, standing in for the escrow a `depositAuthorized` would
-    /// have left. Paired with the satellite's own `seed`, it lets a cancel
-    /// proof quantify over the recorded amount without reaching it through a
-    /// deposit that would fix that amount.
+    function setReported(uint256 v) external {
+        reported = v;
+    }
+
+    /// Marks `id` live, as `depositAuthorized` would. Paired with the
+    /// satellite's `seed`, it lets a cancel proof quantify over the recorded
+    /// amount without fixing it through a deposit.
     function open(uint256 id) external {
         escrowed[id] = bytes32(id);
     }
 
-    /// Marks `id` settled without paying anything — the flush case, which a
-    /// cancel must then refuse.
+    /// Marks `id` settled without paying anything (the flush case), which a
+    /// cancel must refuse.
     function settle(uint256 id) external {
         escrowed[id] = bytes32(0);
     }
@@ -103,8 +120,10 @@ contract MockEscrowPool {
         address,
         uint32,
         PubInputs.FeeNote calldata
-    ) external {
+    ) external returns (uint256, uint256) {
         escrowed[id] = bytes32(0);
         TOKEN.credit(msg.sender, refund);
+        // No second-token refund: a satellite escrows single-token deposits.
+        return (reported, 0);
     }
 }

@@ -17,10 +17,10 @@ import { SpendFixture } from "../utils/SpendFixture.sol";
 import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// `depositAuthorized` — Permit2 AllowanceTransfer-based deposit.
-/// Tests use `IAllowanceTransfer.approve` from the payer to set up the
-/// allowance window directly (production uses a pre-signed PermitSingle,
-/// equivalent on-chain state).
+/// `depositAuthorized`: Permit2 AllowanceTransfer-based deposit.
+/// Tests call `IAllowanceTransfer.approve` from the payer to set the allowance
+/// directly; production uses a pre-signed PermitSingle, which yields the same
+/// on-chain state.
 contract MASPDepositAuthorizedTest is Test {
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
     uint256 internal constant SCALE = TestConstants.SCALE;
@@ -44,7 +44,7 @@ contract MASPDepositAuthorizedTest is Test {
 
         masp = deployPoolUniform(tub, bv, p2, ids, tokens, scales, FEE_BPS, TREASURY, OWNER);
 
-        // Real EOA payer: needs ERC20 → Permit2 max approve once.
+        // EOA payer: a one-time max ERC20 approval to Permit2.
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
     }
@@ -110,7 +110,7 @@ contract MASPDepositAuthorizedTest is Test {
             vm.prank(payer);
             masp.depositAuthorized(d, aux[0], aux[1]);
         }
-        // Fourth deposit must fail: allowance exhausted.
+        // The fourth deposit fails: allowance exhausted.
         PubInputs.DepositRequest memory d4 = _request(amt, payer, bytes32(uint256(4)));
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.InsufficientAllowance.selector, uint160(0)));

@@ -13,6 +13,7 @@ import { YieldIndex } from "../../src/yield/YieldIndex.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { ERC4626Venue } from "../../src/yield/ERC4626Venue.sol";
 
 import { MockERC20 } from "../mocks/MockERC20.sol";
@@ -27,24 +28,24 @@ import { TestConstants } from "../utils/TestConstants.sol";
 /// Shared rig for the yield-index tests.
 ///
 /// One ERC-20 registered twice: `PLAIN_ID` with no venue and `YIELD_ID` bound
-/// to a `MockERC4626`. That is the production shape — a token's plain and yield
-/// ids differ in nothing but the binding — and it is what makes the isolation
-/// assertions meaningful, since both ids draw on the same `balanceOf`.
+/// to a `MockERC4626`. As in production, a token's plain and yield ids differ
+/// only in the binding, and both draw on the same `balanceOf`, which gives the
+/// isolation assertions their meaning.
 ///
 /// Both Groth16 verifiers are mocked to accept, isolating the index arithmetic
-/// from circuit correctness the way `MASP.doubleSpend.t.sol` does.
+/// from circuit correctness, as in `MASP.doubleSpend.t.sol`.
 contract YieldBase is Test {
     uint64 internal constant PLAIN_ID = 1;
     uint64 internal constant YIELD_ID = 9;
-    /// A second yield asset differing from `YIELD_ID` in `scale` alone. The
+    /// A second yield asset differing from `YIELD_ID` only in `scale`. The
     /// index divides by `supply * scale`, so a formula that drops `scale`
     /// passes every `scale = 1` test and is wrong by ten orders of magnitude
-    /// for an 18-decimal asset. Having both registered lets a test compare them
+    /// for an 18-decimal asset. Registering both lets a test compare them
     /// directly.
     uint64 internal constant FINE_ID = 11;
     uint256 internal constant FINE_SCALE = 1;
-    /// 1e10, matching the deployed WETH rows. USDC's `scale = 1` would let an
-    /// index formula that drops `scale` pass; this one will not.
+    /// 1e10, matching the deployed WETH rows. With USDC's `scale = 1` an index
+    /// formula that drops `scale` would pass; with this value it fails.
     uint256 internal constant SCALE = TestConstants.SCALE;
     uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
     uint16 internal constant BUFFER_BPS = 500; // 5% kept unlent
@@ -90,8 +91,8 @@ contract YieldBase is Test {
             OWNER
         );
 
-        // The venue is pinned to the pool, so it cannot exist before the pool
-        // does — which is why a yield asset is registered post-deploy.
+        // The venue is pinned to the pool and cannot be deployed before it, so
+        // yield assets are registered after pool deployment.
         vault = new MockERC4626(IERC20(address(token)));
         venue = new ERC4626Venue(address(masp), address(vault), address(token));
         vm.prank(OWNER);
@@ -161,10 +162,17 @@ contract YieldBase is Test {
         pi.relayer = RELAYER;
         SpendFixture.fillOutputs(pi, nfSeed, nfSeed + 0x1000);
         pi.merkleRoot = masp.currentRoot();
-        PubInputs.TreeUpdateBatch memory tpi =
-            SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(nfSeed + 0x2_0000), masp.committedCount());
+        PubInputs.SpendTree memory tpi =
+            SpendFixture.spendTree(bytes32(nfSeed + 0x2_0000), masp.committedCount(), uint8(masp.rootIndex()));
         vm.prank(RELAYER);
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
+    }
+
+    /// Waits out the exit-term notice and commits what is queued for `id`, so a
+    /// raised `perfBps` is in force.
+    function _commit(uint64 id) internal {
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY);
+        masp.commitExitTerms(id);
     }
 
     /// Credit `amt` of interest inside `v`.
@@ -187,6 +195,11 @@ contract YieldBase is Test {
 
     function _gross(uint64 id) internal view returns (uint256) {
         return vault.convertToAssets(vault.balanceOf(address(venue))) + masp.yieldState(id).idle;
+    }
+
+    /// `gross` of `FINE_ID`, whose position sits in `vaultFine`.
+    function _grossFine() internal view returns (uint256) {
+        return vaultFine.convertToAssets(vaultFine.balanceOf(address(venueFine))) + masp.yieldState(FINE_ID).idle;
     }
 
     function _idle(uint64 id) internal view returns (uint256) {

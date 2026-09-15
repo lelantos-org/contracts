@@ -18,6 +18,7 @@ import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { ERC4626Venue } from "../../src/yield/ERC4626Venue.sol";
 import { YieldIndex } from "../../src/yield/YieldIndex.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockWETH9 } from "../mocks/MockWETH9.sol";
@@ -28,18 +29,19 @@ import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// `NativeAdapter` against a **yield** asset, end to end.
+/// `NativeAdapter` against a yield asset, end to end.
 ///
-/// This is the configuration `MaspEscrowSatellite`'s refund check was relaxed
-/// for, and until now nothing exercised it. `NativeAdapter.guards.t.sol` drives
-/// the relaxation against `MockNativePool`, whose refund is a number set by
-/// hand; `NativeAdapter.t.sol` uses a real pool but registers plain WETH, where
-/// the refund always equals the escrow exactly. Neither reaches the case that
-/// motivated the change: a real index that has moved, so the pool genuinely
-/// returns more than the adapter recorded.
+/// `MaspEscrowSatellite` checks the refund that arrives against the refund the
+/// pool reports, not against the recorded escrow, to support this configuration.
+/// `NativeAdapter.guards.t.sol` covers that check against `MockNativePool`, whose
+/// refund is set by hand; `NativeAdapter.t.sol` uses a real pool with plain WETH,
+/// where the refund always equals the escrow. This suite covers a real index: a
+/// yield refund is floored at the current index and capped at the pull, so it
+/// equals the recorded escrow after growth and falls below it at a flat index or
+/// after a loss.
 ///
-/// It matters because WETH is the wrapped native token on all three deployed
-/// chains, so a yield-bearing WETH id puts this on the live native ETH path.
+/// WETH is the wrapped native token on all three deployed chains, so a
+/// yield-bearing WETH id is on the native ETH path.
 contract YieldNativeAdapterTest is Test {
     uint64 internal constant ASSET_ERC20 = 1;
     uint64 internal constant ASSET_WETH = 2; // yield-bearing
@@ -49,6 +51,8 @@ contract YieldNativeAdapterTest is Test {
     uint16 internal constant PERF_BPS = 1000;
 
     address internal constant DEPOSITOR = address(0xBEEF);
+    /// An earlier holder, so a later escrow prices off a moved index.
+    address internal constant HOLDER = address(0xA11CE);
     address internal constant RECIPIENT = TestConstants.RECIPIENT;
     address internal constant OWNER = TestConstants.OWNER;
 
@@ -76,8 +80,8 @@ contract YieldNativeAdapterTest is Test {
             tub, bv, ISignatureTransfer(permit2), ids, tokens, scales, FEE_BPS, address(0xfee), OWNER
         );
 
-        // WETH is registered as a yield asset, which is only possible after the
-        // pool exists: the venue is pinned to it.
+        // WETH is registered as a yield asset after pool deployment, since the
+        // venue is pinned to the pool.
         vault = new MockERC4626(IERC20(address(weth)));
         venue = new ERC4626Venue(address(masp), address(vault), address(weth));
         vm.prank(OWNER);
@@ -135,6 +139,38 @@ contract YieldNativeAdapterTest is Test {
         id = adapter.depositNative{ value: value }(_request(publicIn), _aux1(), _aux1());
     }
 
+    /// Deposits from `who`, overshooting the pull: the adapter returns the
+    /// excess, so the value need not be computed against a moved index.
+    function _depositFrom(address who, uint64 publicIn) internal returns (uint256 id, uint256 recorded) {
+        uint256 value = uint256(publicIn) * SCALE * 2;
+        vm.deal(who, value);
+        vm.prank(who);
+        id = adapter.depositNative{ value: value }(_request(publicIn), _aux1(), _aux1());
+        (, recorded) = adapter.escrows(id);
+    }
+
+    /// What `YieldOps.cancel` values an escrow of `publicIn` at before the cap:
+    /// its units at the current index, floored. Exact when the cancel accrues
+    /// no performance fee.
+    function _floorValue(uint64 publicIn) internal view returns (uint256) {
+        YieldIndex.YieldState memory st = masp.yieldState(ASSET_WETH);
+        uint256 nTotal = uint256(publicIn) + Math.ceilDiv(uint256(publicIn) * FEE_BPS, 10_000);
+        uint256 g = vault.convertToAssets(vault.balanceOf(address(venue))) + st.idle;
+        return Math.mulDiv(nTotal, g, st.totalNormalized + st.accruedFeeNormalized);
+    }
+
+    /// Cancels `id` after the delay and returns the native coin it paid out.
+    function _cancelAndMeasure(uint256 id, uint64 publicIn, uint32 submittedAt) internal returns (uint256 refund) {
+        vm.roll(block.number + masp.cancelDelay());
+        uint256 before = DEPOSITOR.balance;
+        _cancel(id, publicIn, submittedAt);
+        refund = DEPOSITOR.balance - before;
+        assertEq(weth.balanceOf(address(adapter)), 0, "adapter holds no wrapped dust");
+        assertEq(address(adapter).balance, 0, "adapter holds no native dust");
+        (address refundTo,) = adapter.escrows(id);
+        assertEq(refundTo, address(0), "escrow record cleared");
+    }
+
     /// Credit interest inside the vault, in wrapped coin.
     function _earn(uint256 amt) internal {
         vm.deal(address(this), amt);
@@ -152,7 +188,7 @@ contract YieldNativeAdapterTest is Test {
             ASSET_WETH,
             FEE_BPS,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0x2)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0x2)), feeCvDep: [uint256(0), 0] })
         );
     }
 
@@ -173,13 +209,12 @@ contract YieldNativeAdapterTest is Test {
         assertEq(masp.index(ASSET_WETH), 1e27, "first deposit prices at RAY");
     }
 
-    /// The case the satellite fix exists for.
+    /// After growth the native cancel refunds exactly the recorded pull.
     ///
-    /// Once the venue has earned, a cancellation returns the escrowed units at
-    /// today's index — strictly more than the adapter recorded at submit. The
-    /// original exact-match check would revert here, taking the native refund
-    /// path down with it; the measured check forwards the larger amount.
-    function test_cancelNative_afterYield_forwardsTheGrownRefund() public {
+    /// The escrow's units share the index while pending, but the refund is capped
+    /// at the pull, so a deposit left unflushed earns nothing. The pool reports
+    /// that capped refund, and the adapter forwards it.
+    function test_cancelNative_afterYield_refundsExactlyThePull() public {
         uint64 publicIn = 1_000_000;
         uint32 submittedAt = uint32(vm.getBlockNumber());
         uint256 id = _deposit(publicIn);
@@ -188,38 +223,89 @@ contract YieldNativeAdapterTest is Test {
         assertEq(recorded, _firstPull(publicIn), "adapter recorded the submit-time pull");
 
         _earn(2 ether);
-        vm.roll(block.number + masp.cancelDelay());
+        uint256 refund = _cancelAndMeasure(id, publicIn, submittedAt);
 
-        _cancel(id, publicIn, submittedAt);
-
-        // The whole point: more came back than was recorded, and all of it
-        // reached the funder as native coin.
-        assertGt(DEPOSITOR.balance, recorded, "refund did not grow with the index");
-        assertEq(weth.balanceOf(address(adapter)), 0, "adapter holds no wrapped dust");
-        assertEq(address(adapter).balance, 0, "adapter holds no native dust");
-        (address refundTo,) = adapter.escrows(id);
-        assertEq(refundTo, address(0), "escrow record cleared");
+        assertEq(refund, recorded, "refund is the pull, not the grown value");
     }
 
-    /// The refund tracks the index rather than being merely "more": it must not
-    /// exceed what the deposit plus its share of the growth is worth.
-    function test_cancelNative_refundIsBoundedByDepositPlusGrowth() public {
+    /// The refund never exceeds the recorded pull, whatever the venue does in
+    /// between.
+    function test_cancelNative_refundIsBoundedByTheRecordedPull() public {
+        uint64 publicIn = 1_000_000;
+        uint256[3] memory growths = [uint256(0), 7, 2 ether];
+        for (uint256 i = 0; i < growths.length; ++i) {
+            uint32 submittedAt = uint32(vm.getBlockNumber());
+            (uint256 id, uint256 recorded) = _depositFrom(DEPOSITOR, publicIn);
+            if (growths[i] != 0) _earn(growths[i]);
+
+            uint256 refund = _cancelAndMeasure(id, publicIn, submittedAt);
+            assertLe(refund, recorded, "refund exceeded the recorded pull");
+        }
+    }
+
+    /// At a flat index the ceilinged pull and the floored refund differ by a wei.
+    ///
+    /// The adapter used to require at least the recorded amount back, so this
+    /// cancel reverted, and the pool accepts a contract payer's cancel only from
+    /// the payer: the escrow had no refund path. The adapter now forwards what
+    /// the pool reports.
+    function test_cancelNative_atFlatIndex_refundsTheFloor() public {
+        _depositFrom(HOLDER, 1_000_000);
+        // Odd growth, so a unit is no longer worth a whole number of base units.
+        _earn(7);
+
+        uint64 publicIn = 333_333;
+        uint32 submittedAt = uint32(vm.getBlockNumber());
+        (uint256 id, uint256 recorded) = _depositFrom(DEPOSITOR, publicIn);
+        uint256 expected = _floorValue(publicIn);
+
+        uint256 refund = _cancelAndMeasure(id, publicIn, submittedAt);
+
+        assertEq(refund, expected, "refund is the floored value at the current index");
+        assertLt(refund, recorded, "short of the ceilinged pull");
+        assertLe(recorded - refund, 1, "by rounding alone");
+    }
+
+    /// The same after an emergency unwind, which leaves the asset as zero-yield
+    /// custody: the index stops moving, and the rounding gap remains.
+    function test_cancelNative_afterEmergencyUnwind_refundsTheFloor() public {
+        _depositFrom(HOLDER, 1_000_000);
+        _earn(3);
+        vm.prank(OWNER);
+        masp.emergencyUnwind(ASSET_WETH);
+
+        uint64 publicIn = 333;
+        uint32 submittedAt = uint32(vm.getBlockNumber());
+        (uint256 id, uint256 recorded) = _depositFrom(DEPOSITOR, publicIn);
+        uint256 expected = _floorValue(publicIn);
+
+        uint256 refund = _cancelAndMeasure(id, publicIn, submittedAt);
+
+        assertEq(refund, expected, "refund is the floored value at the frozen index");
+        assertLe(refund, recorded, "never above the pull");
+        assertLe(recorded - refund, 1, "by rounding alone");
+    }
+
+    /// A venue loss is shared by the escrow: the refund is what its units are
+    /// still worth, below the recorded pull, and the cancel still settles.
+    function test_cancelNative_afterVenueLoss_refundsWhatIsLeft() public {
         uint64 publicIn = 1_000_000;
         uint32 submittedAt = uint32(vm.getBlockNumber());
         uint256 id = _deposit(publicIn);
         (, uint256 recorded) = adapter.escrows(id);
 
-        uint256 growth = 2 ether;
-        _earn(growth);
-        vm.roll(block.number + masp.cancelDelay());
+        vault.lose(vault.totalAssetsHeld() / 4);
+        uint256 expected = _floorValue(publicIn);
 
-        _cancel(id, publicIn, submittedAt);
-        assertLe(DEPOSITOR.balance, uint256(recorded) + growth, "refund exceeded deposit plus all the growth");
+        uint256 refund = _cancelAndMeasure(id, publicIn, submittedAt);
+
+        assertEq(refund, expected, "refund is the escrow's post-loss value");
+        assertLt(refund, recorded, "and carries the loss");
     }
 
     /// The native unshield leg on a yield asset. `withdrawNative` measures a
     /// wrapped-balance delta rather than recomputing the fee, so it follows the
-    /// index with no change of its own — this pins that.
+    /// index without yield-specific logic.
     function test_withdrawNative_onAYieldAssetPaysTheGrownAmount() public {
         uint64 publicIn = 1_000_000;
         _deposit(publicIn);
@@ -235,8 +321,8 @@ contract YieldNativeAdapterTest is Test {
         pi.relayer = address(adapter);
         SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
         pi.merkleRoot = masp.currentRoot();
-        PubInputs.TreeUpdateBatch memory tpi =
-            SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdead)), masp.committedCount());
+        PubInputs.SpendTree memory tpi =
+            SpendFixture.spendTree(bytes32(uint256(0xdead)), masp.committedCount(), uint8(masp.rootIndex()));
 
         uint256 before = DEPOSITOR.balance;
         uint256 net = adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _aux6());

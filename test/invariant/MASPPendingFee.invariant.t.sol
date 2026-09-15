@@ -20,15 +20,23 @@ import { Stubs } from "../utils/Stubs.sol";
 /// randomly. Fees accrue only at flush; the handler shadows both the
 /// escrowed totals of still-pending deposits and the expected `accruedFee`
 /// so the invariants can assert solvency and accrual timing exactly.
+///
+/// A deposit pays its relayer note either in the deposit token or in a second
+/// registered token (`FEE_ASSET_ID`, under its own `scale`). Solvency is
+/// shadowed per token, so a note pulled, refunded or backed in the wrong token
+/// breaks one side of the books.
 contract EscrowFeeHandler is Test {
     MASP public masp;
     address public permit2;
     MockERC20 public token;
+    MockERC20 public feeToken;
     address public payer;
 
     uint64 public constant ASSET_ID = 1;
     uint256 public constant SCALE = 1e10;
     uint16 public constant FEE_BPS = 25;
+    uint64 public constant FEE_ASSET_ID = 2;
+    uint256 public constant FEE_SCALE = 1e6;
 
     /// All deposit ids ever submitted (pending OR cleared).
     uint256[] public allIds;
@@ -40,6 +48,8 @@ contract EscrowFeeHandler is Test {
     /// `feeAt`: this one never accrues, it becomes shielded principal.
     mapping(uint256 => uint256) public relayerFeeAt;
     mapping(uint256 => uint64) public relayerFeeIn;
+    /// id → the asset the relayer note is paid in: `ASSET_ID` or `FEE_ASSET_ID`.
+    mapping(uint256 => uint64) public relayerFeeAsset;
     /// id → still pending?
     mapping(uint256 => bool) public pending;
     /// id → cancel/flush preimage shadow. The 1-slot escrow stores only the
@@ -48,20 +58,26 @@ contract EscrowFeeHandler is Test {
     mapping(uint256 => uint48) public preimagePublicIn;
     mapping(uint256 => bytes32) public preimageCm0;
     mapping(uint256 => uint32) public preimageSubmittedAt;
-    /// Sum of `inAmt + fee` for pending ids; escrowed balance not yet in
-    /// `accruedFee`.
+    /// Sum of `inAmt + fee + relayerFee` for pending ids; escrowed balance not
+    /// yet in `accruedFee`.
     uint256 public expectedPendingTotal;
     /// Mirrors masp.accruedFee(token): += fee at flush, reset by sweep.
     uint256 public expectedAccrued;
-    /// Sum of principals for flushed ids (stay in the pool as shielded).
+    /// Sum of principals and relayer fees for flushed ids (held in the pool as
+    /// shielded value).
     uint256 public shieldedPrincipal;
+    /// The same two books in `feeToken`, which only relayer notes paid in
+    /// `FEE_ASSET_ID` fill. Nothing in `feeToken` ever accrues.
+    uint256 public expectedPendingFeeToken;
+    uint256 public shieldedFeeToken;
 
     uint256 internal _nonce;
 
-    constructor(MASP m, address p2, MockERC20 t, address payer_) {
+    constructor(MASP m, address p2, MockERC20 t, MockERC20 ft, address payer_) {
         masp = m;
         permit2 = p2;
         token = t;
+        feeToken = ft;
         payer = payer_;
     }
 
@@ -70,18 +86,26 @@ contract EscrowFeeHandler is Test {
     }
 
     /// Handler: submit a fresh deposit.
-    function submit(uint64 publicIn, uint64 feeIn) external {
+    function submit(uint64 publicIn, uint64 feeIn, bool crossAsset) external {
         publicIn = uint64(bound(publicIn, 1, 1_000));
-        // Non-zero on purpose: with a zero fee note the relayer's leg is worth
-        // nothing and solvency would hold no matter how it were accounted.
+        // Non-zero: a zero-value fee note would let solvency hold regardless of
+        // how the relayer's leg is accounted.
         feeIn = uint64(bound(feeIn, 1, 100));
 
         uint256 inAmt = uint256(publicIn) * SCALE;
         uint256 fee = (inAmt * FEE_BPS) / 10_000;
-        uint256 relayerFee = uint256(feeIn) * SCALE;
-        token.mint(payer, inAmt + fee + relayerFee);
-        vm.prank(payer);
+        uint64 feeAsset = crossAsset ? FEE_ASSET_ID : ASSET_ID;
+        uint256 relayerFee = uint256(feeIn) * (crossAsset ? FEE_SCALE : SCALE);
+        if (crossAsset) {
+            token.mint(payer, inAmt + fee);
+            feeToken.mint(payer, relayerFee);
+        } else {
+            token.mint(payer, inAmt + fee + relayerFee);
+        }
+        vm.startPrank(payer);
         token.approve(address(permit2), type(uint256).max);
+        feeToken.approve(address(permit2), type(uint256).max);
+        vm.stopPrank();
 
         PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
@@ -92,9 +116,14 @@ contract EscrowFeeHandler is Test {
         d.outCm = bytes32(uint256(0x1000 + _nonce));
         d.feeCm = bytes32(uint256(0xfee));
         d.feeIn = feeIn;
+        d.feeAssetId = feeAsset;
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: _nonce++,
+            deadline: type(uint256).max,
+            maxTotal: type(uint256).max,
+            maxFee: crossAsset ? type(uint256).max : 0,
+            signature: hex"00"
         });
 
         uint256 id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
@@ -103,13 +132,25 @@ contract EscrowFeeHandler is Test {
         principalAt[id] = inAmt;
         relayerFeeAt[id] = relayerFee;
         relayerFeeIn[id] = feeIn;
+        relayerFeeAsset[id] = feeAsset;
         pending[id] = true;
         // forge-lint: disable-next-line(unsafe-typecast)
         preimagePublicIn[id] = uint48(publicIn);
         preimageCm0[id] = d.outCm;
         // forge-lint: disable-next-line(unsafe-typecast)
         preimageSubmittedAt[id] = uint32(block.number);
-        expectedPendingTotal += inAmt + fee + relayerFee;
+        if (crossAsset) {
+            expectedPendingTotal += inAmt + fee;
+            expectedPendingFeeToken += relayerFee;
+        } else {
+            expectedPendingTotal += inAmt + fee + relayerFee;
+        }
+    }
+
+    /// Relayer note value owed in `token` and in `feeToken` for `id`.
+    function _relayerSplit(uint256 id) internal view returns (uint256 inToken, uint256 inFeeToken) {
+        if (relayerFeeAsset[id] == FEE_ASSET_ID) return (0, relayerFeeAt[id]);
+        return (relayerFeeAt[id], 0);
     }
 
     /// Handler: flush one pending deposit (uses mocked SNARK verify).
@@ -133,7 +174,7 @@ contract EscrowFeeHandler is Test {
         // Zero-value leaves declare asset 0: `tree_update_batch.circom` step 6a
         // canonicalises the asset of a leaf whose Pedersen binding cannot see
         // it, and `_drainDeposit` requires the match.
-        tpi.leafAsset[1] = relayerFeeIn[id] == 0 ? 0 : ASSET_ID;
+        tpi.leafAsset[1] = relayerFeeIn[id] == 0 ? 0 : relayerFeeAsset[id];
         tpi.leafPublicIn[1] = relayerFeeIn[id];
         tpi.isDeposit[1] = 1;
 
@@ -147,10 +188,14 @@ contract EscrowFeeHandler is Test {
         masp.flushBatch(ids, meta, proof, tpi);
 
         pending[id] = false;
-        expectedPendingTotal -= principalAt[id] + feeAt[id] + relayerFeeAt[id];
+        (uint256 rTok, uint256 rFee) = _relayerSplit(id);
+        expectedPendingTotal -= principalAt[id] + feeAt[id] + rTok;
+        expectedPendingFeeToken -= rFee;
         // The relayer's note is principal, not an accrual: the pool must keep
-        // holding the tokens behind it or the note is unspendable.
-        shieldedPrincipal += principalAt[id] + relayerFeeAt[id];
+        // holding the tokens behind it, in the token it was paid in, or the
+        // note is unspendable.
+        shieldedPrincipal += principalAt[id] + rTok;
+        shieldedFeeToken += rFee;
         expectedAccrued += feeAt[id];
     }
 
@@ -165,11 +210,10 @@ contract EscrowFeeHandler is Test {
 
         uint256[2] memory zCv;
         // The payer is `vm.etch`ed with MockERC1271 so Permit2's ERC-1271
-        // check passes at submit, which gives it code — and MASP restricts
-        // cancel to the payer itself once `payer.code.length != 0`. Without
-        // this prank every real cancel reverts `PayerNotSender` and the
-        // early returns above absorb the rest, so no deposit here was ever
-        // actually cancelled.
+        // check passes at submit, which gives it code, and MASP restricts
+        // cancel to the payer itself when `payer.code.length != 0`. The prank
+        // satisfies that restriction; without it every cancel reverts
+        // `PayerNotSender`.
         vm.prank(payer);
         masp.cancelDeposit(
             id,
@@ -180,26 +224,35 @@ contract EscrowFeeHandler is Test {
             FEE_BPS,
             payer,
             preimageSubmittedAt[id],
-            PubInputs.FeeNote({ feeIn: uint48(relayerFeeIn[id]), feeCm: bytes32(uint256(0xfee)), feeCvDep: zCv })
+            PubInputs.FeeNote({
+                feeIn: uint48(relayerFeeIn[id]),
+                feeAssetId: relayerFeeIn[id] == 0 ? 0 : relayerFeeAsset[id],
+                feeCm: bytes32(uint256(0xfee)),
+                feeCvDep: zCv
+            })
         );
         pending[id] = false;
-        expectedPendingTotal -= principalAt[id] + feeAt[id] + relayerFeeAt[id];
+        (uint256 rTok, uint256 rFee) = _relayerSplit(id);
+        expectedPendingTotal -= principalAt[id] + feeAt[id] + rTok;
+        expectedPendingFeeToken -= rFee;
     }
 
     /// Handler: sweep accrued fees to treasury.
     function sweep() external {
         masp.sweep(IERC20(address(token)));
         expectedAccrued = 0;
+        // Nothing accrues in the fee token, so its sweep moves nothing.
+        masp.sweep(IERC20(address(feeToken)));
     }
 
-    /// Handler: advance blocks (no-op state change but lets cancel tests fire).
+    /// Handler: advance the block number without touching pool state.
     function advanceBlocks(uint16 n) external {
         n = uint16(bound(n, 1, 200));
         vm.roll(block.number + n);
     }
 
-    /// Find first pending id starting at `seed % len`. Returns the seed-id
-    /// itself if it's not pending (the caller will short-circuit).
+    /// First pending id at or after `seed % len`, wrapping. If none is pending,
+    /// returns the id at `seed % len`, which the caller detects and skips.
     function _firstPendingFrom(uint256 seed) internal view returns (uint256) {
         uint256 n = allIds.length;
         if (n == 0) return type(uint256).max;
@@ -217,6 +270,7 @@ contract MASPEscrowFeeInvariantTest is Test {
     IBatchVerifier batchVerifier;
     address permit2;
     MockERC20 token;
+    MockERC20 feeToken;
     MASP masp;
     EscrowFeeHandler handler;
 
@@ -232,13 +286,15 @@ contract MASPEscrowFeeInvariantTest is Test {
             singleAsset(IERC20(address(token)), 1, 1e10);
 
         masp = deployPoolUniform(tubVerifier, batchVerifier, p2, ids, tokens, scales, 25, address(0xfee), address(this));
+        feeToken = new MockERC20("F", "F", 6);
+        masp.addAsset(2, IERC20(address(feeToken)), 1e6, 25, 25);
 
         Stubs.installPermissiveERC1271(payer);
 
-        // flushBatch's only real dependency that requires a depth-10 proof.
+        // Accept tree-update proofs: the only flushBatch dependency that needs a depth-10 proof.
         Stubs.acceptTreeUpdateProofs(tubVerifier, true);
 
-        handler = new EscrowFeeHandler(masp, permit2, token, payer);
+        handler = new EscrowFeeHandler(masp, permit2, token, feeToken, payer);
         targetContract(address(handler));
 
         // Restrict to handler's external functions.
@@ -251,10 +307,10 @@ contract MASPEscrowFeeInvariantTest is Test {
         targetSelector(FuzzSelector({ addr: address(handler), selectors: selectors }));
     }
 
-    /// Solvency: the pool always holds every still-escrowed total
-    /// (principal + fee, never in `accruedFee` until flush), every flushed
-    /// principal, and whatever fee is claimable by sweep. Sweep can never
-    /// touch escrowed funds.
+    /// Solvency: the pool balance equals every still-escrowed total
+    /// (principal + fee + relayer fee, not in `accruedFee` until flush), every
+    /// flushed principal including relayer fee notes, and the fee claimable by
+    /// sweep. Sweep never touches escrowed funds.
     function invariant_solvency() public view {
         uint256 bal = token.balanceOf(address(masp));
         uint256 owed =
@@ -262,8 +318,19 @@ contract MASPEscrowFeeInvariantTest is Test {
         assertEq(bal, owed, "pool balance covers escrow + shielded + claimable fee");
     }
 
-    /// Accrual timing: `accruedFee` moves ONLY at flush (up by the deposit's
-    /// submit-time fee) and at sweep (to zero). Submit and cancel never
+    /// Solvency in the relayer fee token: the pool holds exactly the notes paid
+    /// in it, pending or flushed, and nothing of it accrues.
+    function invariant_solvencyFeeToken() public view {
+        assertEq(
+            feeToken.balanceOf(address(masp)),
+            handler.expectedPendingFeeToken() + handler.shieldedFeeToken(),
+            "pool balance covers fee-token notes, pending and shielded"
+        );
+        assertEq(masp.accruedFee(IERC20(address(feeToken))), 0, "fee token never accrues");
+    }
+
+    /// Accrual timing: `accruedFee` moves only at flush (up by the deposit's
+    /// submit-time fee) and at sweep (to zero). Submit and cancel do not
     /// touch it.
     function invariant_accrualOnlyAtFlush() public view {
         assertEq(masp.accruedFee(IERC20(address(token))), handler.expectedAccrued(), "accruedFee drift");

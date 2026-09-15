@@ -17,12 +17,11 @@ contract AuxHarness {
 
 /// Pins the three places the transact output width is written down.
 ///
-/// `PubInputs.TRANSACT_OUT` is the real one. The other two are literals only
-/// because Solidity will not accept a library `internal constant` as an array
+/// `PubInputs.TRANSACT_OUT` is the source of truth. The other two are literals
+/// because Solidity does not accept a library `internal constant` as an array
 /// length: `SPEND_OUTPUTS` in the test fixture, and the `Output[6]` parameter
-/// of `AuxValidation.validate`. Nothing makes them agree, and a mismatch is
-/// quiet in the worst way — a short aux array still compiles and simply leaves
-/// the trailing payloads unvalidated.
+/// of `AuxValidation.validate`. No declaration ties the literals to
+/// `TRANSACT_OUT`, and a mismatch can leave trailing payloads unvalidated.
 contract SpendFixtureWidthTest is Test {
     AuxHarness internal harness;
 
@@ -34,19 +33,19 @@ contract SpendFixtureWidthTest is Test {
         assertEq(SPEND_OUTPUTS, PubInputs.TRANSACT_OUT, "SPEND_OUTPUTS != PubInputs.TRANSACT_OUT");
     }
 
-    /// The aux array `AuxValidation.validate` accepts must be exactly as wide
-    /// as the shape, or some outputs go unchecked. Asserted through the
-    /// fixture's return type, which is the same `Output[N]` the validator takes
-    /// — if the two widths diverged this would not compile.
+    /// The aux array `AuxValidation.validate` accepts is exactly as wide as the
+    /// shape, so no output goes unchecked. Asserted through the fixture's
+    /// return type, which is the same `Output[N]` the validator takes; diverging
+    /// widths fail to compile.
     function test_validatorAcceptsFullWidthAux() public view {
         AuxValidation.Output[SPEND_OUTPUTS] memory aux = SpendFixture.validAux();
         assertEq(aux.length, PubInputs.TRANSACT_OUT, "aux width != TRANSACT_OUT");
         harness.validate(aux);
     }
 
-    /// Every slot is populated, not just the leading ones. A helper that filled
-    /// `n-1` slots would leave the last ciphertext empty and only fail later,
-    /// inside whichever spend test happened to run first.
+    /// Every slot is populated, not only the leading ones. A helper that filled
+    /// `n-1` slots would leave the last ciphertext empty and fail later inside
+    /// an unrelated spend test.
     function test_validAuxPopulatesEverySlot() public pure {
         AuxValidation.Output[SPEND_OUTPUTS] memory aux = SpendFixture.validAux();
         for (uint256 k; k < aux.length; ++k) {

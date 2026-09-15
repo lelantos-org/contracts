@@ -10,6 +10,7 @@ import { MASP } from "../../src/MASP.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
@@ -22,12 +23,11 @@ import { TestConstants } from "../utils/TestConstants.sol";
 /// Per-asset deposit and withdraw rates. There is no pool-wide rate and no
 /// inheritance: every asset stores its own pair, and a stored `0` means 0.
 ///
-/// Both verifiers are mocked to accept any proof — the subject is rate
-/// selection and blast radius, not circuit correctness.
+/// Both verifiers are mocked to accept any proof; the subject is rate
+/// selection and scope, not circuit correctness.
 ///
-/// The property that replaces the old fallback semantics: a fee change reaches
-/// exactly the ids named in the call. No setter can re-rate an asset the owner
-/// did not mention.
+/// A fee change reaches exactly the ids named in the call. No setter can
+/// re-rate an asset the owner did not name.
 contract MASPAssetFeesTest is Test {
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
     uint64 internal constant OTHER_ID = 2;
@@ -67,9 +67,19 @@ contract MASPAssetFeesTest is Test {
 
     // --- helpers -----------------------------------------------------------
 
+    /// Sets both rates and, if the withdraw rate rose, waits out the notice and
+    /// commits it. The tests using this concern a rate once it is in force; the
+    /// queue itself is covered in `MASP.upgrade.t.sol` and below.
     function _setFee(uint64 id, uint16 dep, uint16 wit) internal {
+        (, uint16 live) = masp.assetFees(id);
         vm.prank(OWNER);
         masp.setAssetFee(id, dep, wit);
+        if (wit > live) _commitRaise(id);
+    }
+
+    function _commitRaise(uint64 id) internal {
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY);
+        masp.commitExitTerms(id);
     }
 
     function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
@@ -83,7 +93,10 @@ contract MASPAssetFeesTest is Test {
     }
 
     function _sig(uint256 maxTotal) internal pure returns (MASP.Permit2Sig memory) {
-        return MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: maxTotal, signature: hex"00" });
+        return
+            MASP.Permit2Sig({
+                nonce: 0, deadline: type(uint256).max, maxTotal: maxTotal, maxFee: 0, signature: hex"00"
+            });
     }
 
     function _fundPayer(uint256 amount) internal {
@@ -96,9 +109,11 @@ contract MASPAssetFeesTest is Test {
         return SpendFixture.validAux();
     }
 
-    /// `publicOut = 1`, i.e. `SCALE` base units gross.
+    /// `publicOut = 1`, i.e. `SCALE` base units gross. Repeatable: nullifiers,
+    /// commitments and the tree position follow the leaves already committed.
     function _withdraw() internal {
         bytes32 root = masp.currentRoot();
+        uint64 cc = masp.committedCount();
         PubInputs.Transact memory pi;
         pi.chainId = block.chainid;
         pi.publicAssetId = ASSET_ID;
@@ -107,9 +122,10 @@ contract MASPAssetFeesTest is Test {
         pi.recipient = RECIPIENT;
         pi.payer = PAYER;
         pi.relayer = RELAYER;
-        SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
+        SpendFixture.fillOutputs(pi, 0x1111 + uint256(cc) * 0x100, 0x3333 + uint256(cc) * 0x100);
         pi.merkleRoot = root;
-        PubInputs.TreeUpdateBatch memory tpi = SpendFixture.batchFor(pi, root, bytes32(uint256(0xABCD)), 0);
+        PubInputs.SpendTree memory tpi =
+            SpendFixture.spendTree(bytes32(uint256(0xABCD) + cc), cc, uint8(masp.rootIndex()));
 
         vm.prank(RELAYER);
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, _aux());
@@ -125,7 +141,7 @@ contract MASPAssetFeesTest is Test {
         assertEq(wit, GENESIS_BPS);
     }
 
-    /// The shape the fee policy wants: free to enter, charged on exit.
+    /// Legs are set independently, e.g. free to enter and charged on exit.
     function test_setAssetFee_setsLegsIndependently() public {
         _setFee(ASSET_ID, 0, 50);
         (uint16 dep, uint16 wit) = masp.assetFees(ASSET_ID);
@@ -133,8 +149,7 @@ contract MASPAssetFeesTest is Test {
         assertEq(wit, 50, "withdraw charged");
     }
 
-    /// What removing the fallback buys: a rate change has a blast radius of
-    /// exactly one id.
+    /// A rate change affects exactly one id.
     function test_feeChange_touchesOnlyTheNamedAsset() public {
         _setFee(ASSET_ID, 0, 900);
 
@@ -188,13 +203,15 @@ contract MASPAssetFeesTest is Test {
         masp.setAssetFee(ASSET_ID, 0, MAX_BPS + 1);
     }
 
+    /// The ceiling is checked when a rate is set, whether the withdraw rate is
+    /// applied or queued, so a committed raise is always within it.
     function testFuzz_setAssetFee_ceilingHolds(uint16 dep, uint16 wit) public {
-        vm.prank(OWNER);
         if (dep > MAX_BPS || wit > MAX_BPS) {
+            vm.prank(OWNER);
             vm.expectRevert(AssetRegistry.AssetFeeTooHigh.selector);
             masp.setAssetFee(ASSET_ID, dep, wit);
         } else {
-            masp.setAssetFee(ASSET_ID, dep, wit);
+            _setFee(ASSET_ID, dep, wit);
             (uint16 gotDep, uint16 gotWit) = masp.assetFees(ASSET_ID);
             assertEq(gotDep, dep);
             assertEq(gotWit, wit);
@@ -221,7 +238,7 @@ contract MASPAssetFeesTest is Test {
     }
 
     /// Indexers follow `AssetFeeSet` for both registration and changes, so it
-    /// must fire on each. `AssetRegistered` keeps its existing shape.
+    /// fires on each. `AssetRegistered` carries no rates.
     function test_assetFeeSet_emittedOnChangeAndOnRegistration() public {
         vm.expectEmit(true, false, false, true, address(masp));
         emit AssetRegistry.AssetFeeSet(ASSET_ID, 7, 9);
@@ -266,9 +283,9 @@ contract MASPAssetFeesTest is Test {
     }
 
     /// The deposit leg is protected by the signed ceiling: raising the rate
-    /// after the payer signed cannot make them pay more, it makes the pull
-    /// exceed `maxTotal` and Permit2 refuses. The withdraw leg has no
-    /// equivalent — see `_unshieldLeg`.
+    /// after the payer signed does not make them pay more; the pull exceeds
+    /// `maxTotal` and Permit2 refuses. The withdraw leg has no equivalent (see
+    /// `_unshieldLeg`).
     function test_deposit_signedCeilingBoundsALaterRateRaise() public {
         uint64 publicIn = 100;
         uint256 inAmt = uint256(publicIn) * SCALE;
@@ -295,19 +312,19 @@ contract MASPAssetFeesTest is Test {
         uint256 id = masp.deposit(d, _sig(total), _aux()[0], _aux()[1]);
         uint32 submittedAt = uint32(block.number);
 
-        // Re-rate the asset while the deposit sits in escrow.
+        // Re-rates the asset while the deposit is in escrow.
         _setFee(ASSET_ID, 1_500, 1_500);
         vm.roll(block.number + masp.cancelDelay());
 
         PubInputs.FeeNote memory feeNote =
-            PubInputs.FeeNote({ feeIn: 0, feeCm: d.feeCm, feeCvDep: [uint256(0), uint256(0)] });
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: d.feeCm, feeCvDep: [uint256(0), uint256(0)] });
 
         // The new rate is not what was escrowed.
         vm.prank(PAYER);
         vm.expectRevert(abi.encodeWithSignature("DigestMismatch(uint256)", id));
         masp.cancelDeposit(id, uint48(publicIn), d.outCm, d.cvDep, ASSET_ID, 1_500, PAYER, submittedAt, feeNote);
 
-        // The submit-time rate is, and it refunds everything the payer paid.
+        // The submit-time rate matches and refunds everything the payer paid.
         uint256 before = token.balanceOf(PAYER);
         vm.prank(PAYER);
         masp.cancelDeposit(id, uint48(publicIn), d.outCm, d.cvDep, ASSET_ID, GENESIS_BPS, PAYER, submittedAt, feeNote);
@@ -328,6 +345,26 @@ contract MASPAssetFeesTest is Test {
 
         assertEq(token.balanceOf(RECIPIENT), gross - expectedFee, "recipient net of the asset rate");
         assertEq(masp.accruedFee(IERC20(address(token))), expectedFee, "accrued at the asset rate");
+    }
+
+    /// A queued raise does not reach a withdrawal: until the commit every exit
+    /// pays the live rate, and afterwards the raised one. This is the notice
+    /// holders get to leave at the old rate.
+    function test_withdraw_paysTheLiveRateUntilARaiseIsCommitted() public {
+        token.mint(address(masp), 100 * SCALE);
+        uint16 raised = 1_000;
+        vm.prank(OWNER);
+        masp.setAssetFee(ASSET_ID, GENESIS_BPS, raised);
+
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY - 1);
+        _withdraw();
+        uint256 atLive = (SCALE * GENESIS_BPS) / 10_000;
+        assertEq(token.balanceOf(RECIPIENT), SCALE - atLive, "queued raise reached an exit");
+
+        _commitRaise(ASSET_ID);
+        _withdraw();
+        uint256 atRaised = (SCALE * raised) / 10_000;
+        assertEq(token.balanceOf(RECIPIENT), 2 * SCALE - atLive - atRaised, "committed raise not charged");
     }
 
     function test_withdraw_zeroRate_skimsNothing() public {

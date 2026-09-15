@@ -230,8 +230,8 @@ a failing property would be. The recipe swallows that, and the CI step carries
 `continue-on-error`. Property mode exits 0 normally, and is what gates.
 
 Both recipes build under `[profile.echidna]` and regenerate their config first.
-That profile pre-links the `YieldOps` library at a fixed address because
-Echidna cannot deploy-and-link one the way Foundry does; `just _echidna-config`
-then places YieldOps' code there. The generated configs are rebuilt from the
+That profile pre-links the `YieldOps` and `DepositOps` libraries at fixed
+addresses because Echidna cannot deploy-and-link one the way Foundry does;
+`just _echidna-config` then places each library's code there. The generated configs are rebuilt from the
 current artifact on every run, so the bytecode cannot go stale — and both they
 and the corpus are gitignored.

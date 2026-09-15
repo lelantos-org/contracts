@@ -10,10 +10,10 @@ pragma solidity 0.8.36;
 /// each slot is checked against its own `delta` and `IC` constants, so
 /// transposed proofs are rejected.
 ///
-/// INVARIANT: `pub1` and `pub2` MUST be derived from the request calldata by
-/// `PubInputs.compress`, as `[y, z]` in that order. Public inputs supplied by
-/// any other means break soundness, which rests on `z` being drawn after the
-/// prover commits.
+/// Invariant: `pub1` and `pub2` must be derived from the request calldata by
+/// `PubInputs.compress` and `PubInputs.compressSpend`, as `[y, z]` in that
+/// order. Public inputs supplied by any other means break soundness, which
+/// rests on `z` being derived from the complete instance.
 ///
 /// Every parameter is a static type, so the ABI lays the call out as a selector
 /// followed by exactly twenty contiguous words. The implementation hashes that
@@ -34,9 +34,9 @@ interface IBatchVerifier {
     ///     `gas()`, so a starved call fails the ECMUL or the pairing and the
     ///     failure bubbles up.
     ///
-    /// CONTRACT: `false` means "not proven here", not "the prover misbehaved".
-    /// A gas-starved call is indistinguishable from an invalid proof, so callers
-    /// MUST NOT treat `false` as a slashing condition, nor gate a nullifier
+    /// `false` means "not proven here", not "the prover misbehaved". A
+    /// gas-starved call is indistinguishable from an invalid proof, so callers
+    /// must not treat `false` as a slashing condition, nor gate a nullifier
     /// consumption, fee charge, or other state write on it. The only safe
     /// response is to revert, as `MASP._verifyProofs` does.
     function verifyBatch(

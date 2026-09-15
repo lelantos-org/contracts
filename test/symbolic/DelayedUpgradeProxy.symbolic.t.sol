@@ -5,37 +5,38 @@ import { Test } from "forge-std/Test.sol";
 import { GuardAsserts } from "./GuardAsserts.sol";
 
 import { DelayedUpgradeProxy } from "../../src/DelayedUpgradeProxy.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { MockPoolV1, MockPoolV2 } from "../mocks/MockPool.sol";
 
 /// Symbolic proofs for the exit window.
 ///
-/// The proxy's promise is that a queued implementation cannot take effect for
-/// `UPGRADE_DELAY`, giving holders time to leave under the rules they entered
-/// under. `DelayedUpgradeProxy` states the four properties that guarantee rests
-/// on; each is proved below over every timestamp, duration and caller rather
-/// than at the sampled points a scenario test visits:
+/// A queued implementation cannot take effect for `UPGRADE_DELAY`, giving holders
+/// time to exit under the rules they entered under. `DelayedUpgradeProxy` states
+/// four properties this rests on; each is proved below over every timestamp,
+/// duration and caller:
 ///
-/// 1. The window cannot be shortened — `UPGRADE_DELAY` is immutable, and no
-///    call activates before it elapses.
-/// 2. A pause defers activation by its own duration, so paused time does not
-///    consume the window.
-/// 3. Activation is permissionless, so the window closing needs no keeper.
+/// 1. The window cannot be shortened: `UPGRADE_DELAY` is immutable, and no call
+///    activates before it elapses.
+/// 2. Paused time does not consume the window: a pause defers a pending
+///    activation by its own duration, an upgrade queued during a pause defers
+///    its activation by the pause still to run, and the pause ceiling is shorter
+///    than the window.
+/// 3. Activation is permissionless, so closing the window needs no keeper.
 /// 4. `cancelUpgrade` only withdraws; it never promotes.
 ///
-/// This is the surface where a bug is worth the most to an attacker — an
-/// implementation that activates early owns every deposit in the pool — and it
-/// is all comparisons and timestamps, with no arithmetic a solver struggles
-/// with. Timestamps are `uint40` in storage; the proofs bound the symbolic ones
-/// to that width, since a wider value cannot be written in the first place.
+/// An early activation would control every deposit in the pool. The logic is
+/// comparisons over timestamps only, which the solver handles without difficulty.
+/// Timestamps are `uint40` in storage, so symbolic timestamps are bounded to that
+/// width.
 ///
-/// A lightweight implementation (`MockPoolV1`) sits behind the proxy on
-/// purpose: the proxy's behaviour does not depend on what it delegates to, and
-/// the real pool would drag the whole spend path into every path explored here.
+/// `MockPoolV1` stands in as the implementation: the proxy's behaviour does not
+/// depend on its delegate, and the real pool would add the spend path to every
+/// explored path.
 ///
-/// Note that `svm.createCalldata` is unusable against this contract: any
-/// selector the proxy does not declare is forwarded to the implementation by
-/// `delegatecall`, so quantifying over calldata quantifies over the
-/// implementation's ABI too. The admin surface is enumerated instead.
+/// `svm.createCalldata` is not used against this contract: undeclared selectors
+/// are forwarded to the implementation by `delegatecall`, so quantifying over
+/// calldata would also quantify over the implementation's ABI. The admin surface
+/// is enumerated instead.
 contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
     uint256 internal constant UPGRADE_DELAY = 30 days;
     uint256 internal constant MAX_PAUSE = 7 days;
@@ -66,10 +67,9 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
     /// Activation succeeds exactly when the window has elapsed, at every point
     /// in time.
     ///
-    /// Both directions are proved. Rejecting early activation is the security
-    /// half; succeeding once the window has passed is the liveness half, and
-    /// without it a proxy that never activated anything would satisfy the
-    /// security half trivially.
+    /// Both directions are proved: early activation is rejected (safety), and
+    /// activation after the window succeeds (liveness), so a proxy that never
+    /// activates cannot satisfy the proof.
     function check_activationHappensExactlyAfterTheWindow(uint40 t) public {
         _queue();
         (, uint256 activationAt) = proxy.pendingUpgrade();
@@ -83,9 +83,9 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
         assertEq(proxy.implementation(), ok ? address(v2) : address(v1));
     }
 
-    /// The implementation the proxy serves does not change while an upgrade is
-    /// merely queued, however long it sits there. Holders exiting during the
-    /// window transact against the code they entered under.
+    /// The served implementation does not change while an upgrade is queued, so
+    /// holders exiting during the window transact against the code they entered
+    /// under.
     function check_queuedUpgradeDoesNotChangeTheServedImplementation(uint40 t) public {
         _queue();
         (, uint256 activationAt) = proxy.pendingUpgrade();
@@ -96,9 +96,9 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
         assertEq(proxy.implementation(), address(v1));
     }
 
-    /// One upgrade may be queued at a time: a second queue reverts rather than
+    /// One upgrade may be queued at a time: a second queue reverts without
     /// replacing the payload, so the window cannot be restarted with different
-    /// code while the first is still counting down.
+    /// code.
     function check_queuedPayloadCannotBeSwapped() public {
         _queue();
         (address pendingBefore, uint256 activationBefore) = proxy.pendingUpgrade();
@@ -114,8 +114,8 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
         assertEq(activationAfter, activationBefore);
     }
 
-    /// An implementation with no code is refused, so a queue cannot brick the
-    /// proxy by activating into an empty address.
+    /// An implementation with no code is refused, so activation cannot brick the
+    /// proxy by pointing it at an empty address.
     function check_queueUpgrade_rejectsCodelessImplementation(address impl) public {
         vm.assume(impl.code.length == 0);
 
@@ -125,14 +125,13 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, DelayedUpgradeProxy.ImplementationHasNoCode.selector);
     }
 
-    // --- (2) a pause defers activation by its own duration ------------------
+    // --- (2) paused time does not consume the window ------------------------
 
     /// Pausing pushes activation back by exactly the pause duration, for every
     /// permitted duration.
     ///
-    /// This is what makes the window measure *unpaused* time. Without it, an
-    /// admin could pause spends for the length of the window and let it expire
-    /// while holders were unable to leave — the exit window would be nominal.
+    /// The window therefore measures unpaused time; otherwise an admin could pause
+    /// spends and let the window expire while holders are unable to exit.
     function check_pauseDefersActivationByItsOwnDuration(uint40 duration) public {
         vm.assume(duration > 0 && uint256(duration) <= MAX_PAUSE);
 
@@ -147,9 +146,69 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
         assertEq(proxy.spendsPausedUntil(), block.timestamp + uint256(duration));
     }
 
+    /// The other ordering: an upgrade queued after a pause starts its window when
+    /// the pause ends, for every permitted duration and every queue time.
+    ///
+    /// `pauseSpends` extends only a window that already exists, so a pause issued
+    /// ahead of the queue is deferred here instead: activation moves back by the
+    /// pause still to run at queue time, and by nothing once it has expired.
+    /// Either way the window closes no earlier than `UPGRADE_DELAY` after spends
+    /// reopen.
+    function check_queueDuringPauseDefersActivationByTheRemainingPause(uint40 duration, uint40 t) public {
+        vm.assume(duration > 0 && uint256(duration) <= MAX_PAUSE);
+        // Keeps `activationAt` inside the `uint40` it is stored in.
+        vm.assume(t >= T0 && uint256(t) + UPGRADE_DELAY <= type(uint40).max);
+
+        vm.prank(ADMIN);
+        proxy.pauseSpends(duration);
+        uint256 pausedUntil = T0 + uint256(duration);
+        assertEq(proxy.spendsPausedUntil(), pausedUntil);
+
+        vm.warp(t);
+        _queue();
+
+        (, uint256 activationAt) = proxy.pendingUpgrade();
+        uint256 remaining = uint256(t) < pausedUntil ? pausedUntil - uint256(t) : 0;
+        assertEq(activationAt, uint256(t) + remaining + UPGRADE_DELAY, "window deferred by the remaining pause");
+        assertGe(activationAt, pausedUntil + UPGRADE_DELAY, "window overlaps the pause");
+    }
+
+    /// The constructor accepts exactly the configurations whose pause ceiling is
+    /// shorter than the window, for every non-zero delay and every ceiling.
+    ///
+    /// A pause as long as the window would hold spends shut for all of it, which
+    /// property (2) cannot repair: it keeps paused time out of the window but
+    /// still lets one pause stall exits for the window's length.
+    function check_constructor_acceptsExactlyPauseShorterThanDelay(uint256 upgradeDelay, uint256 maxPause) public {
+        // `ZeroDelay` and `DelayExceedsExitTermsNotice` are checked first; the
+        // unit suite covers them.
+        vm.assume(upgradeDelay > 0 && upgradeDelay <= ExitTerms.DELAY);
+
+        (bool ok, bytes memory ret) = address(this).call(abi.encodeCall(this.deployProxy, (upgradeDelay, maxPause)));
+
+        assertEq(ok, maxPause < upgradeDelay, "accepted exactly the pauses shorter than the window");
+        if (ok) {
+            DelayedUpgradeProxy p = DelayedUpgradeProxy(payable(abi.decode(ret, (address))));
+            assertEq(p.UPGRADE_DELAY(), upgradeDelay);
+            assertEq(p.MAX_PAUSE(), maxPause);
+        } else {
+            _assertRejected(ok, ret, DelayedUpgradeProxy.PauseNotShorterThanDelay.selector);
+        }
+    }
+
+    /// Deploys a proxy with the given window and ceiling. External so a proof can
+    /// observe a constructor revert through a low-level call.
+    function deployProxy(uint256 upgradeDelay, uint256 maxPause) external returns (address) {
+        return address(
+            new DelayedUpgradeProxy(
+                address(v1), abi.encodeCall(MockPoolV1.initialize, (100)), ADMIN, upgradeDelay, maxPause
+            )
+        );
+    }
+
     /// A pause is accepted for exactly the permitted durations: non-zero and
-    /// within the immutable ceiling. The ceiling is what bounds how long the
-    /// guardian can hold spends closed.
+    /// within the immutable ceiling, which bounds how long the guardian can hold
+    /// spends closed.
     function check_pauseSpends_acceptsExactlyPermittedDurations(uint256 duration) public {
         vm.prank(ADMIN);
         (bool ok,) = address(proxy).call(abi.encodeCall(DelayedUpgradeProxy.pauseSpends, (duration)));
@@ -170,7 +229,7 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
         (bool again, bytes memory ret) = address(proxy).call(abi.encodeCall(DelayedUpgradeProxy.pauseSpends, (second)));
         _assertRejected(again, ret, DelayedUpgradeProxy.GuardianPauseAlreadyUsed.selector, "second pause refused");
 
-        // Governance clearing the flag re-arms it, and nothing else does.
+        // Clearing the flag re-arms the guardian pause.
         proxy.resetGuardianPause();
         (bool afterReset,) = address(proxy).call(abi.encodeCall(DelayedUpgradeProxy.pauseSpends, (second)));
         vm.stopPrank();
@@ -180,9 +239,9 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
 
     // --- (3) activation is permissionless -----------------------------------
 
-    /// Anyone may activate once the window has elapsed, so closing it depends on
-    /// no privileged keeper. Liveness only: the payload was fixed at queue time
-    /// and public throughout.
+    /// Anyone may activate once the window has elapsed, so no privileged keeper is
+    /// required. This affects liveness only: the payload is fixed at queue time and
+    /// public throughout the window.
     function check_activationIsPermissionless(address caller) public {
         _queue();
         (, uint256 activationAt) = proxy.pendingUpgrade();
@@ -197,9 +256,9 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
 
     // --- (4) cancel only withdraws ------------------------------------------
 
-    /// Cancelling clears the queue and leaves the served implementation alone —
-    /// it can never promote. Afterwards there is nothing to activate, so a
-    /// cancelled upgrade cannot be resurrected by waiting.
+    /// Cancelling clears the queue without changing the served implementation.
+    /// Afterwards activation reverts at every later time, so a cancelled upgrade
+    /// cannot take effect by waiting.
     function check_cancelWithdrawsAndNeverPromotes(uint40 t) public {
         _queue();
 
@@ -224,9 +283,9 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
     /// Every privileged entry point rejects every non-admin caller, and none of
     /// them moves the implementation or the queue.
     ///
-    /// Enumerated rather than quantified over calldata: an undeclared selector
-    /// is forwarded to the implementation, so `svm.createCalldata` here would be
-    /// a proof about `MockPoolV1`, not about the proxy.
+    /// Enumerated rather than quantified over calldata: undeclared selectors are
+    /// forwarded to the implementation, so `svm.createCalldata` would exercise
+    /// `MockPoolV1` rather than the proxy.
     function check_privilegedEntryPointsRejectNonAdmins(address caller, uint256 duration) public {
         vm.assume(caller != ADMIN);
 
@@ -249,8 +308,8 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
         assertEq(pending, address(0));
     }
 
-    /// Administration transfers to any non-zero address and refuses zero, which
-    /// would leave the proxy permanently unadministered.
+    /// Administration transfers to any non-zero address; zero is refused because
+    /// it would leave the proxy permanently without an admin.
     function check_changeProxyAdmin_acceptsExactlyNonZero(address newAdmin) public {
         vm.prank(ADMIN);
         (bool ok,) = address(proxy).call(abi.encodeCall(DelayedUpgradeProxy.changeProxyAdmin, (newAdmin)));

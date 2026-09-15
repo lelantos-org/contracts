@@ -30,6 +30,8 @@ library DelayedUpgradeProxySpec {
     /// One per Quint state variable, in config declaration order.
     /// Not compared: `queuedAt` - ghost: when the live window opened. The contract stores only activationAt, so there is nothing on chain to compare against - it exists so inv_windowIsExact can be stated
     /// Not compared: `pausedInWindow` - ghost: pause duration that landed while an upgrade was pending. Without it, deleting the pendingImplementation check in pauseSpends leaves every invariant satisfied
+    /// Not compared: `carriedPause` - ghost: pause still running when the live window was queued, which queueUpgrade adds to activationAt. The contract keeps no record of it, so it exists so inv_windowIsExact stays an equation
+    /// Not compared: `unpausedInWindow` - ghost: unpaused seconds the clock spent inside the live window, so inv_exitWindowIsUnpaused can state the exit guarantee independently of how activationAt was computed
     /// Not compared: `pauseFirings` - ghost: counts pauses so the one-shot latch is constrained by something other than itself
     /// Not compared: `resetFirings` - ghost: counts *effective* resets, so inv_latchMatchesCounters can pin the latch; an idempotent reset must not move it
     /// Not compared: `queueFirings` - ghost: windows opened, so wit_requeued can show a second window was started from scratch

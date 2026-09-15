@@ -4,8 +4,8 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 
-/// Additional low-order and on-curve edge cases for `BabyJubJub`.
-/// Complements `BabyJubJub.t.sol`; does not duplicate existing tests.
+/// Low-order and on-curve edge cases for `BabyJubJub`, complementing
+/// `BabyJubJub.t.sol`.
 contract BabyJubJubNegTest is Test {
     uint256 internal constant P = BabyJubJub.P;
 
@@ -13,8 +13,8 @@ contract BabyJubJubNegTest is Test {
     // On-curve checks for BASE8 constant
     // -----------------------------------------------------------------------
 
-    /// BASE8 must be a valid curve point; bugs in the constant would silently
-    /// pass test setup using it as a sentinel.
+    /// BASE8 is a valid curve point; an error in the constant would otherwise
+    /// pass unnoticed in tests that use it as a sentinel.
     function testBase8IsOnCurve() public pure {
         assertTrue(BabyJubJub.isOnCurve(BabyJubJub.BASE8_X, BabyJubJub.BASE8_Y));
     }
@@ -28,54 +28,51 @@ contract BabyJubJubNegTest is Test {
         assertTrue(BabyJubJub.isOnCurve(0, P - 1));
     }
 
-    /// 2*(0, P-1) = (0, 1) [identity] on twisted Edwards → [8]*(0, P-1) = (0, 1).
-    /// Therefore (0, P-1) is a low-order point.
+    /// 2*(0, P-1) = (0, 1), the identity, so [8]*(0, P-1) = (0, 1) and the
+    /// point is low-order.
     function testOrderTwoPoint_isLowOrder() public view {
         assertTrue(BabyJubJub.isLowOrder(0, P - 1));
     }
 
     // -----------------------------------------------------------------------
-    // Property: identity is the only low-order point with x == 0 and y == 1.
-    // Points of the form (0, y≠1) that are on-curve must also be low-order
-    // (on Baby Jubjub the only on-curve points with x=0 are (0,1) and (0,P-1)).
+    // The only on-curve points with x = 0 are (0, 1) and (0, P-1); both are
+    // low-order.
     // -----------------------------------------------------------------------
 
     function testAllXZeroOnCurvePoints_areLowOrder() public view {
-        // (0, 1): identity → low order (already in BabyJubJub.t.sol but recheck here for completeness)
+        // (0, 1): identity.
         assertTrue(BabyJubJub.isLowOrder(0, 1));
-        // (0, P-1): order 2 → low order
+        // (0, P-1): order 2.
         assertTrue(BabyJubJub.isLowOrder(0, P - 1));
     }
 
     // -----------------------------------------------------------------------
-    // Non-low-order prime-order points must NOT be flagged
+    // Prime-order points are not flagged as low-order
     // -----------------------------------------------------------------------
 
-    /// Any on-curve point that generates the prime-order subgroup is NOT low-order.
+    /// An on-curve point that generates the prime-order subgroup is not low-order.
     function testArbitraryOnCurvePoint_base8_notLowOrder() public view {
-        // Already in BabyJubJub.t.sol, repeated as a cross-file sanity guard.
+        // Also covered in BabyJubJub.t.sol; repeated as a cross-file guard.
         assertFalse(BabyJubJub.isLowOrder(BabyJubJub.BASE8_X, BabyJubJub.BASE8_Y));
     }
 
     // -----------------------------------------------------------------------
-    // isLowOrder must return false for off-curve input
-    // (function internally calls _mulBy8 which is well-defined, but the
-    //  result is meaningless — callers gate on isOnCurve first)
+    // Off-curve input
+    // (`isLowOrder` requires an on-curve input; callers gate on `isOnCurve`
+    //  first, so its result on off-curve points is undefined)
     // -----------------------------------------------------------------------
 
-    /// (0,0) is off-curve and must not be classified as low-order. Ordering
-    /// the two checks is the caller's responsibility; this guards against
-    /// misuse.
+    /// (0, 0) is rejected by `isOnCurve`, the gate callers apply before
+    /// `isLowOrder`.
     function testZeroZero_isNotOnCurve() public pure {
         assertFalse(BabyJubJub.isOnCurve(0, 0));
     }
 
     // -----------------------------------------------------------------------
-    // Order-4 / order-8 / mixed-order vectors (computed off-chain with the
-    // affine twisted Edwards group law; see git history for the generator
-    // script). These differentially pin the projective `isLowOrder` rewrite:
-    // an arithmetic slip in the doubling formulas would misclassify at least
-    // one of them.
+    // Order-4 / order-8 / mixed-order vectors, computed off-chain with the
+    // affine twisted Edwards group law. They cross-check the projective
+    // `isLowOrder` implementation: an arithmetic error in the doubling
+    // formulas misclassifies at least one of them.
     // -----------------------------------------------------------------------
 
     /// Order-4 points are (±sqrt(1/a), 0): doubling gives (0, P-1), so
@@ -95,8 +92,9 @@ contract BabyJubJubNegTest is Test {
     uint256 internal constant PRIME3_Y =
         15_305_195_750_036_305_661_220_525_648_961_313_310_481_046_260_814_497_672_243_197_092_298_550_508_693;
 
-    /// Order-2L point ((0, P-1) + 3*BASE8): mixed order, [8]P != identity, so
-    /// NOT low-order — the check must not over-reject cofactor components.
+    /// Order-2L point ((0, P-1) + 3*BASE8): mixed order with [8]P != identity,
+    /// so not low-order; the check does not reject points with a cofactor
+    /// component.
     uint256 internal constant MIXED2L_X =
         19_124_754_549_671_338_182_630_079_839_741_228_870_854_100_301_744_047_255_768_638_854_195_387_597_251;
     uint256 internal constant MIXED2L_Y =
@@ -128,24 +126,23 @@ contract BabyJubJubNegTest is Test {
     }
 
     // -----------------------------------------------------------------------
-    // Fuzz: on-curve + not low-order implies large-order subgroup membership
+    // Fuzz: consistency of isOnCurve and isLowOrder on random inputs
     // -----------------------------------------------------------------------
 
-    /// For random field elements: if both isOnCurve and isLowOrder return true,
-    /// the coordinates must equal one of the two known x=0 cases.
+    /// For random field elements that are on-curve and low-order, the known
+    /// x = 0 cases stay classified as low-order.
     function testFuzz_lowOrderOnCurve_impliesKnownPoint(uint256 x, uint256 y) public view {
         x = x % P;
         y = y % P;
         if (!BabyJubJub.isOnCurve(x, y)) return;
         if (!BabyJubJub.isLowOrder(x, y)) return;
-        // On-curve and low-order. With overwhelming probability this is one
-        // of the 8 small-subgroup points. Only the analytically known x=0
-        // cases are asserted; enumerating the rest requires off-chain
-        // computation.
+        // On-curve and low-order: one of the 8 small-subgroup points. Only the
+        // analytically known x = 0 cases are asserted; enumerating the rest
+        // requires off-chain computation.
         bool isIdentity = (x == 0 && y == 1);
         bool isOrderTwo = (x == 0 && y == P - 1);
-        // Any other small-subgroup point is still low-order, so the check
-        // below only confirms the flag is consistent.
+        // Other small-subgroup points are also low-order; the check below
+        // only confirms the flag is consistent.
         if (isIdentity || isOrderTwo) {
             assertTrue(BabyJubJub.isLowOrder(x, y));
         }

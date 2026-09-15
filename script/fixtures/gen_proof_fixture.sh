@@ -13,8 +13,8 @@
 #      ceremony yields a different `delta` than the release. Proofs made against
 #      a local zkey cannot satisfy the verifiers in src/verifiers/, which are
 #      copied from the release.
-#   2. A local `build/` may be partially rebuilt: a current r1cs/wasm beside a
-#      zkey from an earlier ceremony.
+#   2. A local `build/` may be partially rebuilt, pairing a current r1cs/wasm
+#      with a zkey from a different ceremony.
 #
 # Fetch them first (they are not in the npm tarball):
 #
@@ -102,11 +102,11 @@ trap 'rm -rf "$TMP"' EXIT
 COUNT="$(python3 -c "import json;print(len(json.load(open('$VECTOR'))['vectors']))")"
 
 for ((i = 0; i < COUNT; i++)); do
-    # The published witness carries the logical public inputs the circuit does
-    # NOT declare as signals — the address words, the FMD clue triples and the
-    # aux digest, which bind through the Fiat-Shamir challenge instead. The
+    # The published witness carries logical public inputs the circuit does not
+    # declare as signals (the address words, the FMD clue triples and the aux
+    # digest), which bind through the Fiat-Shamir challenge instead. The
     # witness calculator rejects an undeclared key ("Too many values for input
-    # signal"), so drop exactly the set the vector names.
+    # signal"), so drop the set the vector lists as challenge-only.
     python3 -c "
 import json
 d = json.load(open('$VECTOR'))

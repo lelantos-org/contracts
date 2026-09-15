@@ -8,10 +8,10 @@ import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 
 import { GovTestBase } from "./GovTestBase.sol";
 
-/// Quorum is a fraction of **total supply**, not of delegated supply, because
-/// `Votes._transferVotingUnits` checkpoints the total only on mint and burn. That
-/// makes idle and unclaimed tokens part of the denominator, which is the single
-/// most common way a launch ends up unable to pass anything.
+/// Quorum is a fraction of total supply, not of delegated supply, because
+/// `Votes._transferVotingUnits` checkpoints the total only on mint and burn.
+/// Idle and unclaimed tokens are therefore part of the denominator, which can
+/// leave governance unable to reach quorum.
 contract GovernorQuorumTest is GovTestBase {
     address internal small = makeAddr("small");
 
@@ -44,12 +44,10 @@ contract GovernorQuorumTest is GovTestBase {
         assertEq(governor.quorumDenominator(), 100);
     }
 
-    /// The trap, made explicit: 40% of supply sits undelegated with the
-    /// distributor and still counts in the denominator. A proposal backed by every
-    /// vote *cast* can still fail.
+    /// Supply held undelegated by the distributor still counts in the
+    /// denominator, so a proposal backed by every vote cast can fail.
     function test_undelegatedSupplyCountsInTheDenominatorSoAThinVoteFails() public {
-        // 1% of supply — comfortably over the 0.25% proposal threshold, but under
-        // the 3% quorum.
+        // 1% of supply: above the 0.25% proposal threshold, below the 3% quorum.
         _fund(small, SUPPLY / 100);
 
         uint256 id = _proposeAndVote(small, 1, "thin support");
@@ -86,9 +84,8 @@ contract GovernorQuorumTest is GovTestBase {
         assertEq(uint8(governor.state(id)), uint8(IGovernor.ProposalState.Defeated));
     }
 
-    /// Weight is snapshotted. Acquiring and delegating a fortune after the
-    /// snapshot buys nothing — this is the property that makes the Governor
-    /// flash-loan resistant, so it is asserted rather than assumed.
+    /// Weight is snapshotted: tokens acquired and delegated after the snapshot
+    /// carry no votes. This makes the Governor flash-loan resistant.
     function test_weightAcquiredAfterSnapshotDoesNotCount() public {
         _fund(small, SUPPLY / 100);
         (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
@@ -100,7 +97,7 @@ contract GovernorQuorumTest is GovTestBase {
 
         vm.warp(governor.proposalSnapshot(id) + 1);
 
-        // A whale arrives after the snapshot and delegates to itself.
+        // A large holder acquires tokens after the snapshot and self-delegates.
         address whale = makeAddr("whale");
         vm.prank(distributor);
         gov.transfer(whale, SUPPLY / 4);
@@ -116,7 +113,8 @@ contract GovernorQuorumTest is GovTestBase {
 
     /// Delegating and proposing inside one transaction cannot meet the threshold:
     /// `propose` reads `getVotes(proposer, clock() - 1)`, and the fresh delegation
-    /// checkpoints at `clock()`. This is the second half of the flash-loan story.
+    /// checkpoints at `clock()`. Together with snapshotting, this prevents
+    /// flash-loan governance.
     function test_delegateAndProposeInSameTimestampCannotMeetThreshold() public {
         address borrower = makeAddr("borrower");
         vm.prank(distributor);
@@ -138,9 +136,8 @@ contract GovernorQuorumTest is GovTestBase {
         vm.stopPrank();
     }
 
-    /// Burning lowers total supply, so the absolute quorum bar falls with it —
-    /// the intended behaviour for a deflationary supply, and the direct link
-    /// between the burner and governance.
+    /// Burning lowers total supply, so the absolute quorum threshold falls with
+    /// it, as intended for a deflationary supply.
     function test_burningLowersTheQuorumBar() public {
         vm.warp(T0 + 100);
         uint256 before = governor.quorum(T0 + 99);

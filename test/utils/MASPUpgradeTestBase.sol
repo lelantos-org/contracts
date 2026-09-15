@@ -13,9 +13,9 @@ import { EscrowFlowBase } from "./EscrowFlowBase.sol";
 import { newPoolImplementation, poolInitCalldata } from "./PoolDeployer.sol";
 import { uniformBps } from "./FeeArrays.sol";
 
-/// The pool behind a proxy this suite controls, so the upgrade surface can be
-/// driven: queue, cancel, activate, pause. Deposits, flushes and accrued state
-/// come from `EscrowFlowBase`; only the proxy wiring is added here.
+/// The pool behind a suite-controlled proxy, for driving the upgrade surface:
+/// queue, cancel, activate, pause. Deposits, flushes and accrued state come
+/// from `EscrowFlowBase`; this adds only the proxy wiring.
 abstract contract MASPUpgradeTestBase is EscrowFlowBase {
     uint256 internal constant UPGRADE_DELAY = 30 days;
     uint256 internal constant MAX_PAUSE = 7 days;
@@ -25,8 +25,8 @@ abstract contract MASPUpgradeTestBase is EscrowFlowBase {
 
     address internal admin = makeAddr("proxyAdmin");
 
-    /// A dedicated proxy, so `admin`, the window and the pause ceiling are under
-    /// this suite's control.
+    /// Deploys a dedicated proxy so the suite controls `admin`, the exit window
+    /// and the pause ceiling.
     function _deployTestPool() internal override returns (MASP) {
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = _genesisAsset();
         impl = newPoolImplementation();

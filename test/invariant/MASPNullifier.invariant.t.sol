@@ -26,9 +26,9 @@ contract NullifierHandler is Test {
         masp = m;
     }
 
-    /// Consume a random nullifier. The handler chooses with probability ~1/4
-    /// to retry an already-consumed nullifier so the DoubleSpend branch is
-    /// exercised proportionally instead of vanishingly.
+    /// Consumes a random nullifier. With probability ~1/4 it retries an
+    /// already-consumed nullifier instead, so the DoubleSpend branch is
+    /// exercised regularly rather than almost never.
     function consume(bytes32 nf, uint8 reuseSeed) external {
         if (consumedList.length > 0 && reuseSeed % 4 == 0) {
             nf = consumedList[uint256(uint8(reuseSeed)) % consumedList.length];
@@ -77,7 +77,7 @@ contract MASPNullifierInvariantTest is StdInvariant, Test {
         targetContract(address(handler));
     }
 
-    /// Every nullifier the handler successfully consumed must read as spent.
+    /// Every nullifier the handler successfully consumed reads as spent.
     function invariant_ConsumedAreSpent() public view {
         uint256 n = handler.consumedLength();
         for (uint256 i; i < n; ++i) {

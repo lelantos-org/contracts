@@ -8,20 +8,19 @@ import { CommitmentTreeSpecReplay } from "./generated/CommitmentTreeSpecReplay.s
 
 /// Driver for [spec/commitment_tree.qnt](../../spec/commitment_tree.qnt).
 ///
-/// Reuses the harness the fuzz suite already drives
+/// Uses the harness the fuzz suite drives
 /// ([test/fuzz/CommitmentTreeHarness.sol](../fuzz/CommitmentTreeHarness.sol)),
-/// so the two suites exercise the same surface and only differ in what chooses
-/// the calls: the fuzzer picks at random within one run, Quint picks from a
-/// model that is itself checked, and every step's post-state is asserted.
+/// so both suites exercise the same surface and differ in what chooses the
+/// calls: the fuzzer picks at random, while Quint picks from a checked model and
+/// every step's post-state is asserted.
 ///
 /// `abstract` so Foundry does not collect it as a test contract; the generated
 /// `CommitmentTreeTraces` inherits it and holds one test per trace.
 abstract contract CommitmentTreeReplay is CommitmentTreeSpecReplay {
     /// Must match `MAX_ROOT` in the spec. Roots are drawn from `2..MAX_ROOT`,
-    /// and `_project` enumerates that domain to rebuild `knownRoots` — so if
-    /// the spec widens its domain and this does not, the projection silently
-    /// stops seeing the extra values. `_toModel` turns that into a hard failure
-    /// rather than a quiet omission.
+    /// and `_project` enumerates that domain to rebuild `knownRoots`.
+    /// `_toModel` fails on any on-chain root outside it, so a spec domain wider
+    /// than this one cannot go unobserved.
     uint256 internal constant MAX_ROOT = 7;
     /// Spec `EMPTY`, standing for `CommitmentTree.EMPTY_ROOT`.
     uint256 internal constant MODEL_EMPTY = 1;
@@ -58,10 +57,9 @@ abstract contract CommitmentTreeReplay is CommitmentTreeSpecReplay {
             s.rootRing[i] = _toModel(tree.rootAt(i));
         }
 
-        // `isKnownRoot` is a mapping and cannot be enumerated, but the model's
-        // root domain is finite and known, so walking it is a complete
-        // reconstruction rather than a sample. Ascending by construction, which
-        // is the order the generator sorted the model's set into.
+        // `isKnownRoot` answers one root at a time, but the model's root domain
+        // is finite and known, so walking it is a complete reconstruction.
+        // Ascending by construction, matching the generator's set ordering.
         uint256[] memory found = new uint256[](MAX_ROOT);
         uint256 count = 0;
         for (uint256 v = MODEL_EMPTY; v <= MAX_ROOT; v++) {
@@ -87,9 +85,8 @@ abstract contract CommitmentTreeReplay is CommitmentTreeSpecReplay {
         if (b == bytes32(0)) return 0;
         if (b == emptyRoot) return MODEL_EMPTY;
         uint256 v = uint256(b);
-        // A root outside the spec's domain means the driver and the spec have
-        // drifted apart. Failing here names that directly, instead of letting a
-        // value the model never chose surface as a divergence.
+        // A root outside the spec's domain means the driver and the spec
+        // disagree. Fails here by name rather than surfacing as a divergence.
         require(v > MODEL_EMPTY && v <= MAX_ROOT, "driver: on-chain root outside the spec's domain");
         return v;
     }

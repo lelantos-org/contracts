@@ -45,8 +45,9 @@ contract ERC4626Venue is IYieldVenue {
     constructor(address pool, address vault, address underlying) {
         if (pool == address(0)) revert PoolZero();
         if (vault == address(0)) revert VaultZero();
-        // Constructor: the "state change" is the immutable assignment below, which
-        // no re-entrant call can reach before deployment completes.
+        // This contract's only state written after this call is the immutable
+        // assignment below, which no re-entrant call can reach before deployment
+        // completes.
         // aderyn-fp-next-line(reentrancy-state-change)
         address vaultAsset = IERC4626(vault).asset();
         if (vaultAsset != underlying) revert VaultAssetMismatch(underlying, vaultAsset);
@@ -88,5 +89,11 @@ contract ERC4626Venue is IYieldVenue {
     /// vault's own markets are short of liquidity.
     function maxWithdraw() external view returns (uint256) {
         return IERC4626(VAULT).maxWithdraw(address(this));
+    }
+
+    /// What the vault will accept now. ERC-4626 requires `maxDeposit` to
+    /// account for caps and pauses and not to revert.
+    function maxDeposit() external view returns (uint256) {
+        return IERC4626(VAULT).maxDeposit(address(this));
     }
 }

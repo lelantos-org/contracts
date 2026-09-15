@@ -7,15 +7,13 @@ import { EchidnaMaspYield } from "./EchidnaMaspYield.sol";
 
 /// Reachability gate for the yield target, run by `forge test`.
 ///
-/// Every handler in `EchidnaMaspYield` wraps its pool call in `try`, which is
-/// what lets a random sequence continue through an invalid combination — and
-/// also what lets an entire path revert on every attempt while the properties
-/// pass over a history that never reached it. `YieldSolvency.invariant.t.sol`
-/// carries the same guard for the same reason.
+/// Every handler in `EchidnaMaspYield` wraps its pool call in `try`, so a
+/// random sequence continues through invalid combinations, but a path could
+/// also revert on every attempt while the properties pass over a history that
+/// never reached it. `YieldSolvency.invariant.t.sol` has the same check.
 ///
-/// The optimization targets are the point of that file, and they are the most
-/// exposed of all: `optimize_freeMoney` reports 0 both when the accounting is
-/// exact and when nothing was ever paid out.
+/// The optimization targets are the most exposed: `optimize_freeMoney` cannot
+/// distinguish exact accounting from a history in which nothing was paid out.
 contract EchidnaMaspYieldReachabilityTest is Test {
     EchidnaMaspYield internal target;
 
@@ -50,6 +48,11 @@ contract EchidnaMaspYieldReachabilityTest is Test {
 
         target.squeeze(type(uint96).max);
         target.setParams(1_000, 10);
+        // Back up to the registered rate: a raise, landing only at the commit.
+        target.setParams(1_000, 25);
+        target.commitParams();
+        assertEq(target.commits(), 1, "commit path");
+        assertEq(target.masp().yieldState(9).perfBps, 25, "raised rate committed");
 
         // --- exit ---
         target.withdrawYield(1);
@@ -63,8 +66,7 @@ contract EchidnaMaspYieldReachabilityTest is Test {
         target.accruePerf();
         target.sweepYield();
 
-        // Every property must hold after a full lap, otherwise the Echidna run
-        // would be reporting on a handler set that cannot complete one.
+        // Every property must hold after a full lap of the handler set.
         assertTrue(target.echidna_noFreeMoney(), "no free money");
         assertTrue(target.echidna_poolCoversIdlePlusPlainLiability(), "pool covers idle + plain");
         assertTrue(target.echidna_idleNeverExceedsGross(), "idle within backing");
@@ -73,10 +75,8 @@ contract EchidnaMaspYieldReachabilityTest is Test {
         assertTrue(target.echidna_venueBindingImmutable(), "venue binding held");
     }
 
-    /// The optimization targets must be reporting on a history that actually
-    /// moved value. A maximum of 0 over a run that never paid anything out is
-    /// indistinguishable from exact accounting, and the whole reason the file
-    /// exists is to measure that slack.
+    /// The optimization targets must report on a history that moved value; a
+    /// run that never paid out is indistinguishable from exact accounting.
     function test_optimizationTargetsSeeRealFlow() public {
         target.depositYield(500_000);
         target.flush(0);
@@ -87,9 +87,8 @@ contract EchidnaMaspYieldReachabilityTest is Test {
         assertGt(target.yieldPaidIn(), 0, "optimization target has inflow to price against");
         assertGt(target.yieldPaidOut(), 0, "optimization target has outflow to price");
 
-        // Non-positive is the passing direction: the pool has not paid out
-        // more than came in plus what was earned. The optimizer's job is to
-        // find how close to zero it can drive this from below.
+        // Non-positive passes: the pool has not paid out more than came in plus
+        // what was earned. The optimizer searches for the maximum.
         assertLe(target.optimize_freeMoney(), int256(0), "free money found");
         assertLe(target.optimize_idleOverGross(), int256(0), "idle exceeds backing");
     }

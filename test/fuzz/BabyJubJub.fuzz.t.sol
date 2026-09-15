@@ -4,11 +4,10 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 
-/// Fuzz suite for the projective `isLowOrder` rewrite in `BabyJubJub`.
+/// Fuzz suite for the projective `isLowOrder` in `BabyJubJub`.
 ///
-/// Ground truth is an independent affine reference implementation of the
-/// twisted Edwards group law (complete addition + modexp inversion) — the
-/// same construction the projective code replaced. Points are sampled by
+/// Ground truth is an independent affine implementation of the twisted Edwards
+/// group law (complete addition + modexp inversion). Points are sampled by
 /// scalar-multiplying the full-order circomlib generator, so the fuzz covers
 /// every coset of the prime-order subgroup, including mixed-order points.
 contract BabyJubJubFuzzTest is Test {
@@ -34,7 +33,7 @@ contract BabyJubJubFuzzTest is Test {
     // -----------------------------------------------------------------------
 
     /// Differential: for any point in the full group, the projective
-    /// `isLowOrder` must agree with the affine reference `[8]P == identity`.
+    /// `isLowOrder` agrees with the affine reference `[8]P == identity`.
     function testFuzz_isLowOrder_matchesAffineReference(uint256 k) public view {
         k = bound(k, 0, FULL_ORDER - 1);
         (uint256 x, uint256 y) = _refMul(k, G_X, G_Y);
@@ -51,9 +50,9 @@ contract BabyJubJubFuzzTest is Test {
         assertFalse(BabyJubJub.isLowOrder(x, y), "prime-order point flagged as low-order");
     }
 
-    /// The seven non-identity small-subgroup points `[j*L]·G` (j in 1..7) must
-    /// all be detected. Random scalars essentially never land here, so this
-    /// forces coverage of the true branch.
+    /// The seven non-identity small-subgroup points `[j*L]·G` (j in 1..7) are
+    /// all detected. Random scalars almost never land on these, so this test
+    /// covers the true branch explicitly.
     function testFuzz_smallSubgroupPoint_alwaysDetected(uint8 j) public view {
         uint256 jb = bound(uint256(j), 1, 7);
         (uint256 x, uint256 y) = _refMul(jb * L, G_X, G_Y);
@@ -62,7 +61,7 @@ contract BabyJubJubFuzzTest is Test {
     }
 
     /// Mixed-order points (prime-order component + small-subgroup component)
-    /// satisfy `[8]P != identity` and must NOT be flagged — the check cannot
+    /// satisfy `[8]P != identity` and are not flagged: the check does not
     /// over-reject cofactor cosets.
     function testFuzz_mixedOrderPoint_notLowOrder(uint256 k, uint8 j) public view {
         k = bound(k, 1, L - 1);
@@ -75,7 +74,7 @@ contract BabyJubJubFuzzTest is Test {
     }
 
     /// Point negation `-(x, y) = (P - x, y)` preserves order, so the verdict
-    /// must be negation-invariant.
+    /// is negation-invariant.
     function testFuzz_isLowOrder_negationInvariant(uint256 k) public view {
         k = bound(k, 0, FULL_ORDER - 1);
         (uint256 x, uint256 y) = _refMul(k, G_X, G_Y);

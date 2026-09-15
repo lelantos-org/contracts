@@ -8,6 +8,7 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 
 import { MASP } from "../../src/MASP.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
@@ -24,12 +25,13 @@ import {
 } from "../utils/PoolDeployer.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// The fee ceiling is the anti-rug bound and there is no path around it.
+/// The fee ceiling bounds what the owner can charge, and every rate write is
+/// subject to it.
 ///
-/// Without it the unshield path underflow-reverts on `outAmt - fee` (DoS) and
-/// the shield path overcharges the payer beyond principal (silent economic
-/// loss). `MAX_FEE_BPS` (20%) bounds both, and every write goes through
-/// `_addAsset` or `setAssetFee` — there is no pool-wide rate to set.
+/// Without it the unshield path can underflow-revert on `outAmt - fee`
+/// (denial of service) and the shield path can overcharge the payer beyond
+/// principal. `MAX_FEE_BPS` (20%) bounds both, and every write goes through
+/// `_addAsset` or `setAssetFee`; there is no pool-wide rate to set.
 contract MASPFeeBoundTest is Test {
     uint16 internal constant BPS = 2_000;
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
@@ -49,8 +51,8 @@ contract MASPFeeBoundTest is Test {
     }
 
     /// Init calldata for a genesis set of one at `fee` on both legs, paired
-    /// with a freshly-deployed implementation. Split out so a test can put
-    /// `vm.expectRevert` immediately before the proxy construction — validation
+    /// with a freshly deployed implementation. Separate so a test can place
+    /// `vm.expectRevert` immediately before the proxy construction: validation
     /// runs in `initialize`, and the implementation's own CREATE would
     /// otherwise consume the expectation.
     function _pendingAssetDeploy(uint16 fee) internal returns (MASP impl, bytes memory initData) {
@@ -105,8 +107,16 @@ contract MASPFeeBoundTest is Test {
 
     // --- the ceiling -------------------------------------------------------
 
+    /// Waits out the notice a withdraw raise gets and commits it. The genesis
+    /// rate here is zero, so any non-zero withdraw rate is a raise.
+    function _commitRaise() internal {
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY);
+        masp.commitExitTerms(ASSET_ID);
+    }
+
     function test_setAssetFee_acceptsAtBound() public {
         masp.setAssetFee(ASSET_ID, BPS, BPS);
+        _commitRaise();
         (uint16 dep, uint16 wit) = masp.assetFees(ASSET_ID);
         assertEq(dep, BPS);
         assertEq(wit, BPS);
@@ -128,6 +138,7 @@ contract MASPFeeBoundTest is Test {
             masp.setAssetFee(ASSET_ID, dep, wit);
         } else {
             masp.setAssetFee(ASSET_ID, dep, wit);
+            if (wit != 0) _commitRaise();
             (uint16 gotDep, uint16 gotWit) = masp.assetFees(ASSET_ID);
             assertEq(gotDep, dep);
             assertEq(gotWit, wit);
@@ -150,8 +161,8 @@ contract MASPFeeBoundTest is Test {
     }
 
     /// With no genesis assets there is nothing to register, so the rate arrays
-    /// are never read and an out-of-range value is inert. Documented rather
-    /// than guarded: nothing can later consult it.
+    /// are never read and an out-of-range value has no effect. It is not
+    /// guarded because nothing later reads it.
     function test_emptyGenesisSetIgnoresTheRates() public {
         MASP m = _deployEmpty(type(uint16).max);
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, ASSET_ID));
@@ -160,9 +171,8 @@ contract MASPFeeBoundTest is Test {
 
     // --- per-leg, per-asset registration -----------------------------------
 
-    /// The shape the fee policy wants, applied at deploy: free to enter,
-    /// charged on exit, and different per asset. This is what the config
-    /// arrays exist to express.
+    /// Asymmetric per-asset rates applied at deploy: free to enter, charged on
+    /// exit, and different per asset, as the config arrays express.
     function test_constructorAppliesAsymmetricPerAssetRates() public {
         MockERC20 second = new MockERC20("N", "N", 18);
 
@@ -204,9 +214,9 @@ contract MASPFeeBoundTest is Test {
         assertEq(w1, 0);
     }
 
-    /// A short rate array would otherwise register the tail at whatever the
-    /// arrays happened to hold, so the length check is load-bearing: a config
-    /// that forgets an asset must fail the deploy, not ship a zero-rate one.
+    /// Without the length check a short rate array would register the tail at
+    /// whatever the arrays held; a config that omits an asset fails the deploy
+    /// instead of shipping a zero-rate one.
     function test_constructorRejectsRateArrayLengthMismatch() public {
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
             singleAsset(IERC20(address(token)), 1, 1);

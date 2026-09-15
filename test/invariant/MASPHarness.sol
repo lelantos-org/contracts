@@ -12,11 +12,11 @@ import { uniformBps } from "../utils/FeeArrays.sol";
 import { deployBehindProxy, poolInitCalldata } from "../utils/PoolDeployer.sol";
 
 /// Test-only subclass exposing internal entrypoints so invariant handlers can
-/// drive state transitions without going through the SNARK pipeline. The full
-/// `transact` flow requires valid Groth16 proofs, which Foundry cannot
+/// drive state transitions without the SNARK pipeline. The `transfer` /
+/// `withdraw` spend paths require valid Groth16 proofs, which Foundry cannot
 /// synthesize; this harness exercises the storage layer in isolation.
-/// The pool is deployable only behind a proxy, so this takes no constructor
-/// arguments; `deployHarness` initializes it behind one.
+/// The pool is deployable only behind a proxy, so the harness takes no
+/// constructor arguments; `deployHarness` initializes it behind one.
 contract MASPHarness is MASP {
     function consumeNullifierExternal(bytes32 nf) external {
         _consumeNullifier(nf);

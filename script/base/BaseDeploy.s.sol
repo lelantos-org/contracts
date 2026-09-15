@@ -33,7 +33,7 @@ abstract contract BaseDeploy is Script {
         /// Per-asset rates, parallel to `ids`. There is no pool-wide fee:
         /// each asset is registered with its own pair and only `setAssetFee`
         /// changes them afterwards. Both are capped at `MAX_FEE_BPS` (20%),
-        /// and a zero is a real rate, not a default.
+        /// and a zero is a zero rate, not a default.
         uint16[] depositBps;
         uint16[] withdrawBps;
         address treasury;
@@ -43,15 +43,14 @@ abstract contract BaseDeploy is Script {
         /// activate an upgrade, or pause. Distinct from `owner`; see
         /// `DelayedUpgradeProxy`.
         address proxyAdmin;
-        /// The exit window. Immutable on the proxy once deployed and cannot be
-        /// shortened afterwards.
+        /// The exit window. Immutable on the proxy once deployed.
         uint256 upgradeDelay;
         /// Ceiling on a single guardian pause.
         uint256 maxPause;
     }
 
     /// The contracts one core deploy produces. A struct rather than a return
-    /// tuple: every member is a plain address at the log boundary, where
+    /// tuple, because at the log boundary every member is a plain address and
     /// positional ordering would not be compiler-checked.
     struct MaspCore {
         TreeUpdateBatchGroth16Verifier tubVerifier;
@@ -94,8 +93,8 @@ abstract contract BaseDeploy is Script {
         core.proxy =
             new DelayedUpgradeProxy(address(core.implementation), initData, p.proxyAdmin, p.upgradeDelay, p.maxPause);
         core.masp = MASP(address(core.proxy));
-        // Native coin never touches the pool: the adapter wraps on the way in
-        // and unwraps on the way out. Skipped when no wrapped-native token is
+        // Native coin never reaches the pool: the adapter wraps on deposit and
+        // unwraps on withdrawal. Skipped when no wrapped-native token is
         // configured for the chain.
         if (p.wrappedNative != address(0)) {
             core.nativeAdapter = new NativeAdapter(

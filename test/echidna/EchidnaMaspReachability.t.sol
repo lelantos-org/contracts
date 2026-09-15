@@ -9,23 +9,19 @@ import { EchidnaMasp } from "./EchidnaMasp.sol";
 
 /// Reachability gate for the Echidna handlers, run by `forge test`.
 ///
-/// Echidna reports a property as passing whether it held across a thousand
-/// real state transitions or across a thousand calls that all reverted on
-/// entry. `MaspFlowInvariantTest.test_handlerReachesEveryPath` exists because
-/// exactly that happened to the Foundry suite: `flushOne` built a one-leaf
-/// batch, `_validateBatchHeader` rejected it, and with reverts tolerated the
-/// call rolled back leaving no trace — so `invariant_rootCoherence` spent its
-/// whole life comparing 0 to 0.
+/// Echidna reports a property as passing whether it held across real state
+/// transitions or across calls that all reverted on entry. A handler whose call
+/// always reverts (for example, a flush with a malformed batch header) leaves
+/// the properties holding vacuously. `MaspFlowInvariantTest.test_handlerReachesEveryPath`
+/// guards the Foundry suite against the same failure.
 ///
-/// The Echidna suite is more exposed to that failure than the Foundry one,
-/// not less: its handlers were rewritten around hevm's cheatcode set, and
-/// `cancelOne` deliberately leaves the `cancelDelay` guard live, so an
-/// unreachable cancel path looks identical to a correctly-guarded one from
-/// the outside. This drives each handler directly and asserts it changed
-/// state, which a fuzzer cannot do for itself.
+/// The Echidna handlers are built around hevm's cheatcode set, and `cancelOne`
+/// leaves the `cancelDelay` guard live, so an unreachable cancel path is
+/// externally indistinguishable from a correctly guarded one. This test drives
+/// each handler directly and asserts it changed state.
 ///
-/// It is not a substitute for the Echidna run — it proves the paths are
-/// reachable, not that the properties hold across sequences.
+/// It proves the paths are reachable, not that the properties hold across
+/// sequences; it does not replace the Echidna run.
 contract EchidnaMaspReachabilityTest is Test {
     EchidnaMasp internal target;
 
@@ -43,15 +39,14 @@ contract EchidnaMaspReachabilityTest is Test {
         // --- flush ---
         target.flushOne(0);
         assertEq(target.flushCount(), 1, "flush path");
-        // Not merely "a flush landed": it must have inserted the principal
-        // *and* the relayer note. A one-leaf flush is the bug this exists for.
+        // The flush must insert both the principal and the relayer note leaf.
         assertEq(target.masp().committedCount(), 2, "flush inserted both leaves");
         assertGt(target.masp().accruedFee(IERC20(address(target.token()))), 0, "flush accrued the fee");
 
         // --- cancel ---
-        // The remaining deposit is still inside its cancel window, so the
-        // guard must reject it. Asserting the rejection pins that `cancelOne`
-        // is gated by real timing rather than by an early return.
+        // The remaining deposit is inside its cancel window, so the guard must
+        // reject it. Asserting the revert shows `cancelOne` is gated by timing
+        // rather than by an early return.
         vm.expectRevert();
         target.cancelOne(0);
         assertEq(target.cancelCount(), 0, "cancel rejected inside the window");
@@ -61,9 +56,9 @@ contract EchidnaMaspReachabilityTest is Test {
         assertEq(target.cancelCount(), 1, "cancel path");
 
         // --- withdraw ---
-        // The flush above left shielded principal behind, which is what bounds
-        // `withdrawOne`. Without it the handler returns early and the five
-        // withdraw properties would hold vacuously.
+        // The flush above left shielded principal, which bounds `withdrawOne`.
+        // Without it the handler returns early and the withdraw properties
+        // hold vacuously.
         target.withdrawOne(50, 0x2000);
         assertEq(target.withdrawCount(), 1, "withdraw path");
         assertGt(target.token().balanceOf(address(0xbe11e)), 0, "recipient credited");
@@ -71,9 +66,8 @@ contract EchidnaMaspReachabilityTest is Test {
         assertTrue(target.echidna_withdrawFeeSplitExact(), "fee split exact");
         assertTrue(target.echidna_spentNullifiersStaySpent(), "nullifiers stay spent");
 
-        // Both negative withdraw handlers must reach their call and be
-        // rejected by it. An attempt counter that stays at zero means the
-        // guard was never put to the question.
+        // Both negative withdraw handlers must reach the pool and be rejected.
+        // An attempt counter at zero means the guard was never exercised.
         target.withdrawReplay(0, 50, 0x3000);
         assertEq(target.nullifierReuseAttempts(), 1, "replay reached the pool");
         assertTrue(target.echidna_noNullifierReuse(), "double spend rejected");
@@ -84,13 +78,11 @@ contract EchidnaMaspReachabilityTest is Test {
 
         // --- root ring size ---
         // `EchidnaMasp.ROOT_HISTORY` mirrors an `internal constant` that
-        // cannot be read across the contract boundary. Pin the two: the last
-        // in-range slot must read, and one past it must not. Without this a
-        // change to the ring size would leave the eviction properties quietly
-        // inspecting the wrong slot and passing.
-        // `masp` is hoisted because `vm.expectRevert` arms the *next* call,
-        // and `target.masp()` is itself one — leaving it inline would arm the
-        // getter, which does not revert.
+        // cannot be read across the contract boundary. The last in-range slot
+        // must read and one past it must not, so a ring-size change fails here
+        // instead of leaving the eviction properties on the wrong slot.
+        // `masp` is hoisted because `vm.expectRevert` applies to the next call,
+        // and `target.masp()` is itself a call that does not revert.
         MASP pool = target.masp();
         pool.roots(63);
         vm.expectRevert();
@@ -100,9 +92,7 @@ contract EchidnaMaspReachabilityTest is Test {
         target.sweep();
         assertEq(target.masp().accruedFee(IERC20(address(target.token()))), 0, "sweep path");
 
-        // Every property must still hold after a full lap of the state
-        // machine — otherwise the Echidna run would be reporting on a
-        // handler set that cannot even complete one.
+        // Every property must hold after a full lap of the state machine.
         assertTrue(target.echidna_solvency(), "solvency");
         assertTrue(target.echidna_feeAccrualAccounted(), "fee accrual accounted");
         assertTrue(target.echidna_rootCoherence(), "root coherence");
@@ -111,9 +101,8 @@ contract EchidnaMaspReachabilityTest is Test {
         assertTrue(target.echidna_treasuryConservation(), "treasury conservation");
     }
 
-    /// The shielded-transfer path, and the property that makes it worth
-    /// having: a transfer consumes notes and advances the tree while moving no
-    /// tokens at all.
+    /// The shielded-transfer path: a transfer consumes notes and advances the
+    /// tree while moving no tokens.
     function test_transferReachesAndMovesNoTokens() public {
         target.submit(100, 7);
         target.flushOne(0);
@@ -130,16 +119,16 @@ contract EchidnaMaspReachabilityTest is Test {
         assertTrue(target.echidna_solvency(), "solvency across a transfer");
     }
 
-    /// Multi-deposit batches, both the honest one and the one that names the
-    /// same deposit twice. `flushOne` only ever builds a one-deposit batch, so
-    /// without this the loop in `flushBatch` runs at n = 1 and nowhere else.
+    /// Multi-deposit batches: the honest one and the one naming the same
+    /// deposit twice. Covers the `flushBatch` loop at n > 1, which `flushOne`
+    /// does not reach.
     function test_batchFlushPathsReach() public {
         target.submit(100, 7);
         target.submit(200, 9);
         target.submit(300, 11);
 
-        // The duplicate must be rejected while a deposit is still pending;
-        // run it first so a successful `flushMany` cannot be what rejects it.
+        // Runs before `flushMany` so the duplicate is rejected while its
+        // deposit is still pending, not because it was already flushed.
         target.flushDuplicateId(0);
         assertEq(target.duplicateIdAttempts(), 1, "duplicate-id attempt reached the pool");
         assertTrue(target.echidna_noDuplicateIdInBatch(), "duplicate id rejected");
@@ -152,15 +141,15 @@ contract EchidnaMaspReachabilityTest is Test {
         assertTrue(target.echidna_lifecycleExclusivity(), "lifecycle after a batch flush");
     }
 
-    /// Root-ring eviction. Transfers are used to advance the root because they
-    /// need no funds and no pending deposit, so wrapping the ring costs one
-    /// call per root instead of a deposit and a flush.
+    /// Root-ring eviction. Transfers advance the root because they need no
+    /// funds and no pending deposit, so wrapping the ring takes one call per
+    /// root.
     function test_rootRingEvictionReaches() public {
         target.submit(100, 7);
         target.flushOne(0);
 
-        // One past ROOT_HISTORY, so the buffer has wrapped and the oldest
-        // entry has been displaced.
+        // ROOT_HISTORY + 1 advances, so the buffer wraps and displaces the
+        // oldest entries.
         for (uint256 i = 0; i < 65; i++) {
             target.transferShielded(0xa000 + i);
         }
@@ -173,17 +162,15 @@ contract EchidnaMaspReachabilityTest is Test {
         assertTrue(target.echidna_evictedRootRejected(), "evicted root rejected");
     }
 
-    /// The guardian pause, and the asymmetry that is the point of it: spends
-    /// and deposits stop, refunds do not.
+    /// The guardian pause: spends and deposits stop, refunds do not.
     function test_pausePathsReach() public {
         target.submit(100, 7);
         target.submit(200, 9);
         target.submit(300, 11);
         target.flushOne(0);
 
-        // Two must remain pending: `pauseSpends` refuses to trip over an
-        // escrow too small to outlast its own window, since `cancelDeposit`
-        // keeps draining it while `submit` is frozen.
+        // Two deposits remain pending, as `pauseSpends` requires; the roll puts
+        // them past their cancel delay.
         vm.roll(block.number + target.masp().cancelDelay());
 
         target.pauseSpends(600);
@@ -197,7 +184,7 @@ contract EchidnaMaspReachabilityTest is Test {
         assertEq(target.pausedSpendAttempts(), 1, "paused-spend attempt ran");
         assertTrue(target.echidna_pauseBlocksSpends(), "pause blocks spends");
 
-        // The one that matters: escrowed funds stay recoverable under a pause.
+        // Escrowed funds stay recoverable under a pause.
         target.pausedCancelHonoured(0);
         assertEq(target.pausedCancelAttempts(), 1, "paused-cancel attempt ran");
         assertEq(target.cancelCount(), 1, "cancel landed while paused");

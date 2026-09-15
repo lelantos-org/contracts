@@ -15,19 +15,17 @@ import { PoolFixture } from "./PoolFixture.sol";
 
 /// Symbolic proofs for what a guardian pause does and does not stop.
 ///
-/// The pause exists so a guardian can halt proof-dependent entry points while
-/// an upgrade is scrutinised. Its safety depends on an asymmetry stated in
-/// `MASP`: spends halt, but `cancelDeposit` and `sweep` stay open, because
-/// neither verifies a proof and escrowed funds must stay recoverable. A pause
-/// that also froze cancellation would trap depositors' funds for its whole
-/// duration — the guardian could not steal them, but could hold them.
+/// A guardian pause halts the entry points that verify a proof or accept new
+/// funds while an upgrade is reviewed. `MASP` keeps `cancelDeposit` and `sweep`
+/// open, because neither verifies a proof and escrowed funds must stay
+/// recoverable; a pause that froze cancellation would let the guardian hold
+/// depositors' funds for its full duration.
 ///
-/// Proved over every pause duration and every timestamp, which is what the
-/// asymmetry needs: it is a statement about a window, and a scenario test can
-/// only visit points inside one.
+/// Proved over every permitted pause duration and every timestamp, since the
+/// property concerns a whole time window rather than individual points in it.
 ///
-/// The pool and its mocks come from `PoolFixture`; `setUp` is extended only to
-/// fix a start time, since every proof here reasons about timestamps.
+/// The pool and its mocks come from `PoolFixture`; `setUp` additionally fixes a
+/// start time because every proof here reasons about timestamps.
 contract MASPPauseSymbolicTest is PoolFixture {
     uint256 internal constant T0 = 1_000_000;
     uint256 internal constant MAX_PAUSE = 7 days;
@@ -56,7 +54,7 @@ contract MASPPauseSymbolicTest is PoolFixture {
         pi.relayer = address(this);
         pi.chainId = block.chainid;
         SpendFixture.fillOutputs(pi, 0x100, 0x200);
-        PubInputs.TreeUpdateBatch memory tpi = SpendFixture.batchFor(pi, EMPTY_ROOT, bytes32(uint256(0xbeef)), 0);
+        PubInputs.SpendTree memory tpi = SpendFixture.spendTree(bytes32(uint256(0xbeef)), 0);
 
         MASP.Proof memory p;
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
@@ -65,12 +63,11 @@ contract MASPPauseSymbolicTest is PoolFixture {
 
     // --- what a pause stops -------------------------------------------------
 
-    /// Every proof-dependent entry point is halted for exactly the pause window
-    /// and no longer, at every timestamp and for every permitted duration.
+    /// Deposits and spends are halted for exactly the pause window and no longer,
+    /// at every timestamp and for every permitted duration.
     ///
-    /// The upper half matters as much as the lower: a pause that outlived its
-    /// own duration would be an indefinite halt by another name, and the
-    /// guardian is bounded to a single one.
+    /// The upper bound is part of the property: the guardian is limited to a
+    /// single pause, and a pause outliving its duration would be an unbounded halt.
     function check_pause_haltsSpendsForExactlyItsWindow(uint40 duration, uint40 t) public {
         vm.assume(duration > 0 && uint256(duration) <= MAX_PAUSE);
         _pause(duration);
@@ -87,8 +84,8 @@ contract MASPPauseSymbolicTest is PoolFixture {
             _assertRejected(transferred, transferRet, MASP.SpendsPaused.selector, "spend halted");
         } else {
             assertTrue(deposited, "deposit resumes when the window closes");
-            // The spend still fails its own validation — this fixture carries no
-            // real proof — but no longer on the pause.
+            // The spend still fails validation (the fixture carries no real
+            // proof), but not with `SpendsPaused`.
             assertTrue(bytes4(transferRet) != MASP.SpendsPaused.selector, "spend no longer halted");
         }
     }
@@ -98,9 +95,9 @@ contract MASPPauseSymbolicTest is PoolFixture {
     /// An escrowed deposit stays cancellable throughout a pause, for every
     /// duration and every point inside the window.
     ///
-    /// This is the recoverability guarantee. `cancelDeposit` verifies no proof,
-    /// so there is nothing for a pause to protect by halting it, and halting it
-    /// would let a guardian hold depositors' funds for the pause's full length.
+    /// Recoverability guarantee: `cancelDeposit` verifies no proof, so halting it
+    /// protects nothing and would let a guardian hold depositors' funds for the
+    /// pause's full length.
     function check_pause_leavesEscrowRecoverable(bytes32 cm, uint40 duration, uint40 t) public {
         uint256 id = _submit(cm);
 
@@ -116,8 +113,8 @@ contract MASPPauseSymbolicTest is PoolFixture {
         assertEq(masp.escrowed(id), bytes32(0), "escrow settled");
     }
 
-    /// Sweeping accrued fees to the treasury stays open too, for the same
-    /// reason: it verifies nothing and moves only what has already accrued.
+    /// Sweeping accrued fees to the treasury stays open during a pause: it
+    /// verifies no proof and moves only fees already accrued.
     function check_pause_leavesSweepOpen(uint40 duration, uint40 t) public {
         vm.assume(duration > 0 && uint256(duration) <= MAX_PAUSE);
         _pause(duration);

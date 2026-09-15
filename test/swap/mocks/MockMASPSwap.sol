@@ -46,6 +46,12 @@ contract MockMASPSwap is IMASPPool {
     /// MASP's `escrowed` sentinel.
     mapping(uint256 id => uint256 total) public escrowTotal;
     mapping(uint256 id => address token) public escrowToken;
+    mapping(uint256 id => uint64 assetId) public escrowAsset;
+
+    function asset(uint64 id) external view returns (AssetEntry memory a) {
+        a.token = assetToken[id];
+        a.scale = assetScale[id];
+    }
 
     event MockWithdraw(address indexed recipient, address token, uint256 amount);
     event MockDeposit(uint256 indexed id, address indexed payer, address token, uint256 pulled);
@@ -71,7 +77,7 @@ contract MockMASPSwap is IMASPPool {
         Proof calldata,
         PubInputs.Transact calldata pi,
         Proof calldata,
-        PubInputs.TreeUpdateBatch calldata,
+        PubInputs.SpendTree calldata,
         AuxValidation.Output[6] calldata
     ) external {
         address token = assetToken[pi.publicAssetId];
@@ -103,6 +109,7 @@ contract MockMASPSwap is IMASPPool {
         id = nextDepositId++;
         escrowTotal[id] = total;
         escrowToken[id] = token;
+        escrowAsset[id] = d.publicAssetId;
         emit MockDeposit(id, d.payer, token, total);
     }
 
@@ -111,19 +118,27 @@ contract MockMASPSwap is IMASPPool {
         delete escrowTotal[id];
     }
 
-    /// Refund this much less than escrowed on the next cancel, to exercise the
-    /// wrapper's delta check against a misbehaving pool.
+    /// Refund this much less than escrowed on the next cancel. By default the
+    /// cancel still reports the full escrowed total, exercising the wrapper's
+    /// check against a pool that delivers less than it claims to pay.
     uint256 public refundShortfall;
+    /// When set, the cancel reports the short amount it actually delivers, as
+    /// MASP does for a yield refund below the pull.
+    bool public reportShortfall;
 
     function setRefundShortfall(uint256 v) external {
         refundShortfall = v;
+    }
+
+    function setReportShortfall(bool v) external {
+        reportShortfall = v;
     }
 
     function escrowed(uint256 id) external view returns (bytes32) {
         return escrowTotal[id] == 0 ? bytes32(0) : bytes32(id + 1);
     }
 
-    /// Refunds the escrowed total to `payer`, as MASP does. The digest and
+    /// Refunds the escrowed total to `payer` and returns it, as MASP does. The digest and
     /// delay checks are the pool's business, not the wrapper's, so the stub
     /// skips them.
     function cancelDeposit(
@@ -131,16 +146,21 @@ contract MockMASPSwap is IMASPPool {
         uint48,
         bytes32,
         uint256[2] calldata,
-        uint64,
+        uint64 publicAssetId,
         uint16,
         address payer,
         uint32,
         PubInputs.FeeNote calldata
-    ) external {
+    ) external returns (uint256 reported, uint256 feeRefunded) {
         uint256 total = escrowTotal[id];
         require(total != 0, "MockMASPSwap: not pending");
         require(msg.sender == payer, "MockMASPSwap: sender != payer");
+        // MASP binds the asset through the escrow digest.
+        require(publicAssetId == escrowAsset[id], "MockMASPSwap: digest mismatch");
         delete escrowTotal[id];
         IERC20(escrowToken[id]).transfer(payer, total - refundShortfall);
+        reported = reportShortfall ? total - refundShortfall : total;
+        // The wrapper escrows only single-token deposits, so no second refund.
+        feeRefunded = 0;
     }
 }

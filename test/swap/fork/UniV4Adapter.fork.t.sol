@@ -7,7 +7,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { UniV4Adapter } from "../../../src/swap/UniV4Adapter.sol";
 
 /// Deployed V4Quoter lens. Reverts internally and catches, so it must be
-/// called as `eth_call` — which is what a non-state-changing forge test does.
+/// called via `eth_call`, as a non-state-changing forge test does.
 interface IV4Quoter {
     struct PoolKey {
         address currency0;
@@ -29,13 +29,12 @@ interface IV4Quoter {
         returns (uint256 amountOut, uint256 gasEstimate);
 }
 
-/// Fork test against the **real** Base UniversalRouter.
+/// Fork test against the deployed Base UniversalRouter.
 ///
-/// This is the only check that the adapter's hand-transcribed command, action
-/// and `ExactInputSingleParams` encoding actually matches what the deployed
-/// router decodes. `test/swap/UniV4Adapter.t.sol` runs against a mock that
-/// asserts the same layout this adapter writes, so the two would agree even if
-/// both were wrong; only a real router can settle it.
+/// The only check that the adapter's manually encoded command, action and
+/// `ExactInputSingleParams` layout matches what the deployed router decodes.
+/// `test/swap/UniV4Adapter.t.sol` runs against a mock that asserts the same
+/// layout the adapter writes, so the two agree even if both are wrong.
 ///
 /// Skipped unless `FORK_TESTS=1` and `BASE_RPC_URL` are set.
 contract UniV4AdapterForkTest is Test {

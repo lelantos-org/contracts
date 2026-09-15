@@ -23,8 +23,8 @@ address constant TEST_PROXY_ADMIN = address(0x9403);
 uint256 constant TEST_UPGRADE_DELAY = 30 days;
 uint256 constant TEST_MAX_PAUSE = 7 days;
 
-/// The bare logic contract. Deployed separately by tests asserting that
-/// initialization rejects bad parameters, so its `CREATE` does not consume
+/// Deploys the bare logic contract. Tests asserting that initialization rejects
+/// bad parameters deploy it separately, so its `CREATE` does not consume
 /// `vm.expectRevert` before the proxy construction that runs `initialize`.
 function newPoolImplementation() returns (MASP) {
     return new MASP();
@@ -99,20 +99,19 @@ function deployPool(
 // ---------------------------------------------------------------------------
 // Verifier stacks
 //
-// Five groups of suites were each rebuilding one of these two wirings verbatim
-// in their own `setUp`. Kept as free functions returning the pieces, rather
-// than as a base contract, so a suite still states which pool it deploys and
-// with what registry — that choice is usually part of what it is testing.
+// Shared verifier wirings for suite `setUp`s. Free functions returning the
+// pieces, rather than a base contract, so a suite still states which pool it
+// deploys and with which registry, which is usually part of what it tests.
 // ---------------------------------------------------------------------------
 
 /// Verifiers that accept nothing, for suites whose subject is reached before
-/// any proof is checked — guard ordering, request validation, bookkeeping.
+/// any proof is checked: guard ordering, request validation, bookkeeping.
 ///
-/// The two `IVerifier` slots only have to carry code: `MASP.initialize` rejects
-/// a codeless verifier, and a `MockERC20` is a convenient contract that is
-/// certainly not one. `MockBatchVerifier` answers `false` until told otherwise,
-/// so a test that accidentally reaches proof verification fails rather than
-/// passing on an unchecked proof.
+/// The tree-update `IVerifier` slot only has to carry code, since
+/// `MASP.initialize` rejects a codeless verifier; a `MockERC20` serves as a
+/// contract that is not a verifier. `MockBatchVerifier` answers `false` until
+/// set otherwise, so a test that reaches proof verification unintentionally
+/// fails rather than passing on an unchecked proof.
 /// `bv` is returned concretely rather than as `IBatchVerifier`: suites that
 /// reach proof verification need `setResult` to say what the verifier answers,
 /// and the concrete type still passes wherever the interface is expected.
@@ -130,7 +129,7 @@ function realVerifierStack() returns (IVerifier tub, IBatchVerifier bv, ISignatu
     permit2 = ISignatureTransfer(new DeployPermit2().deployPermit2());
 }
 
-/// The single-asset registry arrays every one-token suite was building by hand.
+/// Single-asset registry arrays for one-token suites.
 function singleAsset(IERC20 token, uint64 id, uint256 scale)
     pure
     returns (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales)
@@ -144,15 +143,14 @@ function singleAsset(IERC20 token, uint64 id, uint256 scale)
 }
 
 /// The empty registry, for suites that register their assets later or not at
-/// all. Spelled out because `new uint64[](0)` three times reads as an accident.
+/// all. Named so an intentionally empty registry is explicit at the call site.
 function noAssets() pure returns (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) {
     ids = new uint64[](0);
     tokens = new IERC20[](0);
     scales = new uint256[](0);
 }
 
-/// A two-asset registry at a shared scale. Second only to `singleAsset` in how
-/// often it was spelled out by hand.
+/// A two-asset registry at a shared scale.
 function twoAssets(IERC20 tokenA, uint64 idA, IERC20 tokenB, uint64 idB, uint256 scale)
     pure
     returns (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales)
@@ -168,9 +166,9 @@ function twoAssets(IERC20 tokenA, uint64 idA, IERC20 tokenB, uint64 idB, uint256
     scales[1] = scale;
 }
 
-/// `deployPool` with one fee rate applied to both legs of every asset, which
-/// is what all but a handful of suites want. Those that set the legs apart —
-/// or vary the rate per asset — still call `deployPool` with arrays they built.
+/// `deployPool` with one fee rate applied to both legs of every asset. Suites
+/// that need distinct legs or per-asset rates call `deployPool` with their own
+/// arrays.
 function deployPoolUniform(
     IVerifier treeUpdateBatchVerifier_,
     IBatchVerifier spendVerifier_,

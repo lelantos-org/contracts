@@ -33,7 +33,8 @@ reasoning does not — a proof that merely re-samples what
 | Registration accepted for exactly the valid inputs | `AssetRegistry.addAsset` | any id, token, scale, both rates | Both directions of the guard, so an over-strict one is caught too | none | none | 0.06s |
 | A registered id's token and scale never change | `AssetRegistry` | any id, any owner calldata (`svm.createCalldata`) | The escrow digest and every conversion are computed against these | call succeeded | none | 0.24s |
 | A fee or disabled change touches only the named id | `AssetRegistry` | any two distinct ids | Mapping-key isolation; there is no pool-wide rate by design | `id != other` | none | 0.22s |
-| Withdraw rate cannot rise while an upgrade is queued | `AssetRegistry.setAssetFee` | any start and target rate | Otherwise an exit fee could be raised against holders leaving during the delay | rates within the 20% cap | none | 0.05s |
+| Withdraw-rate raise never takes effect in the call that sets it; a decrease always does | `AssetRegistry.setAssetFee` | any start, target and deposit rate | The withdraw rate is read live, so an immediate raise would reach holders leaving ahead of an upgrade; a raise is queued behind `ExitTerms.DELAY` | rates within the 20% cap | none | 0.05s |
+| A decrease drops a queued withdraw raise | `AssetRegistry.setAssetFee` | any start, queued and lowered rate | A withdrawn raise must not land later | rates within the 20% cap | none | 0.05s |
 | No preimage but the submitted one cancels an escrow | `MASP.cancelDeposit` | all 13 digest fields symbolic | The entire pending record is one hash; keccak injectivity makes the universal statement affordable | mismatching preimages only | Permit2, both verifiers | 3.27s |
 | An escrow is consumed once | `MASP.cancelDeposit` | any submitted `cm` | Also the non-vacuity anchor for the proof above | none | Permit2, both verifiers | 0.09s |
 | Cancel delay holds at every block height | `MASP.cancelDeposit` | any height at or after submission | Measured from the digest-bound `submittedAt` | `height >= submittedAt` | Permit2, both verifiers | 0.07s |
@@ -57,6 +58,7 @@ reasoning does not — a proof that merely re-samples what
 | A bound venue never changes | `MASP.addYieldAsset` + owner config | any id, any replacement venue | Yield is opt-in per asset id; the choice only binds if the venue cannot be re-pointed underneath the holder | `id` unregistered | venue and vault | 0.30s |
 | A plain asset cannot gain a venue later | `MASP.addYieldAsset` | — | Opting *out* must be as durable as opting in | none | venue and vault | 0.01s |
 | Venue must be pinned to this pool and hold this asset | `YieldOps.initAsset` | any foreign pool, any vault asset | The binding is permanent, so a mis-binding is unrecoverable for that id | differs from expected | venue and vault | 0.06s |
+| A venue backs at most one id | `YieldOps.initAsset` | any two distinct ids | Two ids on one venue would both count its position in `gross`, so a deposit into one would move the other's index | ids distinct, neither the plain id | venue and vault | 0.42s |
 | Yield registration and configuration are owner-only | `MASP` / `YieldIndex` | any caller | `addYieldAsset` binds custody permanently — the most consequential call on the pool | `caller != owner` | venue and vault | 0.08s |
 | Aux payload accepted exactly when well formed | `AuxValidation.validate` | ciphertext lengths 0,1,2,3,255,256,257 | Lengths chosen either side of both bounds; halmos's default `0,65,1024` lands on neither edge | points held concrete | — | 0.04s |
 | Clue-bits prefix confined to 14 bits | `AuxValidation.validate` | any 2-byte prefix | Bits outside the mask would smuggle a distinguisher into an opaque payload | prefix dirty | points held concrete | 0.00s |
@@ -64,6 +66,8 @@ reasoning does not — a proof that merely re-samples what
 | A queued upgrade does not change the served implementation | `DelayedUpgradeProxy` | every timestamp inside the window | Holders exiting during the window transact against the code they entered under | inside window | as above | 0.13s |
 | The queued payload cannot be swapped, nor queued codeless | `DelayedUpgradeProxy.queueUpgrade` | any implementation address | The window cannot be restarted with different code midway | — | as above | 0.02s |
 | A pause defers activation by its own duration | `DelayedUpgradeProxy.pauseSpends` | every permitted duration | Makes the window measure *unpaused* time; otherwise a pause could run it out | within `MAX_PAUSE` | as above | 0.02s |
+| An upgrade queued during a pause defers activation by the pause still to run | `DelayedUpgradeProxy.queueUpgrade` | every permitted duration, every queue time | The other ordering: a pause issued before the queue, or across a cancel and re-queue, must not run inside the new window | within `MAX_PAUSE`; `activationAt` fits `uint40` | as above | 0.17s |
+| Construction accepts exactly a pause ceiling shorter than the window | `DelayedUpgradeProxy` constructor | any non-zero delay, any ceiling | A single pause as long as the window could hold exits shut for all of it | `upgradeDelay > 0` | as above | 0.02s |
 | Pause accepted for exactly its permitted durations, one-shot until reset | `DelayedUpgradeProxy` | any duration | Bounds how long a guardian can hold spends closed | — | as above | 0.03s |
 | Activation is permissionless | `DelayedUpgradeProxy.activateUpgrade` | any caller | Closing the window needs no privileged keeper | — | as above | 0.01s |
 | Cancel withdraws and never promotes | `DelayedUpgradeProxy.cancelUpgrade` | every later timestamp | A cancelled upgrade cannot be resurrected by waiting | — | as above | 0.01s |
@@ -75,20 +79,23 @@ reasoning does not — a proof that merely re-samples what
 | Only wrapped-native may push raw coin, and refused coin is not retained | `NativeAdapter.receive` | any sender and amount | Refund accounting is measured in wrapped deltas; unattributed coin is refused | `sender != WETH` | Permit2, both verifiers | 0.05s |
 | Ownership can never be dropped | `OwnableInit` via `FeeConfig` | any owner calldata | An unowned pool cannot register assets, retune fees, or be handed to governance | call succeeded | `MockERC20` | 0.06s |
 | Spent is permanent | `NullifierSet` | any two distinct nullifiers | The property a double-spend defence rests on | `a != b` | none | 0.07s |
-| Cancel delay accepted for exactly its range, owner-only | `MASP.setCancelDelay` | any delay, any caller | Decides how long escrowed funds are locked; bounded on both sides | — | Permit2, both verifiers | 0.09s |
+| Cancel delay accepted for exactly its range, owner-only; only a shortening applies at once | `MASP.setCancelDelay` | any delay, any caller | Decides how long escrowed funds are locked; bounded on both sides, and a lengthening is queued | — | Permit2, both verifiers | 0.05s |
 | No `execute` moves the pool's or wrapper's owner | `ProtocolAdmin.execute` | any calldata (`svm.createBytes`), both targets | The contract's whole reason to exist rests on a four-byte comparison against a 2^32 space; a fuzzer drawing `bytes` never hits either value | call succeeded | pool and wrapper | 0.06s each |
 | Both `Ownable` selectors refused, whatever follows them | `ProtocolAdmin.execute` | any trailing 32 bytes | Pins the revert reason, so a guard firing for an unrelated cause is caught | none | as above | 0.01s |
+| No `execute` moves the pool's proxy admin | `ProtocolAdmin.execute` | any calldata | Moving that seat alone would leave the pool upgradeable by someone other than its owner | call succeeded | pool with a proxy-admin seat | 0.07s |
+| `changeProxyAdmin` refused, whatever follows it | `ProtocolAdmin.execute` | any trailing 32 bytes | Pins the revert reason for the row above | none | as above | 0.00s |
 | An ordinary governance call is forwarded | `ProtocolAdmin.execute` | any argument | Non-vacuity anchor for the two rows above | none | as above | 0.01s |
 | Every self-call is refused | `ProtocolAdmin.execute` | any calldata | Reaching `grantRole` with `msg.sender == address(this)` would mint a guardian or revoke governance | none | as above | 0.00s |
 | `execute` and `migrateAdmin` reject every non-admin | `ProtocolAdmin` | any caller, any target, any calldata | The guardian holds a role here, so "not governance" is the property | `caller != gov` | as above | 0.01s |
 | Each guardian switch drives one way only | `ProtocolAdmin` | any asset id, any adapter | A compromised guardian key must cost availability, never custody | none | as above | 0.02s |
-| Guardian entry points reject every non-guardian | `ProtocolAdmin` | any caller, any id, any adapter | — | caller lacks the role | as above | 0.02s |
+| Guardian entry points reject every non-guardian | `ProtocolAdmin` | any caller, any id, any adapter, any pause duration | — | caller lacks the role | as above | 0.03s |
+| The guardian's pause reaches the proxy unchanged | `ProtocolAdmin.pauseSpends` | any duration | The ceiling and one-shot latch live on the proxy, proved in its own suite | none | as above | 0.01s |
 | The guardian cannot reach governance's surface | `ProtocolAdmin` | any calldata, any successor | The role split stated from the other side | none | as above | 0.01s |
 | `migrateAdmin` moves both owners together | `ProtocolAdmin.migrateAdmin` | — | A pool and wrapper under different owners cannot be driven by either; the targets are immutable | none | as above | 0.02s |
+| `migrateAdmin` moves the proxy admin with ownership, and refuses while it is held elsewhere | `ProtocolAdmin.migrateAdmin` | any other holder | Upgrade authority cannot stay behind with a retired governance while the successor owns the pool | holder is neither this contract nor zero | as above | 0.05s total |
 | Migration rejects mismatched targets, an ungoverned successor, and every codeless one | `ProtocolAdmin.migrateAdmin` | any claimed pool and wrapper, any address | Stops the accident; a hostile successor is bounded by the timelock delay instead | one field wrong per proof | as above | 0.04s total |
-| Every underfunded refund is rejected | `MaspEscrowSatellite._cancelAndVerify` | any recorded amount x any delivered amount | Clearing a record destroys the only evidence of what the funder is owed; the boundary is four points a sampler has no reason to draw | none | pool and token | 0.15s |
-| Every funded refund is accepted and the delivered amount forwarded | as above | any recorded x any delivered above it | On a yield asset the refund exceeds the pull by what the escrow earned, so an exact-match check would revert every cancel | `delivered >= amount` | as above | 0.04s |
-| A refund too wide for the record is rejected, not truncated | as above | every value above `type(uint96).max` | Truncation would pay a fraction and strand the rest | non-overflowing | as above | 0.06s |
+| Every misreported refund is rejected | `MaspEscrowSatellite._cancelAndVerify` | any recorded x any delivered x any reported amount | Clearing a record destroys the only evidence of what the funder is owed; a short or long delivery is one wei off a symbolic report, a point a sampler has no reason to draw | `delivered != reported`, non-overflowing | pool and token | not yet measured |
+| Every exact refund is accepted and the delivered amount forwarded | as above | any recorded x any delivered | A yield refund is capped at the pull and floored at the index, so it can fall below the record; a floor at the record would leave that escrow unrefundable | non-overflowing | as above | not yet measured |
 | A cancel cannot be replayed | as above | any recorded amount | The record is the authorization | none | as above | 0.03s |
 | An unknown id and a settled deposit are both refused | as above | any id, any refund | A refused cancel must also leave the record intact | none | as above | 0.01s each |
 | The measured pull is bounded on both sides, and exact in between | `MaspEscrowSatellite._escrowMeasured` | any pull, floor and ceiling | `d` is unauthenticated and the Permit2 grant covers the satellite's whole balance, so an oversized `publicIn` would escrow other parties' funds | none | as above | 0.21s |
@@ -201,7 +208,7 @@ arithmetic. All stay with the fuzz suite, which is the right tool for them.
   of the ceiling-division characterization that *is* proved.
 - All of `PubInputs`: Fiat-Shamir compression, field cleaning, transcript
   binding, polynomial evaluation. Assembly, keccak and `mulmod` folding over
-  50-69 words; already covered by a differential fuzz test against a reference.
+  51-70 words; already covered by a differential fuzz test against a reference.
 - Curve checks in `AuxValidation` — on-curve, low-order, valid-point acceptance.
   `BabyJubJub` is `mulmod` over a 254-bit prime.
 - Any *successful* spend or flush: both run `compress` on the way through.
@@ -336,9 +343,11 @@ properties are about what the pool does:
 
 - `ProtocolAdmin` drives two `MockAdminTarget`s. Ownership on them is real
   `Ownable`, since the property under proof is that `execute` cannot move it,
-  and a stubbed owner would prove nothing about the selector guard.
+  and a stubbed owner would prove nothing about the selector guard. They also
+  carry the proxy's admin seat (`proxyAdmin`, `changeProxyAdmin`, `pauseSpends`),
+  gated separately from ownership as on `DelayedUpgradeProxy`.
 - `MaspEscrowSatellite` drives `MockEscrowPool` over `MockEscrowToken`, whose
-  pull and refund amounts are both settable so the proofs can quantify over
+  pull, delivered refund and reported refund are all settable so the proofs can quantify over
   every amount the pool might move. The satellite is abstract and both functions
   under proof are internal, so `SatelliteHarness` in that file supplies the
   external wrappers.

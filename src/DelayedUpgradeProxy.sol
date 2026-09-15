@@ -4,6 +4,7 @@ pragma solidity 0.8.36;
 import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import { ERC1967Utils } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
+import { ExitTerms } from "./libs/ExitTerms.sol";
 import { UpgradeStorage } from "./UpgradeStorage.sol";
 
 /// ERC-1967 proxy whose upgrades do not take effect immediately.
@@ -16,8 +17,10 @@ import { UpgradeStorage } from "./UpgradeStorage.sol";
 ///
 /// 1. `UPGRADE_DELAY` is `immutable` and has no setter, so the window cannot be
 ///    shortened.
-/// 2. A pause extends the window by its own duration, so paused time does not
-///    consume it.
+/// 2. Paused time does not consume the window, whichever comes first: a pause
+///    extends a pending window by its own duration, and an upgrade queued while
+///    spends are paused starts its window when the pause ends. `MAX_PAUSE` is
+///    shorter than `UPGRADE_DELAY`.
 /// 3. `activateUpgrade` is permissionless, so activation requires no keeper.
 ///    While it goes uncalled the current implementation continues to serve.
 /// 4. `cancelUpgrade` only withdraws a queued upgrade.
@@ -53,14 +56,16 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
     error GuardianPauseAlreadyUsed();
     error ZeroDelay();
     error ZeroAdmin();
+    error PauseNotShorterThanDelay();
+    error DelayExceedsExitTermsNotice();
 
     modifier onlyAdmin() {
         _requireAdmin();
         _;
     }
 
-    /// Held outside the modifier: the check guards five entry points, and
-    /// inlining it at each costs bytecode.
+    /// Factored out of the modifier so its body is not inlined into each of the
+    /// five guarded entry points.
     function _requireAdmin() private view {
         if (msg.sender != ERC1967Utils.getAdmin()) revert NotProxyAdmin();
     }
@@ -74,6 +79,15 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
     ) ERC1967Proxy(implementation_, initData) {
         if (upgradeDelay_ == 0) revert ZeroDelay();
         if (admin_ == address(0)) revert ZeroAdmin();
+        // The pool delays exit-term raises by `ExitTerms.DELAY`. A longer window
+        // would let one proposal raise a term and queue an upgrade, and the raise
+        // would land while holders are still leaving ahead of the upgrade.
+        if (upgradeDelay_ > ExitTerms.DELAY) revert DelayExceedsExitTermsNotice();
+        // A pause at least as long as the window could hold spends shut for all
+        // of it; property (2) keeps paused time out of the window, but a bound
+        // this loose would still let a single pause stall exits for as long as
+        // the window itself.
+        if (maxPause_ >= upgradeDelay_) revert PauseNotShorterThanDelay();
         UPGRADE_DELAY = upgradeDelay_;
         MAX_PAUSE = maxPause_;
         ERC1967Utils.changeAdmin(admin_);
@@ -86,12 +100,19 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
     ///
     /// One upgrade may be pending at a time, so the queued payload cannot be
     /// replaced without restarting the window. Cancel first.
+    ///
+    /// The window starts when spends reopen. `pauseSpends` extends only a window
+    /// that already exists, so without this a pause issued before the queue, or
+    /// running across a cancel and re-queue, would spend its paused time inside
+    /// the new window and shorten the holders' exit.
     function queueUpgrade(address newImplementation) external onlyAdmin {
         if (newImplementation.code.length == 0) revert ImplementationHasNoCode();
         UpgradeStorage.Layout storage l = UpgradeStorage.$();
         if (l.pendingImplementation != address(0)) revert UpgradePending();
 
-        uint256 activationAt = block.timestamp + UPGRADE_DELAY;
+        uint256 pausedUntil = l.pausedUntil;
+        uint256 start = pausedUntil > block.timestamp ? pausedUntil : block.timestamp;
+        uint256 activationAt = start + UPGRADE_DELAY;
         l.pendingImplementation = newImplementation;
         // uint40 spans timestamps to the year 36,812; see `UpgradeStorage.Layout`.
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -116,6 +137,12 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
     /// Permissionless: after the delay the payload is fixed, public and has been
     /// cancellable throughout, so activation carries liveness only. The current
     /// implementation continues to serve until this is called.
+    ///
+    /// Activation passes empty init data, so nothing runs atomically with it.
+    /// An implementation queued here must therefore not expose an unguarded
+    /// `reinitializer` or other one-shot setup: the activator, or anyone in the
+    /// same block, could call it before the intended caller. Migrations must be
+    /// owner-gated, or idempotent and safe for any caller.
     function activateUpgrade() external {
         UpgradeStorage.Layout storage l = UpgradeStorage.$();
         address pending = l.pendingImplementation;
@@ -167,10 +194,10 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
 
     /// Transfers proxy administration to `newAdmin`.
     ///
-    /// Required by deploy ordering: `ProtocolAdmin` holds the pool address as an
-    /// immutable and so cannot precede the proxy, while the proxy requires an
-    /// admin at construction. The deployer therefore administers the proxy until
-    /// this hands it to governance.
+    /// Required by deployment order: `ProtocolAdmin` holds the pool address as
+    /// an immutable and so cannot precede the proxy, while the proxy requires an
+    /// admin at construction. The deployer administers the proxy until this call
+    /// hands it to governance.
     ///
     /// Confers no authority the caller lacks, since an admin can already queue an
     /// arbitrary implementation.

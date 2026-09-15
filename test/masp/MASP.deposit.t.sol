@@ -9,6 +9,7 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 
 import { MASP } from "../../src/MASP.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
@@ -19,9 +20,9 @@ import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/Pool
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// `deposit` happy path + revert coverage. Permit2 sig acceptance is
-/// faked via an ERC-1271 stub at the payer address (any sig bytes valid),
-/// so tests can focus on contract-level invariants.
+/// `deposit` happy path and revert coverage. Permit2 signature acceptance is
+/// stubbed via an ERC-1271 contract at the payer address (any signature bytes
+/// are valid), so tests focus on contract-level invariants.
 contract MASPDepositTest is Test {
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
     uint256 internal constant SCALE = TestConstants.SCALE;
@@ -59,8 +60,8 @@ contract MASPDepositTest is Test {
     }
 
     function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        // Baby-Jubjub prime-order generator in both point slots — passes the
-        // low-order / identity rejection added to `AuxValidation`.
+        // Baby-Jubjub prime-order generator in both point slots, which passes
+        // the low-order and identity rejection in `AuxValidation`.
         return SpendFixture.validAux();
     }
 
@@ -73,7 +74,10 @@ contract MASPDepositTest is Test {
     }
 
     function _sig(uint256 maxTotal) internal pure returns (MASP.Permit2Sig memory) {
-        return MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: maxTotal, signature: hex"00" });
+        return
+            MASP.Permit2Sig({
+                nonce: 0, deadline: type(uint256).max, maxTotal: maxTotal, maxFee: 0, signature: hex"00"
+            });
     }
 
     // --- happy path --------------------------------------------------------
@@ -97,8 +101,8 @@ contract MASPDepositTest is Test {
         assertEq(masp.accruedFee(IERC20(address(token))), 0, "no accrual at submit; fee accrues at flush");
         assertEq(masp.nextDepositId(), 1, "nextDepositId bumped");
 
-        // Spot-check escrow slot: a single digest binds the full preimage,
-        // payer and submit block included.
+        // Escrow slot: a single digest binds the full preimage, including payer
+        // and submit block.
         bytes32 expectedDigest = keccak256(
             abi.encode(
                 address(masp),
@@ -114,6 +118,7 @@ contract MASPDepositTest is Test {
                 // The relayer's leaf is bound too, so a flusher cannot mint
                 // itself a different fee note than the payer funded.
                 uint48(d.feeIn),
+                uint64(d.feeAssetId),
                 d.feeCm,
                 d.feeCvDep
             )
@@ -127,10 +132,12 @@ contract MASPDepositTest is Test {
         _fund(publicIn); // second deposit's funds
         PubInputs.DepositRequest memory d = _request(publicIn);
         AuxValidation.Output[6] memory aux = _aux();
-        MASP.Permit2Sig memory s1 =
-            MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
-        MASP.Permit2Sig memory s2 =
-            MASP.Permit2Sig({ nonce: 1, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
+        MASP.Permit2Sig memory s1 = MASP.Permit2Sig({
+            nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
+        });
+        MASP.Permit2Sig memory s2 = MASP.Permit2Sig({
+            nonce: 1, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
+        });
 
         uint256 a = masp.deposit(d, s1, aux[0], aux[1]);
         uint256 b = masp.deposit(d, s2, aux[0], aux[1]);
@@ -143,8 +150,8 @@ contract MASPDepositTest is Test {
         _fund(publicIn);
         masp.deposit(_request(publicIn), _sig(type(uint256).max), _aux()[0], _aux()[1]);
 
-        // Fees accrue only at flush, so a bare submit leaves nothing to sweep
-        // — escrowed principal + fee stay out of `accruedFee` entirely.
+        // Fees accrue only at flush, so a submit leaves nothing to sweep;
+        // escrowed principal and fee stay out of `accruedFee`.
         uint256 swept = masp.sweep(IERC20(address(token)));
         assertEq(swept, 0, "nothing accrued");
         assertEq(masp.accruedFee(IERC20(address(token))), 0);
@@ -190,7 +197,8 @@ contract MASPDepositTest is Test {
 
     function test_revert_ZeroCm() public {
         PubInputs.DepositRequest memory d = _request(100);
-        // A deposit has exactly one leaf, so a zero cm is the whole check.
+        // Zero principal commitment with a non-zero fee commitment, so `outCm`
+        // alone triggers the check.
         d.outCm = bytes32(0);
         d.feeCm = bytes32(uint256(0xfee));
         vm.expectRevert(MASP.ZeroCm.selector);
@@ -218,10 +226,58 @@ contract MASPDepositTest is Test {
         masp.setCancelDelay(50_401);
     }
 
+    /// Shortening the delay only frees escrowed funds sooner, so it applies at
+    /// once.
     function test_setCancelDelay_owner_setsValid() public {
+        vm.expectEmit(address(masp));
+        emit MASP.CancelDelayUpdated(7_200, 5_000);
+        vm.prank(OWNER);
+        masp.setCancelDelay(5_000);
+        assertEq(masp.cancelDelay(), 5_000);
+    }
+
+    /// Lengthening it would extend the lock on every escrow in flight, so it is
+    /// queued and lands only at the commit, after the notice.
+    function test_setCancelDelay_raiseIsQueuedUntilCommitted() public {
+        uint256 due = vm.getBlockTimestamp() + ExitTerms.DELAY;
+        vm.expectEmit(address(masp));
+        emit ExitTerms.ExitTermRaisePending(0, ExitTerms.CANCEL_DELAY, 10_000, due);
         vm.prank(OWNER);
         masp.setCancelDelay(10_000);
+        assertEq(masp.cancelDelay(), 7_200, "raise applied without notice");
+
+        vm.warp(due - 1);
+        vm.expectRevert(abi.encodeWithSelector(ExitTerms.RaiseNotDue.selector, due));
+        masp.commitExitTerms(ASSET_ID);
+
+        vm.warp(due);
+        vm.expectEmit(address(masp));
+        emit MASP.CancelDelayUpdated(7_200, 10_000);
+        masp.commitExitTerms(ASSET_ID);
         assertEq(masp.cancelDelay(), 10_000);
+    }
+
+    /// The delay is pool-wide, so any id's commit carries it, registered or not.
+    function test_setCancelDelay_raiseCommitsThroughAnyId() public {
+        vm.prank(OWNER);
+        masp.setCancelDelay(10_000);
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY);
+        masp.commitExitTerms(999);
+        assertEq(masp.cancelDelay(), 10_000);
+    }
+
+    /// Shortening drops a queued lengthening, which then cannot be committed.
+    function test_setCancelDelay_decreaseIsImmediateAndCancelsPendingRaise() public {
+        vm.startPrank(OWNER);
+        masp.setCancelDelay(10_000);
+        masp.setCancelDelay(4_000);
+        vm.stopPrank();
+        assertEq(masp.cancelDelay(), 4_000);
+
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY);
+        vm.expectRevert(ExitTerms.NoPendingRaise.selector);
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(masp.cancelDelay(), 4_000);
     }
 
     function test_setCancelDelay_nonOwner_reverts() public {
@@ -242,6 +298,7 @@ contract MASPDepositTest is Test {
 
         PubInputs.DepositRequest memory d = _request(publicIn);
         d.feeIn = feeIn;
+        d.feeAssetId = ASSET_ID;
         AuxValidation.Output[6] memory aux = _aux();
 
         uint256 payerBefore = token.balanceOf(payer);
@@ -263,9 +320,9 @@ contract MASPDepositTest is Test {
         masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
-    /// A deposit mints two leaves, so the fee leaf's commitment needs the same
-    /// well-formedness check the principal's gets. `feeIn` stays zero here: a
-    /// subsidised deployment still mints the leaf, so the guard must fire on
+    /// A deposit mints two leaves, so the fee leaf's commitment gets the same
+    /// well-formedness check as the principal's. `feeIn` stays zero here: a
+    /// subsidised deployment still mints the leaf, so the guard fires on
     /// shape alone, not on value.
     function test_revert_ZeroCm_feeCm() public {
         PubInputs.DepositRequest memory d = _request(100);
@@ -274,9 +331,9 @@ contract MASPDepositTest is Test {
         masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
     }
 
-    /// Both aux payloads are validated. Without this the two arguments are
-    /// interchangeable in every other test, so a swapped or dropped `feeAux`
-    /// would pass unnoticed and publish an unvalidated payload to the event.
+    /// Both aux payloads are validated. The two arguments are interchangeable in
+    /// every other test, so a swapped or dropped `feeAux` check would otherwise
+    /// go undetected and publish an unvalidated payload to the event.
     ///
     /// Each case takes its payload from a fresh `_aux()`: a memory struct is a
     /// reference, so reusing one would carry the previous mutation forward.

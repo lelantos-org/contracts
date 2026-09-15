@@ -90,8 +90,8 @@ contract MASPGuardCoverageTest is Test {
         return deployPoolUniform(tub_, bv_, p2, ids, tokens, scales, FEE_BPS, TREASURY, address(this));
     }
 
-    /// The reverting half of `_deploy`. Initialization validation runs inside
-    /// the proxy's constructor, so the implementation must be deployed first —
+    /// The reverting counterpart of `_deploy`. Initialization validation runs
+    /// inside the proxy's constructor, so the implementation is deployed first;
     /// otherwise its own CREATE consumes `vm.expectRevert`.
     function _expectDeployRevert(
         bytes4 err,
@@ -144,20 +144,22 @@ contract MASPGuardCoverageTest is Test {
         pi.merkleRoot = masp.currentRoot();
     }
 
-    function _tpi(PubInputs.Transact memory pi) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
-        return SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdead)), masp.committedCount());
+    /// Anchored at `pi.merkleRoot`'s slot; an unknown root gets slot 0.
+    function _tpi(PubInputs.Transact memory pi) internal view returns (PubInputs.SpendTree memory) {
+        (, uint256 anchorIndex) = masp.rootIndexOf(pi.merkleRoot);
+        return SpendFixture.spendTree(bytes32(uint256(0xdead)), masp.committedCount(), uint8(anchorIndex));
     }
 
     // --- batched spend verification ----------------------------------------
 
     /// The spend path must make exactly one verification call, to
-    /// `SPEND_VERIFIER`. Two single-proof calls would forfeit the gas saving;
-    /// no call at all would still satisfy every mocked test in the suite.
+    /// `SPEND_VERIFIER`. Two single-proof calls would forfeit the gas saving,
+    /// and a missing call would still satisfy every mocked test in the suite.
     function test_spendRoutesThroughBatchVerifierOnly() public {
         PubInputs.Transact memory pi = _pi();
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
 
-        // The pool must be able to pay out for the call to complete.
+        // Funds the pool so the call can pay out and complete.
         token.mint(address(masp), 1e18);
 
         vm.expectCall(address(bv), abi.encodeWithSelector(IBatchVerifier.verifyBatch.selector), 1);
@@ -170,11 +172,11 @@ contract MASPGuardCoverageTest is Test {
     }
 
     /// `verifyBatch` returns false rather than reverting, so `_verifyProofs`
-    /// must check the bool. Omitting that check is fail-open and invisible to
-    /// every test that mocks verification to `true`.
+    /// must check the bool. Omitting that check fails open and is not detected
+    /// by tests that mock verification to `true`.
     function test_revert_ProofRejected_whenBatchReturnsFalse() public {
         PubInputs.Transact memory pi = _pi();
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
 
         bv.setResult(false);
         vm.prank(RELAYER);
@@ -224,7 +226,7 @@ contract MASPGuardCoverageTest is Test {
 
     /// The constructor probes the spend slot rather than trusting the address.
     /// A contract with code but no `verifyBatch` reverts into the probe's
-    /// `catch`; the tree-update verifier is the realistic copy-paste.
+    /// `catch`; a single-proof `Groth16Verifier` is the likely misconfiguration.
     function test_revert_BadSpendVerifier_wrongInterface() public {
         _expectDeployRevert(
             MASP.BadSpendVerifier.selector,
@@ -237,8 +239,8 @@ contract MASPGuardCoverageTest is Test {
         );
     }
 
-    /// The real verifier passes the probe. Without this, the test above would
-    /// also pass against a probe that rejected every address.
+    /// The real batch verifier passes the probe. Without this, the test above
+    /// would also pass against a probe that rejected every address.
     function test_realSpendVerifierPassesProbe() public {
         MASP deployed = _deploy(tub, realBatchVerifier, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
         assertEq(address(deployed.SPEND_VERIFIER()), address(realBatchVerifier), "batch verifier wired");
@@ -283,7 +285,7 @@ contract MASPGuardCoverageTest is Test {
     function test_revert_PublicOutTooLarge() public {
         PubInputs.Transact memory pi = _pi();
         pi.publicOut = uint64(type(uint48).max) + 1;
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
         vm.prank(RELAYER);
         vm.expectRevert(MASP.PublicOutTooLarge.selector);
         masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
@@ -302,13 +304,13 @@ contract MASPGuardCoverageTest is Test {
         tpi.newRoot = bytes32(uint256(0xdead));
         tpi.startIndex = masp.committedCount();
         // Two leaves per deposit; slot 0 is the principal, slot 1 the relayer's
-        // fee note. Only slot 0 is flipped to spend mode, which is what the
-        // guard under test must reject.
+        // fee note. Only slot 0 is in spend mode, which the guard under test
+        // rejects.
         tpi.actualCount = 2;
         tpi.isDeposit[0] = 0; // spend mode
         tpi.isDeposit[1] = 1;
 
-        // Seed a pending deposit so the slot passes the pending check first.
+        // Seeds a pending deposit so the slot passes the pending check first.
         _seedDeposit();
 
         vm.expectRevert(MASP.BadDepositMode.selector);
@@ -318,7 +320,7 @@ contract MASPGuardCoverageTest is Test {
     function _seedDeposit() internal {
         token.mint(address(this), 1_000 * SCALE);
         token.approve(address(permit2), type(uint256).max);
-        ISignatureTransfer(permit2); // silence unused warning path
+        ISignatureTransfer(permit2); // no-op; silences an unused warning
         PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
@@ -327,7 +329,7 @@ contract MASPGuardCoverageTest is Test {
         d.recipient = RECIPIENT;
         d.outCm = bytes32(uint256(0x1));
         d.feeCm = bytes32(uint256(0xfee));
-        // AllowanceTransfer path avoids needing a signature.
+        // The AllowanceTransfer path needs no signature.
         _approvePermit2ToMasp();
         masp.depositAuthorized(d, _aux()[0], _aux()[1]);
     }
@@ -347,12 +349,13 @@ contract MASPGuardCoverageTest is Test {
 
     // --- small-subgroup rejection ------------------------------------------
 
-    /// `AuxValidation` rejects order-8 points on the clue and ephemeral keys.
+    /// `AuxValidation` rejects low-order points (order dividing 8) on the clue
+    /// and ephemeral keys.
     /// `BabyJubJub.isLowOrder` is fuzzed directly elsewhere; this pins the
     /// revert wiring in the spend path.
     function test_revert_LowOrderPoint_clue() public {
         PubInputs.Transact memory pi = _pi();
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
         AuxValidation.Output[6] memory aux = _aux();
         // Identity (0, 1) is on-curve and order 1.
         aux[0].clueRx = 0;
@@ -364,7 +367,7 @@ contract MASPGuardCoverageTest is Test {
 
     function test_revert_LowOrderPoint_ephemeral() public {
         PubInputs.Transact memory pi = _pi();
-        PubInputs.TreeUpdateBatch memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _tpi(pi);
         AuxValidation.Output[6] memory aux = _aux();
         aux[1].ephPubX = 0;
         aux[1].ephPubY = 1;

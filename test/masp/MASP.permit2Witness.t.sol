@@ -10,17 +10,17 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 
-/// Regression for the Permit2 witness binding shape used by `deposit`.
+/// The Permit2 witness binding shape used by `deposit`.
 ///
-/// Catches silent drift between:
+/// Detects drift between:
 ///   * the on-chain typehash (`DEPOSIT_WITNESS_TYPEHASH`),
 ///   * the EIP-712 sub-type-string passed to Permit2
 ///     (`DEPOSIT_WITNESS_TYPE_STRING`),
 ///   * the `piHash = keccak256(abi.encode(d, aux, feeAux))` preimage shape
 ///     that wallets sign over.
 ///
-/// Any of those getting out of sync silently breaks signature scoping (a
-/// leaked Permit2 sig could be re-targeted at a different deposit payload).
+/// If these fall out of sync, signature scoping breaks without an error: a
+/// leaked Permit2 signature could be re-targeted at a different deposit payload.
 contract MASPPermit2WitnessTest is MASPTestBase {
     /// The Permit2 sub-type-string format requires the witness type appended
     /// immediately before `TokenPermissions(...)` so Permit2's domain hash
@@ -58,17 +58,17 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         }
     }
 
-    /// Golden-hash regression: pins the `keccak256(abi.encode(d, aux, feeAux))`
-    /// derivation against a fixed fixture. If the `DepositRequest` struct
-    /// layout, the `AuxValidation.Output` shape, or the number of aux payloads
-    /// bound into the witness changes, the digest drifts and this fails.
+    /// Golden hash: pins the `keccak256(abi.encode(d, aux, feeAux))` derivation
+    /// against a fixed fixture. If the `DepositRequest` struct layout, the
+    /// `AuxValidation.Output` shape, or the number of aux payloads bound into
+    /// the witness changes, the digest changes and this test fails.
     ///
     /// The pin is a literal, not a recomputation of the same expression: a test
     /// that recomputes its own expected value asserts nothing.
     ///
-    /// Update the constant only when the wallet signature shape intentionally
-    /// changes; coordinate with off-chain signers + circuits.
-    bytes32 internal constant PI_HASH_GOLDEN = 0x75bc606de1a3dc7c372602227f7c3e0ae9463795498704dce1d992af6bed5e3a;
+    /// Update the constant only when the wallet signature shape is meant to
+    /// change, in coordination with off-chain signers and circuits.
+    bytes32 internal constant PI_HASH_GOLDEN = 0xf79a840cb98e948cf7937366de41257723ae0467b054ff6cf02272d5e713e972;
 
     function test_piHash_isStableForFixedFixture() public pure {
         PubInputs.DepositRequest memory d = _fixtureDeposit();
@@ -91,6 +91,12 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         d.feeIn += 1;
         assertTrue(keccak256(abi.encode(d, aux, _fixtureFeeAux())) != PI_HASH_GOLDEN, "feeIn not bound");
 
+        // The fee note's asset is signed too, so a submitter cannot move the
+        // payer's relayer charge onto another token they hold.
+        d = _fixtureDeposit();
+        d.feeAssetId = 2;
+        assertTrue(keccak256(abi.encode(d, aux, _fixtureFeeAux())) != PI_HASH_GOLDEN, "feeAssetId not bound");
+
         d = _fixtureDeposit();
         AuxValidation.Output memory feeAux = _fixtureFeeAux();
         feeAux.ciphertext = hex"c0ffee";
@@ -107,6 +113,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         d.cvDep[0] = 0xaaaa;
         d.cvDep[1] = 0xbbbb;
         d.rcv = 0xeeee;
+        d.feeAssetId = 1;
         d.feeIn = 7;
         d.feeCm = bytes32(uint256(0x2222));
         d.feeCvDep[0] = 0xcccc;
@@ -114,8 +121,8 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         d.feeRcv = 0xffff;
     }
 
-    /// The depositor's payload. A deposit mints two leaves, so a second one
-    /// rides alongside it — see `_fixtureFeeAux`.
+    /// The depositor's payload. A deposit mints two leaves, so a second payload
+    /// accompanies it (see `_fixtureFeeAux`).
     function _fixtureAux() private pure returns (AuxValidation.Output memory aux) {
         aux.clueRx = 0x111;
         aux.clueRy = 0x112;
@@ -124,9 +131,9 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         aux.ciphertext = hex"deadbeef";
     }
 
-    /// The relayer's payload. Deliberately distinct from `_fixtureAux` in every
-    /// field: identical fixtures would make the two arguments interchangeable
-    /// and hide a swapped or dropped `feeAux`.
+    /// The relayer's payload, distinct from `_fixtureAux` in every field:
+    /// identical fixtures would make the two arguments interchangeable and hide
+    /// a swapped or dropped `feeAux`.
     function _fixtureFeeAux() private pure returns (AuxValidation.Output memory aux) {
         aux.clueRx = 0x221;
         aux.clueRy = 0x222;
@@ -152,11 +159,11 @@ contract MASPPermit2WitnessTest is MASPTestBase {
 
     // --- end-to-end signature scoping ---------------------------------------
     //
-    // The pins above are test-local arithmetic: they prove the preimage shape
-    // is stable, not that `deposit` actually pulls against it. These sign a
-    // real Permit2 witness with a real key and let Permit2 be the judge, so a
-    // drift between `_permit2Pull`'s `piHash` and what a wallet signed shows up
-    // as a rejected deposit rather than as a green test.
+    // The pins above are test-local arithmetic: they show the preimage shape is
+    // stable, not that `deposit` pulls against it. These tests sign a real
+    // Permit2 witness with a real key and let Permit2 verify it, so a drift
+    // between `_permit2Pull`'s `piHash` and what a wallet signed surfaces as a
+    // rejected deposit rather than a passing test.
 
     uint256 internal constant SIGNER_PK = 0xA11CE;
 
@@ -164,7 +171,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         return vm.addr(SIGNER_PK);
     }
 
-    /// A deposit the fixture registry can actually settle, payable by `_signer`.
+    /// A deposit the fixture registry can settle, payable by `_signer`.
     function _liveRequest() internal view returns (PubInputs.DepositRequest memory d) {
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
@@ -172,6 +179,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         d.payer = _signer();
         d.recipient = address(0xb0b);
         d.outCm = bytes32(uint256(0x1111));
+        d.feeAssetId = ASSET_ID;
         d.feeIn = 7;
         d.feeCm = bytes32(uint256(0x2222));
         d.feeCvDep = [uint256(0xcccc), uint256(0xdddd)];
@@ -212,7 +220,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     }
 
     function _liveSig(uint256 total) internal pure returns (MASP.Permit2Sig memory) {
-        return MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: total, signature: hex"" });
+        return MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: total, maxFee: 0, signature: hex"" });
     }
 
     /// Baseline: a signature over the full preimage settles.
@@ -230,9 +238,9 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         assertTrue(masp.escrowed(id) != bytes32(0), "escrow recorded");
     }
 
-    /// The regression the golden pin cannot catch on its own: a wallet still
-    /// signing the pre-fee-note preimage must be rejected, not silently
-    /// accepted against a payload it never saw.
+    /// A case the golden pin alone does not catch: a signature over a preimage
+    /// that omits the fee payload is rejected, not accepted against a payload
+    /// the wallet did not sign.
     function test_revert_deposit_signatureOmitsFeeAux() public {
         PubInputs.DepositRequest memory d = _liveRequest();
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
@@ -240,7 +248,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         _fundSigner(total);
 
         MASP.Permit2Sig memory sig = _liveSig(total);
-        // Stale shape: request and depositor payload only.
+        // Preimage without the fee payload: request and depositor payload only.
         sig.signature = _sign(sig, keccak256(abi.encode(d, aux[0])));
 
         vm.expectRevert(SignatureVerification.InvalidSigner.selector);
@@ -260,8 +268,8 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         MASP.Permit2Sig memory sig = _liveSig(total);
         sig.signature = _sign(sig, keccak256(abi.encode(d, aux[0], aux[1])));
 
-        // Well-formed, so it clears `AuxValidation` and the witness is the only
-        // thing left to reject it.
+        // Well-formed, so it passes `AuxValidation` and only the witness check
+        // rejects it.
         AuxValidation.Output memory substitute = SpendFixture.uniformAux(hex"0002")[0];
         vm.expectRevert(SignatureVerification.InvalidSigner.selector);
         masp.deposit(d, sig, aux[0], substitute);
@@ -269,9 +277,9 @@ contract MASPPermit2WitnessTest is MASPTestBase {
 
     /// Same scoping over the request itself: swapping the fee note's
     /// commitment redirects the payer-funded note to whoever submits. It leaves
-    /// the pulled amount untouched, so the witness is the only thing that
-    /// rejects it — raising `feeIn` instead would be stopped earlier by
-    /// Permit2's signed amount cap.
+    /// the pulled amount unchanged, so only the witness check rejects it;
+    /// raising `feeIn` instead would be stopped earlier by Permit2's signed
+    /// amount cap.
     function test_revert_deposit_feeCmSwappedAfterSigning() public {
         PubInputs.DepositRequest memory d = _liveRequest();
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();

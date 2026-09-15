@@ -39,7 +39,7 @@ contract MockPoolV1 {
     }
 }
 
-/// Same layout with an appended field, the shape an upgrade must take.
+/// Same layout with an appended field, as upgrades require.
 contract MockPoolV2 is MockPoolV1 {
     uint256 public extraField; // slot 3, appended
 
@@ -59,7 +59,7 @@ contract MockPoolV2 is MockPoolV1 {
 }
 
 /// Declares a selector that collides with the proxy's reserved set, so the
-/// collision test can be shown to detect one.
+/// collision test can demonstrate detection.
 contract SelectorProbe {
     function activateUpgrade() external pure returns (uint256) {
         return 42;

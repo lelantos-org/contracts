@@ -56,36 +56,32 @@ contract PubInputsTest is Test {
 
     // --- fast path ≡ reference path ----------------------------------------
 
-    /// The two coefficient counts, pinned as numbers rather than left to
-    /// commentary.
+    /// Pins the two coefficient counts as numbers.
     ///
     /// Every derived offset in `PubInputs` follows the shape constants, so a
-    /// change to `TRANSACT_OUT` or `MAX_L_BATCH` silently moves both vectors —
-    /// and the circuit-side PolyEval they must match is in another repository.
-    /// The prose around this arithmetic has drifted before (a stale "MAX_L = 4"
-    /// outlived the move to 8), which is what this test is for: a wrong number
-    /// now fails here instead of misleading the next reader.
+    /// change to `TRANSACT_OUT` or `MAX_L_BATCH` moves both vectors without a
+    /// compile error, and the circuit-side PolyEval they must match lives in
+    /// another repository. A count that disagrees with the shape fails here.
     ///
-    /// The counts are load-bearing on both sides. `4x6` HASHES 69 words — odd,
-    /// which is the case `SnarkCompression.evaluatePolyAtRaw` handles with its
-    /// single-coefficient prologue before the unrolled-by-two loop. It EVALUATES
-    /// 46, and the batch 52, so both production Horner lengths are even and the
-    /// prologue is dead on those paths; it is kept for the generic entry point.
+    /// `4x6` hashes 70 words and evaluates 46; the batch evaluates 52. Both
+    /// production Horner lengths are even, so the odd-length prologue of
+    /// `SnarkCompression.evaluatePolyAtRaw` is unused on those paths and exists
+    /// for the generic entry point.
     function test_coefficientCountsMatchTheDeployedShape() public pure {
         assertEq(PubInputs.TRANSACT_IN, 4, "transact inputs");
         assertEq(PubInputs.TRANSACT_OUT, 6, "transact outputs");
         assertEq(PubInputs.MAX_L_BATCH, 8, "batch width");
 
-        // 50 struct words, then (clueRx, clueRy, clueBits) per output, then the
+        // 51 struct words, then (clueRx, clueRy, clueBits) per output, then the
         // aux digest.
-        assertEq(PubInputs.TRANSACT_CHALLENGE_WORDS, 69, "4x6 challenge preimage");
+        assertEq(PubInputs.TRANSACT_CHALLENGE_WORDS, 70, "4x6 challenge preimage");
         assertEq(PubInputs.TRANSACT_COEFFS, 46, "4x6 coefficient vector");
-        // The 23-word gap is the four address words, the six clue triples and
-        // the aux digest: logical public inputs the circuit constrains nowhere,
-        // hashed into `z` and never evaluated. As coefficients each was a free
-        // variable in the one linear equation `y = Σ c[k]·z^k`, which the prover
-        // solves after reading `z` off calldata it wrote itself.
-        assertEq(PubInputs.TRANSACT_CHALLENGE_WORDS - PubInputs.TRANSACT_COEFFS, 23, "words hashed but not evaluated");
+        // The 24-word gap is the five unpinned struct words, the six clue
+        // triples and the aux digest: logical public inputs the circuit does not
+        // constrain, hashed into `z` and not evaluated. As coefficients each would
+        // be a free variable in the linear equation `y = Σ c[k]·z^k`, which the
+        // prover could solve after computing `z` from its own calldata.
+        assertEq(PubInputs.TRANSACT_CHALLENGE_WORDS - PubInputs.TRANSACT_COEFFS, 24, "words hashed but not evaluated");
 
         // oldRoot, newRoot, startIndex, actualCount, then six per-leaf arrays
         // (cms, cvDep x, cvDep y, leafAsset, leafPublicIn, isDeposit).
@@ -159,6 +155,7 @@ contract PubInputsTest is Test {
         pi.recipient = recipient;
         pi.relayer = relayer;
         pi.payer = address(uint160(uint256(keccak256(abi.encode(cvSeed)))));
+        pi.intentHash = uint256(keccak256(abi.encode(cvSeed, "intent")));
         pi.chainId = block.chainid;
         for (uint256 i = 0; i < 2; i++) {
             for (uint256 k = 0; k < 2; k++) {
@@ -181,13 +178,29 @@ contract PubInputsTest is Test {
         assertEq(fast[1], ref[1], "z mismatch");
     }
 
+    // --- intentHash ----------------------------------------------------------
+
+    /// `intentHash` is hashed into `z` as a full word, not masked like the
+    /// address words beside it: setting its top bit moves the challenge. Its
+    /// position is pinned by the fuzz above and the 4x6 vector.
+    function test_transact_intentHashTopBitMovesChallenge() public view {
+        PubInputs.Transact memory pi;
+        AuxValidation.Output[6] memory aux;
+        for (uint256 j = 0; j < aux.length; j++) {
+            aux[j].ciphertext = abi.encodePacked(uint16(0x0123));
+        }
+        uint256 base = h.transact(pi, aux)[1];
+        pi.intentHash = 1 << 255;
+        assertTrue(h.transact(pi, aux)[1] != base, "intentHash top bit must move z");
+    }
+
     // --- TreeUpdateBatch layout --------------------------------------------
 
     function test_compressTreeUpdateBatch_layoutMatchesManualPolyEval() public view {
         PubInputs.TreeUpdateBatch memory tpi = _sampleBatch(1);
         uint256[2] memory got = h.batch(tpi);
 
-        // Re-derive (z, y) manually to lock the coefficient layout.
+        // Re-derives (z, y) manually to pin the coefficient layout.
         // Layout: 4 header + MAX_L cms + 2*MAX_L cvDeps + MAX_L leafAsset
         //       + MAX_L leafPublicIn + MAX_L isDeposit  =  4 + 6*MAX_L
         uint256 N = PubInputs.MAX_L_BATCH;
@@ -230,7 +243,7 @@ contract PubInputsTest is Test {
         PubInputs.TreeUpdateBatch memory b = _sampleBatch(1);
         b.actualCount = 2;
         // Both have all-zero cms beyond the first slot; only actualCount
-        // differs. PolyEval must distinguish them.
+        // differs, and PolyEval distinguishes them.
         uint256[2] memory ca = h.batch(a);
         uint256[2] memory cb = h.batch(b);
         assertTrue(ca[0] != cb[0] || ca[1] != cb[1], "actualCount must affect compress");
@@ -238,7 +251,7 @@ contract PubInputsTest is Test {
 
     function test_compressTreeUpdateBatch_paddingSlotAffectsHash() public view {
         // Two batches identical except cms[MAX_L_BATCH - 1] (padding slot).
-        // Compress MUST reflect ALL coefficients including padding so the
+        // Compression covers every coefficient, padding included, so the
         // SNARK can constrain padding == 0.
         PubInputs.TreeUpdateBatch memory a = _sampleBatch(1);
         PubInputs.TreeUpdateBatch memory b = _sampleBatch(1);

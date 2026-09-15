@@ -13,10 +13,10 @@ pragma solidity 0.8.36;
 /// that this venue is pinned to this pool and that its vault's asset is the
 /// token being registered.
 interface IYieldVenue {
-    /// Supply `assets` of the underlying, already transferred in by the pool.
+    /// Supplies `assets` of the underlying, already transferred in by the pool.
     function deposit(uint256 assets) external;
 
-    /// Redeem `assets` of the underlying and send it to `POOL`.
+    /// Redeems `assets` of the underlying and sends it to `POOL`.
     function withdraw(uint256 assets) external;
 
     /// Underlying currently claimable by this venue's position. The pool's
@@ -29,9 +29,15 @@ interface IYieldVenue {
     /// revert inside the venue.
     function maxWithdraw() external view returns (uint256);
 
-    /// The pool this venue is pinned to. Immutable in every implementation.
+    /// Upper bound on what `deposit` accepts now; zero while the vault is
+    /// paused or at its cap. The pool clamps its supply to this and keeps the
+    /// rest idle, so a full vault costs yield rather than halting shields.
+    /// Must not revert.
+    function maxDeposit() external view returns (uint256);
+
+    /// The pool this venue is pinned to. Must be immutable.
     function POOL() external view returns (address);
 
-    /// The ERC-4626 vault this venue holds shares of. Immutable.
+    /// The ERC-4626 vault this venue holds shares of. Must be immutable.
     function VAULT() external view returns (address);
 }

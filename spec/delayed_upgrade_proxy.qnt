@@ -4,67 +4,66 @@
 // Replayed against a real proxy over MockPoolV1/V2 by
 // test/quint/DelayedUpgradeProxyReplay.t.sol.
 //
-// WHY THIS ONE
+// SCOPE
 //
-// test/symbolic/DelayedUpgradeProxy.symbolic.t.sol proves eleven properties over
-// all inputs, and every one of them is about a *single* call: activation happens
-// exactly after the window, a queued payload cannot be swapped, the guardian
-// pause is one-shot, non-admins are rejected. That is the shape halmos is good
-// at, and it leaves the sequencing untouched.
+// test/symbolic/DelayedUpgradeProxy.symbolic.t.sol proves single-call
+// properties over all inputs: activation happens exactly after the window, a
+// queued payload cannot be swapped, the guardian pause is one-shot, non-admins
+// are rejected. This spec covers sequencing, in particular the two paths by
+// which paused time is kept out of the window:
 //
-// The property this spec exists for is a sequencing asymmetry:
+//     `pauseSpends` extends `activationAt` by its duration only if an upgrade
+//     is already pending; `queueUpgrade` starts the window at
+//     `max(now, pausedUntil)`, absorbing whatever pause is still running.
 //
-//     `pauseSpends` extends `activationAt` by its duration ONLY IF an upgrade
-//     is already pending.
+// `queue; pause` takes the first path and `pause; queue` the second. Before the
+// second existed, a pause issued ahead of the queue, or running across a cancel
+// and re-queue, spent its remaining duration inside the new window. Neither a
+// single-call proof nor an end-of-run invariant distinguishes the orderings,
+// since both end with a pending upgrade and a used latch;
+// `inv_exitWindowIsUnpaused` states what both must preserve, by counting the
+// unpaused seconds the window actually contained.
 //
-// So `queue; pause` and `pause; queue` reach different `activationAt` from
-// identical inputs - in the second, the one-shot pause is spent without
-// protecting the window it was presumably meant to protect. No single-call
-// proof can see that, and an invariant checked at the end of a fuzz run cannot
-// either: both orderings end with a pending upgrade and a used latch.
+// The exit window, during which holders can leave before a changed
+// implementation takes effect, is the protocol's primary upgrade safety
+// guarantee; this arithmetic determines when it ends.
 //
-// The exit window is the protocol's headline safety guarantee - holders can
-// leave before a changed implementation takes effect - so the arithmetic that
-// sets its end deserves a model.
-//
-// ABSTRACTED, and why
+// ABSTRACTED
 //
 //   - The implementation behind the proxy. `implVersion` is `version()` read
-//     through the proxy, so it is 1 or 2 and nothing else. It is modelled
-//     because it is the only *observable consequence* of activation: without
-//     it, an `activateUpgrade` that cleared the queue without actually calling
-//     `upgradeToAndCall` would pass every other check.
-//   - Which address is admin. Modelled as an index into a fixed three-address
-//     set, so `changeProxyAdmin` is exercised by every later admin call having
-//     to come from the new holder.
-//   - Caller rejection. There is no `queueNotAdmin` action: who may call is a
-//     single-call property the symbolic suite already owns over all addresses,
-//     and each extra action dilutes every other action's share of the step
-//     budget. `activateTooEarly` is the exception, and stays, because its
-//     guard is *time* - state this model computes rather than an input.
+//     through the proxy, so it is 1 or 2. It is modelled as the observable
+//     consequence of activation: without it, an `activateUpgrade` that clears
+//     the queue without calling `upgradeToAndCall` passes every other check.
+//   - Admin identity. Modelled as an index into a fixed three-address set, so
+//     every admin call after `changeProxyAdmin` must come from the new holder.
+//   - Caller rejection. There is no `queueNotAdmin` action: caller
+//     authorization is a single-call property covered by the symbolic suite
+//     over all addresses, and each extra action reduces every other action's
+//     share of the step budget. `activateTooEarly` is included because its
+//     guard depends on time, which is model state rather than an input.
 module delayed_upgrade_proxy {
   // Must match the driver, which asserts the deployed proxy agrees.
   pure val UPGRADE_DELAY = 2592000   // 30 days
   pure val MAX_PAUSE = 604800        // 7 days
+  // The proxy constructor refuses `MAX_PAUSE >= UPGRADE_DELAY`
+  // (`PauseNotShorterThanDelay`), so constants outside this relation describe
+  // no deployable proxy. Checked as part of `allInvariants`.
+  pure val inv_constantsAreDeployable = MAX_PAUSE < UPGRADE_DELAY
 
   /// Implementations. 1 = MockPoolV1, 2 = MockPoolV2; 0 = "nothing pending".
   pure val IMPLS = Set(1, 2)
   /// Admin addresses, by index.
   pure val ADMINS = Set(0, 1, 2)
 
-  /// One shared domain for every duration: `advanceTime` moves the clock by it
-  /// and `pauseSpends` pauses for it, with the `<= MAX_PAUSE` guard inside the
-  /// action. Sharing costs nothing and saves a pick name, which is 64 bytes on
-  /// every step whichever action ran.
+  /// Shared domain for every duration: `advanceTime` moves the clock by it and
+  /// `pauseSpends` pauses for it, with the `<= MAX_PAUSE` guard inside the
+  /// action. One pick name instead of two saves 64 bytes on every trace step.
   ///
-  /// UPGRADE_DELAY and MAX_PAUSE are both drawable on purpose: activating
-  /// exactly on `activationAt` is the boundary the whole contract is about, and
-  /// drawing from a range would reach it with probability near zero.
-  /// Three of the seven clear a full window. With only one, activation needed
-  /// queue -> that exact draw -> activate with no cancel in between, and fired
-  /// 3 times in 488 steps - too rare to floor. UPGRADE_DELAY itself stays in the
-  /// set because landing exactly on `activationAt` is the boundary the guard
-  /// divides.
+  /// UPGRADE_DELAY and MAX_PAUSE are drawable so the activation boundary
+  /// (`nowTs == activationAt`) and the maximum pause are reached exactly; a
+  /// range would reach them with probability near zero. Three of the seven
+  /// values clear a full window, so queue-then-activate sequences occur often
+  /// enough to meet coverage floors.
   pure val TIME_JUMPS =
     Set(1, 3600, 86400, MAX_PAUSE, UPGRADE_DELAY, UPGRADE_DELAY + 1, 2 * UPGRADE_DELAY)
 
@@ -75,8 +74,8 @@ module delayed_upgrade_proxy {
   var pendingImpl: int
   /// 0 when nothing is queued.
   var activationAt: int
-  /// Spends are halted while `nowTs < pausedUntil`. Decays on its own; nothing
-  /// clears it, not even `resetGuardianPause`.
+  /// Spends are halted while `nowTs < pausedUntil`. Expires with time; nothing
+  /// clears it, including `resetGuardianPause`.
   var pausedUntil: int
   var guardianPauseUsed: bool
   /// `version()` through the proxy: the observable consequence of activation.
@@ -86,25 +85,35 @@ module delayed_upgrade_proxy {
   // --- ghosts (ignoreState) ---------------------------------------------
 
   /// When the live queue was created. The contract stores only `activationAt`,
-  /// so there is nothing on chain to compare this against - it exists so
-  /// `inv_windowNeverShortened` can be stated at all.
+  /// so this has no on-chain counterpart; it is needed to state
+  /// `inv_windowIsExact`.
   var queuedAt: int
-  /// Pause duration that landed while an upgrade was pending, and so extended
-  /// the window. Without it, deleting the `pendingImplementation != 0` check in
-  /// `pauseSpends` leaves every other invariant satisfied.
+  /// Total pause duration applied while an upgrade was pending, i.e. the
+  /// window extension. Without it, deleting the `pendingImplementation != 0`
+  /// check in `pauseSpends` satisfies every other invariant.
   var pausedInWindow: int
-  /// The latch, counted a second way. A boolean alone is unconstrained: the
-  /// same lesson as `guardViolations` in spec/masp.qnt.
+  /// Pause still to run when the live queue was created, which `queueUpgrade`
+  /// adds to the window. Without it `inv_windowIsExact` could state only a
+  /// lower bound, and a queue that deferred by the whole pause as issued rather
+  /// than by its remainder would pass.
+  var carriedPause: int
+  /// Unpaused seconds the clock has spent inside the live window, from the
+  /// queue up to `min(nowTs, activationAt)`. Accumulated by `advanceTime`, the
+  /// only action that moves the clock. Stated independently of both deferral
+  /// paths, so `inv_exitWindowIsUnpaused` holds whichever one fires.
+  var unpausedInWindow: int
+  /// The latch, counted independently. A boolean alone is unconstrained (see
+  /// `guardViolations` in spec/masp.qnt).
   var pauseFirings: int
   var resetFirings: int
-  /// Windows opened. `> 1` means the model exercised more than one window,
-  /// which is the only way a cancel-then-requeue is visible in a state
-  /// invariant - the contract keeps no history of past queues.
+  /// Windows opened. `> 1` shows more than one window was exercised; the
+  /// contract keeps no history of past queues, so this is the only state in
+  /// which a cancel-then-requeue is visible.
   var queueFirings: int
-  /// The implementation the last successful activation promoted. `implVersion`
-  /// is read live through the proxy, so comparing the two is what makes an
-  /// `activateUpgrade` that clears the queue without actually calling
-  /// `upgradeToAndCall` visible.
+  /// The implementation promoted by the last successful activation.
+  /// `implVersion` is read live through the proxy, so comparing the two detects
+  /// an `activateUpgrade` that clears the queue without calling
+  /// `upgradeToAndCall`.
   var lastActivated: int
 
   action init = all {
@@ -117,6 +126,8 @@ module delayed_upgrade_proxy {
     admin' = 0,
     queuedAt' = 0,
     pausedInWindow' = 0,
+    carriedPause' = 0,
+    unpausedInWindow' = 0,
     pauseFirings' = 0,
     resetFirings' = 0,
     queueFirings' = 0,
@@ -125,16 +136,14 @@ module delayed_upgrade_proxy {
 
   // --- frames -----------------------------------------------------------
   //
-  // Quint has no `UNCHANGED`, so every action must assign all thirteen
-  // variables and eighty-four of the lines below said only `x' = x`. They are
-  // grouped by what they describe rather than by which action writes them: a
-  // strict writer-partition needs ten names for thirteen variables here, which
-  // is a worse spec, not a better one.
+  // Quint has no `UNCHANGED`, so every action assigns all fifteen variables.
+  // The frame actions below group the `x' = x` assignments by what the
+  // variables describe rather than by which action writes them; a strict
+  // writer-partition would need more groups than it saves.
   //
-  // The consequence of choosing meaning over writers is that an action writing
-  // *part* of a group cannot also frame it, and spells out the rest by hand -
-  // `cancelUpgrade` below is the shape. That is deliberate: it keeps a group
-  // name honest about what it covers.
+  // An action that writes part of a group cannot use that group's frame and
+  // assigns the remaining members explicitly (see `cancelUpgrade`), so each
+  // group name covers exactly its members.
 
   /// The queued upgrade and everything scoped to its window.
   action unchangedUpgradeQueue = all {
@@ -142,6 +151,8 @@ module delayed_upgrade_proxy {
     activationAt' = activationAt,
     queuedAt' = queuedAt,
     pausedInWindow' = pausedInWindow,
+    carriedPause' = carriedPause,
+    unpausedInWindow' = unpausedInWindow,
     queueFirings' = queueFirings,
   }
 
@@ -154,9 +165,9 @@ module delayed_upgrade_proxy {
     resetFirings' = resetFirings,
   }
 
-  /// What is actually running behind the proxy. Written by `activateUpgrade`
-  /// alone, which is the point: an activation that clears the queue without
-  /// promoting anything leaves these two behind.
+  /// The implementation running behind the proxy. Written only by
+  /// `activateUpgrade`, so an activation that clears the queue without
+  /// promoting an implementation leaves these two unchanged.
   action unchangedImpl = all {
     implVersion' = implVersion,
     lastActivated' = lastActivated,
@@ -166,17 +177,24 @@ module delayed_upgrade_proxy {
 
   action unchangedClock = nowTs' = nowTs
 
-  /// `queueUpgrade`. One at a time: replacing a payload needs cancel-then-queue,
-  /// which restarts the window from scratch.
+  /// `queueUpgrade`. One pending upgrade at a time: replacing a payload requires
+  /// cancel-then-queue, which restarts the window.
+  ///
+  /// The window starts when spends reopen, `max(nowTs, pausedUntil)`, so a
+  /// pause still running at queue time defers activation by its remainder. An
+  /// expired pause defers nothing.
   action queueUpgrade = {
     nondet impl = IMPLS.oneOf()
+    val remaining = if (pausedUntil > nowTs) pausedUntil - nowTs else 0
     all {
       pendingImpl == 0,
       pendingImpl' = impl,
-      activationAt' = nowTs + UPGRADE_DELAY,
+      activationAt' = nowTs + remaining + UPGRADE_DELAY,
       queuedAt' = nowTs,
-      // A fresh window has absorbed no pause yet.
+      carriedPause' = remaining,
+      // A fresh window has absorbed no pause and counted no time yet.
       pausedInWindow' = 0,
+      unpausedInWindow' = 0,
       queueFirings' = queueFirings + 1,
       unchangedPauseLatch,
       unchangedImpl,
@@ -189,9 +207,11 @@ module delayed_upgrade_proxy {
     pendingImpl != 0,
     pendingImpl' = 0,
     activationAt' = 0,
-    // The rest of the window group, by hand: cancelling writes two of its five.
+    // Remaining members of the upgrade-queue group; cancelling writes two of seven.
     queuedAt' = queuedAt,
     pausedInWindow' = pausedInWindow,
+    carriedPause' = carriedPause,
+    unpausedInWindow' = unpausedInWindow,
     queueFirings' = queueFirings,
     unchangedPauseLatch,
     unchangedImpl,
@@ -199,8 +219,8 @@ module delayed_upgrade_proxy {
     unchangedClock,
   }
 
-  /// `activateUpgrade`. Permissionless - anyone may push a queued upgrade over
-  /// the line once its window has elapsed.
+  /// `activateUpgrade`. Permissionless: any caller may activate a queued upgrade
+  /// once its window has elapsed.
   action activateUpgrade = all {
     pendingImpl != 0,
     nowTs >= activationAt,
@@ -210,20 +230,21 @@ module delayed_upgrade_proxy {
     activationAt' = 0,
     queuedAt' = queuedAt,
     pausedInWindow' = pausedInWindow,
+    carriedPause' = carriedPause,
+    unpausedInWindow' = unpausedInWindow,
     queueFirings' = queueFirings,
     unchangedPauseLatch,
     unchangedAdmin,
     unchangedClock,
   }
 
-  /// Negative path: activating inside the window must be rejected with
-  /// `NotYetActivatable(activationAt)`. The driver asserts the revert *and its
-  /// argument*, so a contract that reported the wrong deadline would diverge.
+  /// Negative path: activation inside the window reverts with
+  /// `NotYetActivatable(activationAt)`. The driver asserts the revert and its
+  /// argument, so a wrong reported deadline diverges.
   action activateTooEarly = all {
     pendingImpl != 0,
     nowTs < activationAt,
-    // Writes nothing at all: the whole point is that a rejected call leaves
-    // every one of the thirteen variables where it was.
+    // A rejected call leaves all fifteen variables unchanged.
     unchangedUpgradeQueue,
     unchangedPauseLatch,
     unchangedImpl,
@@ -231,9 +252,9 @@ module delayed_upgrade_proxy {
     unchangedClock,
   }
 
-  /// `pauseSpends`. The asymmetry this spec exists for is the `pendingImpl != 0`
-  /// condition on the window extension: a pause with nothing queued halts spends
-  /// and burns the one-shot latch, but protects no window.
+  /// `pauseSpends`. The window is extended only when `pendingImpl != 0`: a pause
+  /// with nothing queued halts spends and consumes the one-shot latch, and a
+  /// later `queueUpgrade` defers by whatever of it is still running.
   action pauseSpends = {
     nondet dt = TIME_JUMPS.oneOf()
     all {
@@ -248,6 +269,9 @@ module delayed_upgrade_proxy {
       pausedInWindow' = if (pendingImpl != 0) pausedInWindow + dt else pausedInWindow,
       pendingImpl' = pendingImpl,
       queuedAt' = queuedAt,
+      carriedPause' = carriedPause,
+      // Pausing moves no clock; the pause is excluded as `advanceTime` crosses it.
+      unpausedInWindow' = unpausedInWindow,
       queueFirings' = queueFirings,
       unchangedImpl,
       unchangedAdmin,
@@ -255,15 +279,14 @@ module delayed_upgrade_proxy {
     }
   }
 
-  /// `resetGuardianPause` clears the latch but NOT `pausedUntil` - an in-flight
+  /// `resetGuardianPause` clears the latch but not `pausedUntil`: an in-flight
   /// pause runs to its end, and a second pause can then extend past it.
   action resetGuardianPause = all {
     guardianPauseUsed' = false,
-    // Counts *effective* resets only. An idempotent reset must not move the
-    // counter, or `inv_latchMatchesCounters` below could not pin the latch.
+    // Counts effective resets only. Resetting an already-clear latch must not
+    // move the counter, or `inv_latchMatchesCounters` could not pin the latch.
     resetFirings' = if (guardianPauseUsed) resetFirings + 1 else resetFirings,
-    // `pausedUntil` deliberately survives: clearing the latch does not end an
-    // in-flight pause, which is the asymmetry this action exists to model.
+    // Clearing the latch does not end an in-flight pause.
     pausedUntil' = pausedUntil,
     pauseFirings' = pauseFirings,
     unchangedUpgradeQueue,
@@ -283,11 +306,24 @@ module delayed_upgrade_proxy {
     }
   }
 
+  /// Moves the clock and, with an upgrade pending, credits the window with the
+  /// unpaused part of the interval it crosses. Pauses always start at the
+  /// current time, so the paused part of `[nowTs, end]` is a prefix ending at
+  /// `pausedUntil`. Time past `activationAt` is not credited.
   action advanceTime = {
     nondet dt = TIME_JUMPS.oneOf()
+    val end = if (nowTs + dt < activationAt) nowTs + dt else activationAt
+    val pausedEnd = if (pausedUntil < nowTs) nowTs else if (pausedUntil > end) end else pausedUntil
+    val credited = if (pendingImpl != 0 and end > nowTs) end - pausedEnd else 0
     all {
       nowTs' = nowTs + dt,
-      unchangedUpgradeQueue,
+      unpausedInWindow' = unpausedInWindow + credited,
+      pendingImpl' = pendingImpl,
+      activationAt' = activationAt,
+      queuedAt' = queuedAt,
+      pausedInWindow' = pausedInWindow,
+      carriedPause' = carriedPause,
+      queueFirings' = queueFirings,
       unchangedPauseLatch,
       unchangedImpl,
       unchangedAdmin,
@@ -309,39 +345,52 @@ module delayed_upgrade_proxy {
 
   /// The two halves of a queue are written and cleared together.
   ///
-  /// An arithmetic consequence of the transitions here; its value is in the
+  /// Follows arithmetically from the transitions; the check is meaningful in the
   /// replay, where both sides come from `pendingUpgrade()` on the real proxy.
   val inv_pendingIffActivation = (pendingImpl == 0) == (activationAt == 0)
 
-  /// The exit window is exactly the delay from the queue plus every pause that
-  /// landed inside it.
+  /// The exit window equals the delay from queueing, plus the pause still
+  /// running at queue time, plus every pause applied inside it.
   ///
-  /// The contract's headline claim, and the one property that needs a ghost to
-  /// state. An *equality* rather than a lower bound on purpose: `>=` is
-  /// satisfied by a window that was lengthened without being recorded, so it
-  /// misses an extension applied when none was due - which is the exact
-  /// mutation this spec exists to catch.
+  /// Stated as an equality rather than a lower bound: `>=` admits a window
+  /// extended when no extension was due, which is the mutation this spec
+  /// targets.
   val inv_windowIsExact =
-    pendingImpl == 0 or activationAt == queuedAt + UPGRADE_DELAY + pausedInWindow
+    pendingImpl == 0 or activationAt == queuedAt + carriedPause + UPGRADE_DELAY + pausedInWindow
+
+  /// Once a window has closed, it contained at least `UPGRADE_DELAY` unpaused
+  /// seconds: holders had the full exit however pauses and queues interleaved.
+  ///
+  /// A lower bound, since overlapping pauses are each credited to the window
+  /// in full. The exact arithmetic is `inv_windowIsExact`; this states what the
+  /// arithmetic is for, and fails for a queue that ignores a running pause.
+  val inv_exitWindowIsUnpaused =
+    pendingImpl == 0 or nowTs < activationAt or unpausedInWindow >= UPGRADE_DELAY
+
+  /// No window credits more time than has passed since it opened.
+  val inv_unpausedWithinElapsed = pendingImpl == 0 or unpausedInWindow <= nowTs - queuedAt
 
   /// A pause never runs longer than the permitted maximum.
   val inv_pauseBounded = pausedUntil == 0 or pausedUntil <= nowTs + MAX_PAUSE
 
-  /// The latch is one-shot between resets, and its live value agrees with the
-  /// counts. The bound alone is too weak: a reset that failed to clear the
-  /// latch satisfies it, because the counter still moves.
+  /// The latch is one-shot between resets, and its value agrees with the
+  /// counters. The bound alone is insufficient: a reset that fails to clear the
+  /// latch still moves the counter and satisfies it.
   val inv_pauseOneShot = pauseFirings - resetFirings <= 1
   val inv_latchMatchesCounters = guardianPauseUsed == (pauseFirings == resetFirings + 1)
 
   /// What the proxy serves is what the last activation promoted.
   val inv_implFollowsActivation = implVersion == lastActivated
 
-  /// The served implementation only ever becomes something that was queued.
+  /// The served implementation is always one of IMPLS.
   val inv_implIsAnImplementation = IMPLS.contains(implVersion)
 
   val allInvariants = and {
+    inv_constantsAreDeployable,
     inv_pendingIffActivation,
     inv_windowIsExact,
+    inv_exitWindowIsUnpaused,
+    inv_unpausedWithinElapsed,
     inv_pauseBounded,
     inv_pauseOneShot,
     inv_latchMatchesCounters,
@@ -351,26 +400,27 @@ module delayed_upgrade_proxy {
 
   // --- witnesses --------------------------------------------------------
 
-  /// THE target. A pause fired with nothing queued, so the latch was spent
-  /// without protecting any window - and a later queue got no extension for it.
-  /// A run that never reaches this has not tested the thing this spec is for.
-  val wit_pauseBeforeQueue = guardianPauseUsed and pendingImpl == 0
+  /// Primary target: a live window was queued while a pause was still running,
+  /// so `queueUpgrade` rather than `pauseSpends` kept the paused time out of it.
+  /// A run that never reaches this state has not exercised the ordering this
+  /// spec covers.
+  val wit_pauseBeforeQueue = pendingImpl != 0 and carriedPause > 0
 
-  /// The other ordering: a pause that did extend a live window.
+  /// The other ordering: a pause that extended a live window.
   val wit_pauseDuringWindow = pausedInWindow > 0
 
-  /// Activation exactly on the boundary block, which is the edge the guard
-  /// divides rather than either side of it.
+  /// The clock is exactly on `activationAt` with an upgrade pending, so
+  /// activation is enabled at the boundary the guard divides.
   val wit_activatedAtBoundary = pendingImpl != 0 and nowTs == activationAt
 
-  /// Pause, reset, pause again - the latch cycle.
+  /// Pause, reset, pause again: the latch cycle.
   val wit_relatch = pauseFirings > 1
 
-  /// More than one window was opened, so a cancel-or-activate was followed by a
-  /// fresh queue starting the delay again from scratch.
+  /// More than one window was opened: a cancel or activation followed by a
+  /// fresh queue that restarts the delay.
   val wit_requeued = queueFirings > 1
 
-  /// An upgrade actually landed - without this the whole spec could pass while
-  /// never once activating anything.
+  /// The proxy serves MockPoolV2, so at least one activation took effect.
+  /// Without this the spec could pass without ever activating.
   val wit_activated = implVersion == 2
 }

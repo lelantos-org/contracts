@@ -9,22 +9,21 @@ optimizer = true
 optimizer_runs = 1_000_000
 via_ir = true
 evm_version = "cancun"
-# Foundry 1.8 made `--isolate` the default: each top-level call runs as its own
-# transaction in a fresh EVM context, so account and storage warmth no longer
-# carries across calls. test/yield/YieldGas.t.sol warms both the plain and the
-# indexed path before measuring, and under isolate that warm-up is discarded —
-# every measured call restarts cold, inflating the plain-vs-indexed premium it
-# guards past its ceiling. Bytecode is byte-identical either way, so that is a
-# measurement change, not a regression. Keep the pre-1.8 semantics that
-# .gas-snapshot was taken under.
+# `--isolate` (the Foundry 1.8+ default) runs each top-level call as its own
+# transaction in a fresh EVM context, so account and storage warmth does not
+# carry across calls. test/yield/YieldGas.t.sol warms both the plain and the
+# indexed path before measuring; under isolate that warm-up is discarded and
+# every measured call starts cold, pushing the plain-vs-indexed premium it
+# guards past its ceiling. Bytecode is identical either way. Disabled to match
+# the semantics .gas-snapshot is taken under.
 isolate = false
 # Slither reads the AST out of `out/build-info`. Without this, `forge build
 # --build-info` emits `"ast": {}` for every .sol file that declares no
-# contract/library/interface — src/verifiers/VerifyingKeys.sol and
-# test/utils/FeeArrays.sol are constants-only — so their top-level constants
-# never reach Slither. Referencing one from inline assembly (SNARK_R in
-# BatchedGroth16Verifier) then aborts the entire run with "unresolved reference
-# to identifier SNARK_R". Output selection only; bytecode is unaffected.
+# contract/library/interface (src/verifiers/VerifyingKeys.sol and
+# test/utils/FeeArrays.sol), so their top-level declarations never reach
+# Slither. Referencing one from inline assembly (SNARK_R in
+# BatchedGroth16Verifier) then aborts the run with "unresolved reference to
+# identifier SNARK_R". Affects output selection only; bytecode is unchanged.
 ast = true
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
@@ -39,9 +38,35 @@ fs_permissions = [
     { access = "read", path = "out" },
     { access = "read", path = "script/config" },
 ]
-# OZ 5.6.1 ECDSA.sol uses `error` as identifier — warning 6335 (future keyword). Upstream unfixed.
+# OZ 5.6.1 ECDSA.sol uses `error` as an identifier (warning 6335, future keyword); not fixed upstream.
 ignored_warnings_from = ["lib"]
 chain_id = 31337
+
+# MASP does not fit EIP-170 (24,576 B) at the default 1_000_000 runs: it builds
+# to ~28.1 KB, and still exceeds the limit from ~5_000 runs up (~24.9 KB). At
+# high runs the optimizer spends bytecode for gas across the whole contract, so
+# no local rewrite recovers the gap; only moving logic into external libraries
+# would. Instead the pool and its linked libraries compile at the deploy
+# profile's 1_000 runs here too, so tests run exactly the bytecode that is
+# deployed while every other source keeps 1_000_000. `YieldOps` and
+# `DepositOps` must share the pool's profile: compiled under both, each produces
+# two library artifacts and linking fails. After changing these settings run `forge clean`, or a stale
+# cache reports the same duplicate-artifact error.
+[[profile.default.additional_compiler_profiles]]
+name = "pool"
+optimizer_runs = 1_000
+
+[[profile.default.compilation_restrictions]]
+paths = "src/MASP.sol"
+optimizer_runs = 1_000
+
+[[profile.default.compilation_restrictions]]
+paths = "src/yield/YieldOps.sol"
+optimizer_runs = 1_000
+
+[[profile.default.compilation_restrictions]]
+paths = "src/libs/DepositOps.sol"
+optimizer_runs = 1_000
 
 # Fork-test endpoints, used only by `test/swap/fork/`. Those tests `vm.skip`
 # themselves unless FORK_TESTS=1, so a checkout with none of these vars set
@@ -60,10 +85,9 @@ fail_on_revert = false
 [fuzz]
 runs = 256
 
-# Heavy nightly profile — driven by the `fuzz` workflow (see
-# .github/workflows/fuzz.yml). PR/CI keeps the default profile (256 runs /
-# depth 64); this profile cranks both fuzz and invariant depth so rare
-# corner cases surface before they reach prod.
+# Nightly profile used by the `fuzz` workflow (.github/workflows/fuzz.yml).
+# PR CI uses the default profile (256 runs / depth 64); this profile raises
+# fuzz runs and invariant depth to surface rare corner cases.
 [profile.fuzz.fuzz]
 runs = 10_000
 
@@ -73,30 +97,29 @@ depth = 256
 fail_on_revert = false
 
 [lint]
-# snarkjs-generated verifier files use lowercase constants by codegen; regenerated on circuit change.
-# unsafe-cheatcode (`vm.readFile`) is intentional for fixture loading in tests/scripts.
+# unsafe-cheatcode (`vm.readFile`) is required for fixture loading in tests and scripts.
 exclude_lints = ["unsafe-cheatcode"]
-# test/symbolic/ is listed because halmos only collects functions prefixed
-# `check_` (or `invariant_`), and forge-lint's `mixed-case-function` rejects
-# every one of them; suppressing that per function would mean a disable comment
-# on every test in the directory.
+# The snarkjs-generated verifier files use lowercase constants and are
+# regenerated on circuit change. test/symbolic/ is listed because halmos only
+# collects functions prefixed `check_` (or `invariant_`), which forge-lint's
+# `mixed-case-function` rejects; per-function suppression would need a disable
+# comment on every test in the directory.
 #
-# Note that `[lint].ignore` is inert: neither forge 1.5.1 nor 1.8.1 (the pinned
-# CI version) applies it, and `forge lint` reports the verifier files below just
-# as it does test/symbolic/. That is pre-existing rather than new, and it costs
-# nothing — lint findings are warnings and no CI job reads them. The entry
-# states the intent and takes effect if a release starts applying it.
+# `[lint].ignore` is not applied by forge 1.5.1 or 1.8.1 (the pinned CI
+# version), so `forge lint` still reports these paths. Lint findings are
+# warnings and no CI job reads them; the entry records intent and takes effect
+# if a release applies it.
 ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.sol", "test/symbolic/**"]
 
 # Deploy profile: keeps via_ir (avoids stack-too-deep) but lowers
-# optimizer_runs so MASP fits under EIP-170 (24576 B) on Arbitrum/L1/etc.
-# Use: `FOUNDRY_PROFILE=deploy forge script ...`. Default profile keeps
-# optimizer_runs = 1_000_000 for best hot-path gas in tests.
+# optimizer_runs so MASP fits under EIP-170 (24576 B) on Arbitrum, L1 and
+# similar chains. Use: `FOUNDRY_PROFILE=deploy forge script ...`. The default
+# profile uses optimizer_runs = 1_000_000 for hot-path gas in tests.
 #
 # 1k rather than 10k: the pool runs behind a proxy, so its whole initializer is
 # runtime code rather than initcode (a constructor cannot reach proxy storage),
 # which costs ~2.5 KB. Proof verification dominates a spend's gas and is
-# hand-written assembly, so it is largely insensitive to this.
+# hand-written assembly, so it is largely insensitive to this setting.
 [profile.deploy]
 src = "src"
 out = "out"
@@ -123,36 +146,34 @@ fs_permissions = [
 ignored_warnings_from = ["lib"]
 
 
-# Halmos profile: the build the symbolic tests under test/symbolic/ are explored
-# against. Halmos shells out to `forge build --ast` itself, inheriting
-# FOUNDRY_PROFILE from the environment, so this profile is what shapes the
-# bytecode it reasons about. `just halmos` sets it.
+# Halmos profile: the build the symbolic tests under test/symbolic/ run
+# against. Halmos runs `forge build --ast` itself, inheriting FOUNDRY_PROFILE
+# from the environment, so this profile determines the bytecode it reasons
+# about. `just halmos` sets it.
 #
-# Turning via_ir and the optimizer off would suit symbolic execution better —
-# the IR pipeline rewrites arithmetic into equivalent but much wider forms that
-# inflate the SMT encoding — but neither is optional here: MASP.sol does not
-# compile through legacy codegen (stack too deep), and via_ir without the
-# optimizer fails the same way inside the Yul backend. So this profile keeps
-# both and differs from `default` only in `optimizer_runs`, at the 1_000 the
-# `deploy` profile ships: less inlining than 1M, so the code halmos walks is
-# closer to the source, and it is a configuration known to compile.
+# Disabling via_ir and the optimizer would suit symbolic execution better (the
+# IR pipeline rewrites arithmetic into equivalent but wider forms that inflate
+# the SMT encoding), but neither is possible: MASP.sol does not compile through
+# legacy codegen (stack too deep), and via_ir without the optimizer fails the
+# same way in the Yul backend. This profile therefore keeps both and differs
+# from `default` only in `optimizer_runs`, using the deploy profile's 1_000:
+# less inlining than 1M keeps the code closer to the source, and the
+# configuration is known to compile.
 #
-# Separate out/cache paths: halmos builds
-# with `--ast --extra-output storageLayout metadata`, which is a different
-# output selection from the plain `forge build` the test/ABI/size jobs use, so
-# sharing `out/` would make every switch a full recompile in both directions.
+# Separate out/cache paths: halmos builds with
+# `--ast --extra-output storageLayout metadata`, a different output selection
+# from the plain `forge build` the test/ABI/size jobs use, so a shared `out/`
+# would force a full recompile on every switch.
 # `halmos.toml` points `forge-build-out` at the directory named here.
 [profile.halmos]
 src = "src"
 out = "out/halmos"
 cache_path = "cache/halmos"
-# Required, not a preference. Foundry 1.8 turned dynamic test linking on by
-# default, which compiles `new Contract()` in a test into `vm.deployCode`.
-# Halmos does not implement that cheatcode, so every test whose `setUp` deploys
-# a contract that way dies with "Unsupported cheat code: deployCode(string,
-# bytes)" — the DelayedUpgradeProxy and NativeAdapter suites failed wholesale
-# under forge 1.8.1 until this was set. The `slither` recipe passes
-# `--no-dynamic-test-linking` for its own version of the same problem.
+# Required: dynamic test linking (on by default from Foundry 1.8) compiles
+# `new Contract()` in a test into `vm.deployCode`. Halmos does not implement
+# that cheatcode, so any test whose `setUp` deploys a contract that way fails
+# with "Unsupported cheat code: deployCode(string,bytes)". The `slither`
+# recipe passes `--no-dynamic-test-linking` for a related issue.
 dynamic_test_linking = false
 libs = ["lib"]
 test = "test"
@@ -177,40 +198,39 @@ fs_permissions = [
 ignored_warnings_from = ["lib"]
 chain_id = 31337
 
-# Echidna profile: the build `just echidna` explores. Echidna shells out to
-# crytic-compile, which shells out to `forge build`, so this profile is what
-# shapes the bytecode it fuzzes.
+# Echidna profile: the build `just echidna` fuzzes. Echidna invokes
+# crytic-compile, which invokes `forge build`, so this profile determines the
+# bytecode it fuzzes.
 #
-# Two settings are load-bearing:
+# Two settings are required:
 #
-# `libraries` pre-links YieldOps at a fixed address. MASP links against it (12
-# call sites), and Foundry normally deploys and links it on the fly inside the
-# test EVM — a step Echidna has no equivalent of, so it aborts with "Unlinked
-# libraries detected in bytecode of contract src/MASP.sol:MASP". Pinning the
-# address here makes solc bake it into MASP's bytecode; `just echidna` then
-# places YieldOps' runtime code at that same address via Echidna's
-# `deployBytecodes`, so the calls land on real code. The address is arbitrary
-# and used by nothing else; it must stay in step with `ECHIDNA_YIELDOPS_ADDR`
-# in the justfile.
+# `libraries` pre-links YieldOps and DepositOps at fixed addresses. MASP links
+# against both (YieldOps at 12 call sites, DepositOps at the two deposit
+# pulls); Foundry normally deploys and links them inside the test EVM, which
+# Echidna cannot do, so it aborts with "Unlinked libraries detected in bytecode
+# of contract src/MASP.sol:MASP". Pinning the addresses makes solc embed them
+# in MASP's bytecode; `just echidna` then runs each library's creation code at
+# its address via Echidna's `deployBytecodes`, so the calls reach real code. The
+# addresses are arbitrary and otherwise unused; they must match
+# `ECHIDNA_YIELDOPS_ADDR` and `ECHIDNA_DEPOSITOPS_ADDR` in the justfile.
 #
 # `dynamic_test_linking = false` for the same reason the `slither` recipe
-# passes `--no-dynamic-test-linking`: foundry 1.8 turned it on by default,
-# which injects synthetic `foundry-pp/DeployHelperN.sol` sources that have no
+# passes `--no-dynamic-test-linking`: dynamic test linking (on by default from
+# Foundry 1.8) injects synthetic `foundry-pp/DeployHelperN.sol` sources with no
 # file on disk, and crytic-compile aborts on `Unknown file: foundry-pp/...`.
 #
-# Shares `out/` with the default profile, unlike `[profile.halmos]`. That is
-# not a preference: Echidna runs Slither for the constant extraction that seeds
-# its mutations, and Slither reaches the build through crytic-compile's Foundry
-# platform under `--ignore-compile`, which resolves the build-info directory
-# from `[profile.default].out` and ignores `FOUNDRY_PROFILE`. Point this
-# profile at its own `out/` and that step dies with `FileNotFoundError:
-# out/build-info/<hash>.output.json` — reported only as "Running slither
-# failed. Echidna will continue, however fuzzing will likely be less
-# effective", which is a silent quality regression rather than a failure.
+# Shares `out/` with the default profile, unlike `[profile.halmos]`, because
+# Echidna runs Slither for the constant extraction that seeds its mutations,
+# and Slither reaches the build through crytic-compile's Foundry platform under
+# `--ignore-compile`, which resolves the build-info directory from
+# `[profile.default].out` and ignores `FOUNDRY_PROFILE`. With a separate `out/`
+# that step fails with `FileNotFoundError: out/build-info/<hash>.output.json`,
+# reported only as the warning "Running slither failed. Echidna will continue,
+# however fuzzing will likely be less effective".
 #
-# The cost is that switching between this profile and the default one is a full
-# recompile each way, since `libraries` changes the bytecode. `just echidna`
-# absorbs that; it is the reason the recipe always builds before it runs.
+# As a result, switching between this profile and the default one recompiles
+# fully each way, since `libraries` changes the bytecode; `just echidna`
+# always builds before it runs for this reason.
 [profile.echidna]
 src = "src"
 libs = ["lib"]
@@ -222,7 +242,10 @@ optimizer_runs = 1_000
 via_ir = true
 evm_version = "cancun"
 dynamic_test_linking = false
-libraries = ["src/yield/YieldOps.sol:YieldOps:0x000000000000000000000000000000000000eC1d"]
+libraries = [
+    "src/yield/YieldOps.sol:YieldOps:0x000000000000000000000000000000000000eC1d",
+    "src/libs/DepositOps.sol:DepositOps:0x000000000000000000000000000000000000eC1e",
+]
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
     "forge-std/=lib/forge-std/src/",
@@ -247,9 +270,9 @@ ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.s
 
 # Verification. Foundry 1.5.1 defaults `--verifier` to sourcify, so real
 # deploys must pass `--verify --verifier etherscan` explicitly. Etherscan's V2
-# unified API means the single etherscan.io key below covers mainnet, Base and
-# Arbiscan alike — there is no separate Basescan key (and `arbscan` in .env is
-# empty). Key is read from the environment; .env is auto-loaded and gitignored.
+# unified API lets the single etherscan.io key below cover mainnet, Base and
+# Arbitrum; no separate Basescan or Arbiscan key is used. The key is read from
+# the environment; .env is auto-loaded and gitignored.
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}", chain = 1 }
 arbitrum = { key = "${ETHERSCAN_API_KEY}", chain = 42161 }

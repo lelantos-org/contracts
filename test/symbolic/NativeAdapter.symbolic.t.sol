@@ -20,24 +20,22 @@ import { deployMockedPool, PoolConstants } from "./PoolFixture.sol";
 
 /// Symbolic proofs for the native adapter's authorization boundary.
 ///
-/// The adapter is ownerless and permissionless by design: all of its authority
-/// comes from SNARK public inputs or its own escrow bookkeeping. That makes the
-/// handful of identity checks it does perform the whole of its access control,
-/// and each one guards real coin —
+/// The adapter is ownerless and permissionless: its authority comes from SNARK
+/// public inputs or its own escrow bookkeeping. Its identity checks are therefore
+/// its entire access control:
 ///
 /// - `d.payer` must be the adapter, since the pool pulls against the adapter's
 ///   Permit2 allowance rather than the caller's;
 /// - `pi.recipient` and `pi.relayer` must be the adapter on the withdraw leg,
-///   or the pool would push the proceeds somewhere the adapter cannot unwrap
-///   them;
-/// - only the wrapped-native contract may push raw coin in.
+///   or the pool would send proceeds where the adapter cannot unwrap them;
+/// - only the wrapped-native contract may send raw coin in.
 ///
 /// Every proof is a rejection pinned to its selector, and each reverts before
-/// the adapter touches the pool, so none of them reaches a spend path.
+/// the adapter calls the pool, so no spend path is reached.
 ///
-/// This does not extend `PoolFixture`: the pool here is denominated in wrapped
-/// native rather than a plain ERC-20, and none of the escrow helpers apply. It
-/// shares the fixture's pool wiring and constants through `deployMockedPool`.
+/// This does not extend `PoolFixture`: the pool is denominated in wrapped native
+/// rather than a plain ERC-20, and the escrow helpers do not apply. Pool wiring
+/// and constants are shared through `deployMockedPool`.
 contract NativeAdapterSymbolicTest is GuardAsserts {
     uint64 internal constant ASSET_ID = PoolConstants.ASSET_ID;
     address internal constant TREASURY = PoolConstants.TREASURY;
@@ -85,7 +83,7 @@ contract NativeAdapterSymbolicTest is GuardAsserts {
         pi.chainId = block.chainid;
         pi.publicOut = 1;
         SpendFixture.fillOutputs(pi, 0x100, 0x200);
-        PubInputs.TreeUpdateBatch memory tpi = SpendFixture.batchFor(pi, bytes32(0), bytes32(uint256(0xbeef)), 0);
+        PubInputs.SpendTree memory tpi = SpendFixture.spendTree(bytes32(uint256(0xbeef)), 0);
 
         IMASPPool.Proof memory p;
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
@@ -94,13 +92,12 @@ contract NativeAdapterSymbolicTest is GuardAsserts {
 
     // --- deposit leg --------------------------------------------------------
 
-    /// The escrow is opened as the adapter's own, so a request naming anyone
-    /// else as payer is refused — for every address.
+    /// The escrow is opened in the adapter's name, so a request naming any other
+    /// payer is refused.
     ///
     /// The pool pulls against the adapter's Permit2 allowance, which covers the
-    /// adapter's whole balance. A request that named a different payer while
-    /// still spending that allowance would escrow coin parked here for other
-    /// depositors awaiting their refunds.
+    /// adapter's whole balance. A request naming a different payer while spending
+    /// that allowance would escrow coin held for other depositors' refunds.
     function check_depositNative_rejectsAnyPayerButTheAdapter(address payer) public {
         vm.assume(payer != address(adapter));
         vm.deal(address(this), 1 ether);
@@ -110,8 +107,7 @@ contract NativeAdapterSymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, NativeAdapter.AdapterNotPayer.selector);
     }
 
-    /// A deposit carrying no coin is refused rather than opening an escrow the
-    /// caller never funded.
+    /// A deposit carrying no coin is refused, so no unfunded escrow is opened.
     function check_depositNative_rejectsZeroValue() public {
         (bool ok, bytes memory ret) = _depositNative(address(adapter), 0);
 
@@ -120,9 +116,8 @@ contract NativeAdapterSymbolicTest is GuardAsserts {
 
     // --- withdraw leg -------------------------------------------------------
 
-    /// The proof must name the adapter as the recipient. The pool pushes
-    /// wrapped coin to whoever `pi.recipient` names, and the adapter can only
-    /// unwrap what arrives here.
+    /// The proof must name the adapter as recipient: the pool sends wrapped coin
+    /// to `pi.recipient`, and the adapter can only unwrap what it receives.
     function check_withdrawNative_rejectsAnyRecipientButTheAdapter(address recipient) public {
         vm.assume(recipient != address(adapter));
 
@@ -131,10 +126,9 @@ contract NativeAdapterSymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, NativeAdapter.AdapterNotRecipient.selector);
     }
 
-    /// The proof must also name the adapter as the relayer, since the pool pins
-    /// `relayer == msg.sender` and the adapter is the caller. Checking it here
-    /// turns what would be an opaque `BadRelayer` from inside the pool into a
-    /// local, attributable rejection.
+    /// The proof must name the adapter as relayer, since the pool requires
+    /// `relayer == msg.sender` and the adapter is the caller. The local check
+    /// reports `AdapterNotRelayer` instead of the pool's `BadRelayer`.
     function check_withdrawNative_rejectsAnyRelayerButTheAdapter(address relayer) public {
         vm.assume(relayer != address(adapter));
 
@@ -145,22 +139,20 @@ contract NativeAdapterSymbolicTest is GuardAsserts {
 
     // --- raw coin -----------------------------------------------------------
 
-    /// Only the wrapped-native contract may push raw coin in, from every other
-    /// sender.
+    /// Raw coin from every sender other than the wrapped-native contract is
+    /// refused.
     ///
-    /// The adapter's refund accounting is measured in wrapped balance deltas,
-    /// and it holds native coin only transiently between an unwrap and a
-    /// forward. Coin arriving by any other route would sit here unattributed to
-    /// any escrow, so the adapter refuses it instead of silently custodying it.
+    /// Refund accounting uses wrapped balance deltas, and native coin is held only
+    /// transiently between an unwrap and a forward. Coin arriving by any other
+    /// route would not be attributed to any escrow.
     function check_receive_rejectsEverySenderButWrappedNative(address sender, uint256 amount) public {
         vm.assume(sender != address(weth));
         vm.assume(amount > 0 && amount <= 1 ether);
         vm.deal(sender, amount);
 
-        // Compared as a delta, not against zero. Halmos initialises account
-        // balances symbolically, and an adapter balance of zero is not a
-        // property of the contract anyway — coin can always be forced in. What
-        // it does guarantee is that a refused push leaves nothing behind.
+        // Compared as a delta, not against zero: halmos initialises balances
+        // symbolically, and coin can always be forced in (e.g. selfdestruct).
+        // The property is that a refused transfer leaves the balance unchanged.
         uint256 balanceBefore = address(adapter).balance;
 
         vm.prank(sender);

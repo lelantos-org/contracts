@@ -16,9 +16,9 @@ import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/Pool
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// End-to-end test: real `tree_update_batch` Groth16 proof, real verifier
-/// contract. Submits one deposit, then flushes with the fixture proof.
-/// Asserts the verifier accepts the proof and the tree advances.
+/// End-to-end flush with a real `tree_update_batch` Groth16 proof and verifier
+/// contract: one deposit, flushed with the fixture proof, with the verifier
+/// accepting and the tree advancing. Skipped until a matching fixture exists.
 contract MASPFlushBatchSnarkTest is Test {
     string internal constant FIXTURE = "test/fixtures/proof_deposit_batch_n1.json";
 
@@ -69,7 +69,7 @@ contract MASPFlushBatchSnarkTest is Test {
         oldRoot = bytes32(vm.parseJsonUint(j, ".oldRoot"));
         newRoot = bytes32(vm.parseJsonUint(j, ".newRoot"));
 
-        // 32 cm slots
+        // 32 cm slots.
         for (uint256 i = 0; i < 32; i++) {
             string memory key = string.concat(".cms[", vm.toString(i), "]");
             cms[i] = bytes32(vm.parseJsonUint(j, key));
@@ -86,16 +86,13 @@ contract MASPFlushBatchSnarkTest is Test {
     }
 
     function test_realSnark_n1_flushBatchSucceeds() public {
-        // Fixture is stale w.r.t. the C-1 deposit-binding PIs (pair_asset,
-        // pair_public_in, cv_dep). It was built with zero-value zero-blinder
-        // notes (pair_public_in=0), but `deposit` rejects publicIn==0,
-        // so the on-chain escrow record cannot match the SNARK's PIs. Rebuild
-        // via `script/fixtures/gen_proof_deposit_batch.ts` with real Pedersen
-        // value commitments (publicIn > 0, pair_asset = ASSET_ID) before
-        // re-enabling. Loader also needs to read cvDeps/pairAsset/pairPublicIn
-        // /isDeposit and the cms array size must drop to MAX_L_BATCH=4.
+        // TODO: requires a fixture that carries the deposit-binding PIs
+        // (pair_asset, pair_public_in, cv_dep) with Pedersen value commitments
+        // (publicIn > 0, pair_asset = ASSET_ID). `deposit` rejects
+        // publicIn == 0, so zero-value notes cannot match an on-chain escrow
+        // record. The loader must also read cvDeps, leafAsset, leafPublicIn and
+        // isDeposit, and size the cms array to MAX_L_BATCH.
         vm.skip(true);
-        // Body removed (unreachable) until fixture is regenerated with real
-        // Pedersen commitments. See git history for original reference body.
+        // The test body is added once the fixture exists.
     }
 }

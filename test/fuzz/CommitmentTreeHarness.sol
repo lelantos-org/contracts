@@ -4,17 +4,17 @@ pragma solidity 0.8.36;
 import { CommitmentTree } from "../../src/CommitmentTree.sol";
 
 /// Concrete subclass exposing `_advanceRoot` for fuzzing. The base contract is
-/// abstract because `MASP` mixes it with access control and SNARK gating; this
-/// harness exercises the ring-buffer/known-root bookkeeping in isolation.
+/// abstract because `MASP` combines it with access control and SNARK gating;
+/// this harness exercises the ring-buffer/known-root bookkeeping in isolation.
 contract CommitmentTreeHarness is CommitmentTree {
-    /// The base seeds the genesis root from an initializer, since in production
-    /// it runs behind a proxy. This harness has none, so it seeds itself.
+    /// In production the genesis root is seeded from the proxy initializer. The
+    /// harness is not proxied, so it seeds the root in its constructor.
     constructor() {
         _initCommitmentTree();
     }
 
-    /// Re-export the ring-buffer size so tests do not redeclare the constant;
-    /// kept in sync with `CommitmentTree.ROOT_HISTORY` by inheritance.
+    /// Ring-buffer size, re-exported from `CommitmentTree.ROOT_HISTORY` so tests
+    /// do not redeclare the constant.
     uint256 public constant ROOT_HISTORY_SIZE = ROOT_HISTORY;
 
     function advanceRoot(bytes32 newRoot, uint64 inserted) external {

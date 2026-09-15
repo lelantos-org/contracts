@@ -4,9 +4,10 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 import { CommitmentTreeHarness } from "./CommitmentTreeHarness.sol";
 
-/// Fuzz the lazy-root ring buffer in isolation, independent of the SNARK.
-/// `_advanceRoot` is a state machine over (roots, isKnownRoot, committedCount);
-/// the invariants below hold for any caller-supplied root sequence.
+/// Fuzzes the lazy-root ring buffer in isolation, independent of the SNARK.
+/// `_advanceRoot` is a state machine over (roots, rootIndex, committedCount), and
+/// `isKnownRoot`/`rootIndexOf` read the ring; the properties below hold for any
+/// caller-supplied root sequence.
 contract CommitmentTreeFuzzTest is Test {
     CommitmentTreeHarness tree;
     uint256 internal ROOT_HISTORY;
@@ -28,7 +29,8 @@ contract CommitmentTreeFuzzTest is Test {
             expectedCount += step;
             last = rs[i];
             assertEq(tree.currentRoot(), last);
-            assertTrue(tree.isKnownRoot(last));
+            // Zero marks an unfilled slot and is never known.
+            assertEq(tree.isKnownRoot(last), last != bytes32(0));
             assertEq(tree.committedCount(), expectedCount);
         }
     }
@@ -44,17 +46,16 @@ contract CommitmentTreeFuzzTest is Test {
         }
     }
 
-    /// After ROOT_HISTORY+1 advances the genesis root is evicted unless one of
-    /// the pushed roots equals it. Roots are forced distinct to keep the
-    /// assertion deterministic.
+    /// After ROOT_HISTORY advances the genesis root is evicted, provided no
+    /// pushed root equals it. Roots are derived from distinct keccak preimages
+    /// to keep the assertion deterministic.
     function testFuzz_GenesisEvictedAfterFullCycle(bytes32 seed) public {
         bytes32 genesis = tree.currentRoot();
-        // ROOT_HISTORY pushes evict slot 0 (the next index after genesis is 1,
-        // so it takes a full lap to come back around and overwrite slot 0).
+        // Genesis sits at slot 0 and the first push lands at slot 1, so the
+        // ROOT_HISTORY-th push wraps around and overwrites slot 0.
         for (uint256 i; i < ROOT_HISTORY; ++i) {
             bytes32 r = keccak256(abi.encode(seed, i));
-            // Vanishingly unlikely keccak collision, but skip if it ever happens
-            // to be the genesis root or any earlier push (would re-set isKnownRoot).
+            // A pushed root equal to genesis would keep it in the ring.
             vm.assume(r != genesis);
             tree.advanceRoot(r, 0);
         }
@@ -62,14 +63,45 @@ contract CommitmentTreeFuzzTest is Test {
         assertEq(tree.rootAt(0), keccak256(abi.encode(seed, ROOT_HISTORY - 1)));
     }
 
-    /// Re-pushing the same root twice in a row keeps it `isKnownRoot == true`
-    /// — the eviction guard skips flipping the flag when `evicted == newRoot`.
+    /// Re-pushing the same root keeps it known, at the newest slot.
     function testFuzz_SameRootReinsertStaysKnown(bytes32 r, uint8 reps) public {
+        vm.assume(r != bytes32(0));
         reps = uint8(bound(reps, 1, 100));
         for (uint256 i; i < reps; ++i) {
             tree.advanceRoot(r, 0);
             assertTrue(tree.isKnownRoot(r));
             assertEq(tree.currentRoot(), r);
+            (bool found, uint256 index) = tree.rootIndexOf(r);
+            assertTrue(found);
+            assertEq(index, tree.rootIndex());
+        }
+    }
+
+    /// `rootIndexOf` agrees with the ring for every root pushed, until it is
+    /// evicted: the slot it names holds the root, and it is the newest such slot.
+    function testFuzz_RootIndexOf_matchesRing(bytes32 seed, uint8 n) public {
+        uint256 pushes = bound(n, 1, 3 * ROOT_HISTORY);
+        for (uint256 i; i < pushes; ++i) {
+            // A small domain, so roots repeat across the wrap.
+            tree.advanceRoot(bytes32(uint256(keccak256(abi.encode(seed, i % 5))) | 1), 1);
+        }
+        for (uint256 k; k < 5; ++k) {
+            bytes32 r = bytes32(uint256(keccak256(abi.encode(seed, k))) | 1);
+            (bool found, uint256 index) = tree.rootIndexOf(r);
+            bool inRing;
+            uint256 newest;
+            // Walk back from the current slot; the first hit is the newest.
+            for (uint256 j; j < ROOT_HISTORY; ++j) {
+                uint256 slot = (uint256(tree.rootIndex()) + ROOT_HISTORY - j) % ROOT_HISTORY;
+                if (tree.rootAt(slot) == r) {
+                    inRing = true;
+                    newest = slot;
+                    break;
+                }
+            }
+            assertEq(found, inRing, "found iff in ring");
+            assertEq(tree.isKnownRoot(r), inRing, "isKnownRoot agrees");
+            if (found) assertEq(index, newest, "newest slot");
         }
     }
 }

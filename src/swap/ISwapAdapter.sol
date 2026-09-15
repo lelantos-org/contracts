@@ -5,6 +5,10 @@ pragma solidity 0.8.36;
 /// `tokenIn`; the adapter swaps and pushes `actualOut` of `tokenOut` back to
 /// `msg.sender`, reverting if `actualOut < minOut`. `deadline` is forwarded as
 /// defense in depth; the wrapper also enforces it.
+///
+/// An adapter must consume all of `amountIn` or revert. The wrapper's leftover
+/// check covers only its own balances, so input a venue leaves unswapped in the
+/// adapter would be stranded; a revert instead unwinds `venueLeg` into a refund.
 interface ISwapAdapter {
     function swap(
         address tokenIn,

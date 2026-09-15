@@ -12,13 +12,10 @@ interface IMintable {
 
 /// Test stub for the UniversalRouter's `V4_SWAP` path.
 ///
-/// Unlike `MockSwapRouter02`, this mock **decodes and asserts the full
-/// command/action/params encoding** rather than accepting whatever it is
-/// handed. That is the point of it: a permissive mock would pass even if the
-/// adapter's V4 calldata were wrong in every field, since the mock and the
-/// adapter would simply share the same mistaken assumption. Every constant
-/// checked below was read off the deployed mainnet UniversalRouter's verified
-/// source.
+/// Unlike `MockSwapRouter02`, this mock decodes and asserts the full
+/// command/action/params encoding. A permissive mock would accept adapter V4
+/// calldata that is wrong in every field. Every constant checked below matches
+/// the deployed mainnet UniversalRouter's verified source.
 ///
 /// Output resolution mirrors `MockSwapRouter02`: `nextOut` override, else the
 /// linear `rate` table, else revert.

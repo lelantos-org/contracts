@@ -175,8 +175,9 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             //
             // The transcript is the calldata body verbatim. Without this check
             // a caller could append trailing bytes and resample `r2` for an
-            // otherwise fixed instance. Each resample still costs a ~2^254
-            // search; this removes the sampling oracle for 3 gas.
+            // otherwise fixed instance. A resample still faces a ~2^-254
+            // success probability; the check removes the sampling oracle for
+            // 3 gas.
             // ---------------------------------------------------------------
             if iszero(eq(calldatasize(), CD_LEN)) { reject() }
 
@@ -265,16 +266,15 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // arithmetic op, so an unreduced encoding is rejected by ECMUL rather
             // than folded to a canonical point. Negating the calldata `y` before
             // multiplying would make two encodings of one instance hash to two
-            // transcripts and hand a prover free `r2` resamples; add an
-            // `lt(a2y, SNARK_Q)` check before reordering.
+            // transcripts and give a prover free `r2` resamples; reordering
+            // requires an `lt(a2y, SNARK_Q)` check.
             g1Mul(calldataload(0x144), calldataload(0x164), r2, add(pair, 0xc0), scr)
             mstore(add(pair, 0xe0), mod(sub(SNARK_Q, mload(add(pair, 0xe0))), SNARK_Q))
             calldatacopy(add(pair, 0x100), 0x184, 0x80)
 
             // Pair 2 — ((1 + r2) * alpha, beta), the two shared alpha/beta terms
-            // folded into one. When `r2 == SNARK_R - 1` the scalar is 0 and this
-            // becomes the point at infinity, which is correct: the regrouping
-            // identity holds unconditionally.
+            // folded into one. When `r2 == SNARK_R - 1` the scalar is 0 and the
+            // point is at infinity; the regrouping identity still holds.
             g1Mul(VK_ALPHA_X, VK_ALPHA_Y, addmod(1, r2, SNARK_R), add(pair, 0x180), scr)
             mstore(add(pair, 0x1c0), VK_BETA_X1)
             mstore(add(pair, 0x1e0), VK_BETA_X2)

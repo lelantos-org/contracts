@@ -67,6 +67,66 @@ contract UniV3AdapterTest is Test {
         new UniV3Adapter(address(router), address(0));
     }
 
+    /// A single-hop fill stopped early by `sqrtPriceLimitX96` pulls part of the
+    /// input. The remainder would be stranded on the adapter, so the swap
+    /// reverts even though the output clears `minOut`.
+    function testRevertsOnPartialFillSingleHop() public {
+        _fund(1_000e18, 990e18);
+        router.setConsumeBps(5_000);
+        bytes memory route = abi.encode(uint24(500), uint160(1));
+        vm.expectRevert(abi.encodeWithSelector(UniV3Adapter.PartialFill.selector, 500e18, 1_000e18));
+        adapter.swap(address(tokenIn), address(tokenOut), 1_000e18, 990e18, type(uint256).max, route);
+    }
+
+    /// As above, for a multi-hop path that runs out of liquidity.
+    function testRevertsOnPartialFillMultiHop() public {
+        _fund(1_000e18, 980e18);
+        router.setConsumeBps(9_999);
+        bytes memory route = _path(address(tokenIn), address(tokenOut));
+        vm.expectRevert(abi.encodeWithSelector(UniV3Adapter.PartialFill.selector, 999.9e18, 1_000e18));
+        adapter.swap(address(tokenIn), address(tokenOut), 1_000e18, 980e18, type(uint256).max, route);
+    }
+
+    /// A multi-hop path must start at `tokenIn`, or the router would spend a
+    /// token the adapter never measures.
+    function testRevertsOnPathFirstTokenMismatch() public {
+        _fund(1_000e18, 980e18);
+        bytes memory route = _path(address(tokenOut), address(tokenOut));
+        vm.expectRevert(UniV3Adapter.BadPath.selector);
+        adapter.swap(address(tokenIn), address(tokenOut), 1_000e18, 980e18, type(uint256).max, route);
+    }
+
+    /// A multi-hop path must end at `tokenOut`, or the output would arrive in a
+    /// token the balance delta never reads.
+    function testRevertsOnPathLastTokenMismatch() public {
+        _fund(1_000e18, 980e18);
+        bytes memory route = _path(address(tokenIn), address(0xBADBABE));
+        vm.expectRevert(UniV3Adapter.BadPath.selector);
+        adapter.swap(address(tokenIn), address(tokenOut), 1_000e18, 980e18, type(uint256).max, route);
+    }
+
+    /// A path must be `token || [fee || token] * hops` with at least one hop.
+    /// Every other length but the 64-byte single-hop encoding is rejected, even
+    /// when both ends name the right tokens.
+    function testRevertsOnMalformedPathLength() public {
+        _fund(1_000e18, 980e18);
+        bytes[4] memory routes = [
+            abi.encodePacked(address(tokenIn)),
+            abi.encodePacked(address(tokenIn), address(tokenOut)),
+            abi.encodePacked(address(tokenIn), uint24(500), uint8(0), address(tokenOut)),
+            abi.encodePacked(address(tokenIn), uint24(500), address(tokenOut), uint24(3000))
+        ];
+        for (uint256 i; i < routes.length; ++i) {
+            vm.expectRevert(UniV3Adapter.BadPath.selector);
+            adapter.swap(address(tokenIn), address(tokenOut), 1_000e18, 980e18, type(uint256).max, routes[i]);
+        }
+    }
+
+    /// Two-hop packed path `first || fee || mid || fee || last`.
+    function _path(address first, address last) internal pure returns (bytes memory) {
+        return abi.encodePacked(first, uint24(500), address(0xBADBABE), uint24(3000), last);
+    }
+
     /// `swap` is pinned to the wrapper. Without that, any caller could route
     /// tokens donated to the adapter to themselves.
     function testRevertsOnUnauthorizedCaller() public {

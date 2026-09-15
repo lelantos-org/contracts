@@ -17,10 +17,10 @@ import { FixtureLoader } from "../utils/FixtureLoader.sol";
 import { uniformBps } from "../utils/FeeArrays.sol";
 import { deployPool, mockVerifierStack, noAssets } from "../utils/PoolDeployer.sol";
 
-/// Fuzz `_validateAux`: bounds-check on every output ciphertext + clue-bits
-/// prefix mask. Aux validation runs before the SNARK call — a downstream
-/// revert (UnknownAsset / UnknownRoot) confirms aux validation passed, and an
-/// aux-specific revert confirms it caught the bad input.
+/// Fuzzes aux validation: the length bounds on every output ciphertext and the
+/// clue-bits prefix mask. Aux validation runs before the SNARK call, so a
+/// downstream revert (UnknownAsset / UnknownRoot) shows aux validation passed,
+/// and an aux-specific revert shows it rejected the input.
 contract MASPAuxFuzzTest is Test {
     uint16 internal constant CLUE_BITS_MASK = 0x3FFF;
     uint256 internal constant MIN_LEN = 2;
@@ -48,8 +48,10 @@ contract MASPAuxFuzzTest is Test {
         pi.relayer = relayer;
     }
 
-    function _baseTpi(PubInputs.Transact memory pi) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
-        return SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(uint256(0xdeadbeef)), masp.committedCount());
+    /// Anchored at `pi.merkleRoot`'s slot; an unknown root gets slot 0.
+    function _baseTpi(PubInputs.Transact memory pi) internal view returns (PubInputs.SpendTree memory) {
+        (, uint256 anchorIndex) = masp.rootIndexOf(pi.merkleRoot);
+        return SpendFixture.spendTree(bytes32(uint256(0xdeadbeef)), masp.committedCount(), uint8(anchorIndex));
     }
 
     function _aux(bytes memory c0, bytes memory c1) internal pure returns (AuxValidation.Output[6] memory aux) {
@@ -63,9 +65,9 @@ contract MASPAuxFuzzTest is Test {
         return FixtureLoader.emptyProof();
     }
 
-    /// Valid aux: length within [MIN_LEN, MAX_LEN] and clueBits prefix's top
-    /// two bits zero. `_validateAux` must pass; transaction reverts later on
-    /// `UnknownAsset` (registry empty).
+    /// Valid aux: length within [MIN_LEN, MAX_LEN] and the clueBits prefix's top
+    /// two bits zero. Aux validation passes and the transaction reverts later
+    /// on `UnknownAsset` (registry empty).
     function testFuzz_ValidAuxReachesAssetLookup(bytes memory body0, bytes memory body1, uint16 prefix0, uint16 prefix1)
         public
     {
@@ -79,7 +81,7 @@ contract MASPAuxFuzzTest is Test {
         bytes memory ct1 = abi.encodePacked(prefix1, b1);
 
         PubInputs.Transact memory pi = _basePi();
-        PubInputs.TreeUpdateBatch memory tpi = _baseTpi(pi);
+        PubInputs.SpendTree memory tpi = _baseTpi(pi);
 
         vm.prank(relayer);
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(0)));
@@ -88,8 +90,8 @@ contract MASPAuxFuzzTest is Test {
 
     /// Length below MIN_LEN → CiphertextTooShort; above MAX_LEN → CiphertextTooLong.
     function testFuzz_LengthOutOfBoundsReverts(uint256 badLen, uint256 goodLen, bool badIsFirst, bytes32 fill) public {
-        // `badLen` ∈ {0..MIN_LEN-1} ∪ {MAX_LEN+1..1024} — definitively OOB.
-        // Half the seeds land below MIN_LEN, half above MAX_LEN.
+        // `badLen` ∈ {0..MIN_LEN-1} ∪ {MAX_LEN+1..1024}. Parity of the seed
+        // selects below MIN_LEN or above MAX_LEN.
         if (badLen % 2 == 0) {
             badLen = bound(badLen, 0, MIN_LEN - 1);
         } else {
@@ -102,7 +104,7 @@ contract MASPAuxFuzzTest is Test {
         bytes memory ct1 = _fill(len1, fill);
 
         PubInputs.Transact memory pi = _basePi();
-        PubInputs.TreeUpdateBatch memory tpi = _baseTpi(pi);
+        PubInputs.SpendTree memory tpi = _baseTpi(pi);
 
         vm.prank(relayer);
         vm.expectRevert(
@@ -120,7 +122,7 @@ contract MASPAuxFuzzTest is Test {
         (bytes memory ct0, bytes memory ct1) = badIsFirst ? (badCt, good) : (good, badCt);
 
         PubInputs.Transact memory pi = _basePi();
-        PubInputs.TreeUpdateBatch memory tpi = _baseTpi(pi);
+        PubInputs.SpendTree memory tpi = _baseTpi(pi);
 
         vm.prank(relayer);
         vm.expectRevert(AuxValidation.BadClueBits.selector);
@@ -138,8 +140,8 @@ contract MASPAuxFuzzTest is Test {
 
     function _fill(uint256 len, bytes32 seed) internal pure returns (bytes memory out) {
         out = new bytes(len);
-        // Reserve first 2 bytes as zero clueBits prefix so length-bound tests
-        // are not confounded by prefix-mask reverts.
+        // The first 2 bytes stay zero as the clueBits prefix, so length-bound
+        // tests do not hit prefix-mask reverts.
         for (uint256 i = 2; i < len; ++i) {
             out[i] = bytes1(uint8(uint256(keccak256(abi.encode(seed, i)))));
         }

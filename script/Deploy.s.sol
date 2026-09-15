@@ -3,13 +3,14 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import { ExitTerms } from "../src/libs/ExitTerms.sol";
 import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 
 /// Mainnet (or any non-ephemeral chain) deploy. Deploys only the contracts
 /// owned by this repo: `TreeUpdateBatchGroth16Verifier`,
 /// `BatchedGroth16Verifier`, `MASP`, and, when `wrappedNative` is configured,
-/// `NativeAdapter`. External dependencies — Permit2, the chain's wrapped native
-/// coin, and the registered ERC-20 tokens — come from a JSON config
+/// `NativeAdapter`. External dependencies (Permit2, the chain's wrapped native
+/// coin, and the registered ERC-20 tokens) come from a JSON config
 /// (`MAINNET_CONFIG`, default `script/config/mainnet.json`). Reverts if any
 /// required address has no code at deploy time.
 ///
@@ -22,20 +23,22 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 ///     "treasury": "0x...",
 ///     "owner":       "0x...",   pool owner (ProtocolAdmin in production)
 ///     "proxyAdmin":  "0x...",   may queue/cancel/activate upgrades and pause
-///     "upgradeDelay": 2592000,  30d exit window; IMMUTABLE once deployed
+///     "upgradeDelay": 2592000,  30d exit window; immutable once deployed; at
+///                               most `ExitTerms.DELAY` (30d)
 ///     "maxPause":     604800,   7d ceiling on a single guardian pause
 ///     "ids":      [1, 2, 3],
 ///     "tokens":   ["0x...", ...], parallel to ids, must have code
 ///     "scales":   ["1e10", "1", "1"]  parallel to ids
 ///   }
 ///
-/// Fee guidance: rates are per asset and per leg, and there is no pool-wide
-/// fallback — a zero in these arrays is a real zero, not "unset". Both are
-/// capped at `MAX_FEE_BPS` (2000 = 20%) and are fixed at registration; only
-/// `setAssetFee(id, depositBps, withdrawBps)` changes them afterwards. Note
-/// the two legs are not protected equally: a deposit rate is snapshotted into
-/// the escrow digest at submit, while a withdraw rate is read live at
-/// execution and is bound by nothing the spender signed.
+/// Fee guidance: rates are per asset and per leg, with no pool-wide fallback;
+/// a zero in these arrays is a zero rate, not "unset". Both are capped at
+/// `MAX_FEE_BPS` (2000 = 20%) and set at registration; only
+/// `setAssetFee(id, depositBps, withdrawBps)` changes them afterwards. The two
+/// legs are not protected equally: a deposit rate is snapshotted into the
+/// escrow digest at submit, while a withdraw rate is read at execution and is
+/// not bound by anything the spender signed, so a withdraw raise is queued for
+/// `ExitTerms.DELAY` before `commitExitTerms` can apply it.
 ///
 /// Scale guidance: `publicIn = baseUnits / scale` must fit `uint48` (~2.81e14).
 /// 18-decimal tokens require `scale >= 1e10` (cap ~2.8M tokens); 6- and
@@ -66,10 +69,14 @@ contract Deploy is BaseDeploy {
         p.proxyAdmin = vm.parseJsonAddress(j, ".proxyAdmin");
         p.upgradeDelay = vm.parseJsonUint(j, ".upgradeDelay");
         p.maxPause = vm.parseJsonUint(j, ".maxPause");
-        // The exit window is immutable once deployed, so a zero or very short
-        // value ships a pool whose upgrades are effectively immediate.
+        // The exit window is immutable once deployed; a zero or very short
+        // value makes upgrades effectively immediate.
         require(p.upgradeDelay >= 7 days, "upgradeDelay too short");
-        require(p.maxPause > 0 && p.maxPause <= 30 days, "maxPause out of range");
+        // Both mirror the proxy constructor, failing the script before broadcast.
+        // Together they also bound `maxPause` below `ExitTerms.DELAY`.
+        require(p.upgradeDelay <= ExitTerms.DELAY, "upgradeDelay exceeds the exit-term notice");
+        require(p.maxPause > 0, "maxPause unset");
+        require(p.maxPause < p.upgradeDelay, "maxPause must be shorter than upgradeDelay");
         require(p.proxyAdmin != address(0), "proxyAdmin unset");
 
         uint256[] memory rawIds = vm.parseJsonUintArray(j, ".ids");
@@ -81,8 +88,8 @@ contract Deploy is BaseDeploy {
         require(p.scales.length == n, "config length mismatch");
 
         // Parsed as uint256 (the cheatcode has no uint16 array form) and
-        // narrowed here; a value past the fee ceiling reverts in `_addAsset`
-        // rather than wrapping silently.
+        // narrowed here after a range check; a value above the fee ceiling
+        // reverts in `_addAsset`.
         uint256[] memory rawDeposit = vm.parseJsonUintArray(j, ".depositBps");
         uint256[] memory rawWithdraw = vm.parseJsonUintArray(j, ".withdrawBps");
         require(rawDeposit.length == n, "config length mismatch");

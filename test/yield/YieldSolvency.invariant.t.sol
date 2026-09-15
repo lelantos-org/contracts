@@ -12,6 +12,7 @@ import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { ERC4626Venue } from "../../src/yield/ERC4626Venue.sol";
 import { YieldIndex } from "../../src/yield/YieldIndex.sol";
 
@@ -26,15 +27,16 @@ import { TestConstants } from "../utils/TestConstants.sol";
 
 /// Drives random sequences over one plain id and one yield id sharing a single
 /// ERC-20, across the whole surface: shield, escrow flush and cancel, unshield,
-/// venue growth and loss, rebalance, sweep, unwind and resume.
+/// venue growth and loss, rebalance, sweep, unwind and resume, and parameter
+/// changes with their delayed commit.
 ///
-/// Every call is wrapped in `try`, so a sequence that happens to be invalid —
-/// cancelling before the delay, withdrawing more than exists — advances the run
-/// instead of aborting it.
+/// Every call is wrapped in `try`, so an invalid sequence (cancelling before
+/// the delay, withdrawing more than exists) advances the run instead of
+/// aborting it.
 ///
 /// Payouts are attributed by measuring balance deltas around each call, with a
-/// distinct recipient per asset id. That is what lets the conservation
-/// invariant separate the two ids' claims on one shared token balance.
+/// distinct recipient per asset id, so the conservation invariant can separate
+/// the two ids' claims on one shared token balance.
 contract YieldHandler is Test {
     uint64 internal constant PLAIN_ID = 1;
     uint64 internal constant YIELD_ID = 9;
@@ -62,6 +64,8 @@ contract YieldHandler is Test {
         uint256 seed;
         uint32 submittedAt;
         bool settled;
+        /// Underlying pulled at submit; a cancel refunds no more.
+        uint256 pulled;
     }
 
     Escrow[] public escrows;
@@ -69,10 +73,9 @@ contract YieldHandler is Test {
     /// Base units the plain id has taken in and not yet paid out.
     ///
     /// Measured from actual transfers rather than recomputed from the fee
-    /// rates. An earlier version modelled it as `units + fee` and double
-    /// counted at flush, where the fee stops backing notes and becomes
-    /// `accruedFee` — the treasury's claim sits inside this figure either way,
-    /// because it does not leave the pool until it is swept.
+    /// rates: at flush the fee stops backing notes and becomes `accruedFee`, so
+    /// a `units + fee` model would double count. The treasury's claim is
+    /// included in this figure because it stays in the pool until swept.
     uint256 public plainHeld;
     uint256 public seed = 0x1000;
 
@@ -88,19 +91,22 @@ contract YieldHandler is Test {
     uint256 public venueLost;
 
     // --- coverage counters ---------------------------------------------------
-    /// Every handler call is wrapped in `try`, which makes it easy for a whole
-    /// path to silently never execute and for the invariants to pass over a
-    /// history that never reached it. `YieldHandlerCoverageTest` drives each of
-    /// these directly and asserts it moves.
+    /// Every handler call is wrapped in `try`, so a path can fail on every
+    /// attempt without signal and the invariants then pass over histories that
+    /// never reach it. `YieldHandlerCoverageTest` drives each path directly and
+    /// asserts its counter moves.
     uint256 public shields;
     uint256 public flushes;
     uint256 public cancels;
     uint256 public exits;
     uint256 public sweeps;
     uint256 public unwinds;
-    /// Times the fee went from off to on. The stale-high-water-mark bug lived
-    /// exactly on this transition, so the runs must be shown to reach it.
+    /// Times the fee went from off to on. The high-water-mark re-mark applies
+    /// on this transition, so the runs must be shown to reach it. Only a
+    /// commit can enable the fee: going from zero is always a raise.
     uint256 public feeEnabled;
+    /// Queued raises committed.
+    uint256 public commits;
 
     // --- monotonicity ghosts -------------------------------------------------
     bool public sawLoss;
@@ -110,6 +116,12 @@ contract YieldHandler is Test {
     bool public indexFellWithoutLoss;
     uint256 public lastMark = 1e27;
     bool public markFell;
+
+    // --- escrow ghosts -------------------------------------------------------
+    /// Set when a cancel refunds more than its escrow pulled at submit. The
+    /// escrow shares the index while it waits but is capped at its pull, so
+    /// parking funds in an escrow that is never flushed cannot earn.
+    bool public refundExceededPull;
 
     constructor(
         MASP m,
@@ -138,11 +150,11 @@ contract YieldHandler is Test {
     function _observe() internal {
         YieldIndex.YieldState memory st = masp.yieldState(YIELD_ID);
 
-        // An empty asset reports `RAY` by convention, not by measurement: with
-        // no units outstanding there is no rate to speak of. Comparing across
-        // that boundary is meaningless — the last holder exiting a pool that
-        // had grown reads as a fall from its final index back to `RAY` — so
-        // monotonicity is only asserted between two non-empty observations.
+        // An empty asset reports `RAY` by convention: with no units outstanding
+        // there is no rate. Comparing across that boundary is not meaningful
+        // (the last holder exiting a grown pool reads as a fall from its final
+        // index back to `RAY`), so monotonicity is asserted only between two
+        // non-empty observations.
         if (st.totalNormalized + st.accruedFeeNormalized == 0) {
             hasBaseline = false;
         } else {
@@ -195,7 +207,8 @@ contract YieldHandler is Test {
                     publicIn: n,
                     seed: s,
                     submittedAt: uint32(vm.getBlockNumber()),
-                    settled: false
+                    settled: false,
+                    pulled: pulled
                 })
             );
         } catch { }
@@ -253,11 +266,12 @@ contract YieldHandler is Test {
             FEE_BPS,
             payer,
             e.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(e.seed + 1), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(e.seed + 1), feeCvDep: [uint256(0), 0] })
         ) {
             e.settled = true;
             cancels++;
             uint256 refunded = token.balanceOf(payer) - before;
+            if (refunded > e.pulled) refundExceededPull = true;
             if (e.assetId == YIELD_ID) yieldPaidOut += refunded;
             else plainHeld -= refunded;
         } catch { }
@@ -283,17 +297,15 @@ contract YieldHandler is Test {
         pi.payer = address(0xBEEF);
         pi.relayer = address(this);
         // `fillOutputs` writes `TRANSACT_IN` consecutive nullifiers and
-        // `TRANSACT_OUT` consecutive commitments from their seeds, so two
-        // exits must be spaced by more than either width. Advancing by one per
-        // call overlapped the last nullifier of one spend with the first of the
-        // next, and every second exit reverted `DoubleSpend` into the `catch`
-        // below — leaving the invariants to pass over histories that barely
-        // withdrew at all.
+        // `TRANSACT_OUT` consecutive commitments from their seeds, so two exits
+        // must be spaced by more than either width. Overlapping nullifiers
+        // would revert `DoubleSpend` into the `catch` below, and the invariants
+        // would pass over histories with few successful withdrawals.
         seed += 0x100;
         SpendFixture.fillOutputs(pi, seed, seed + 0x5000);
         pi.merkleRoot = masp.currentRoot();
-        PubInputs.TreeUpdateBatch memory tpi =
-            SpendFixture.batchFor(pi, masp.currentRoot(), bytes32(seed + 0x90000), masp.committedCount());
+        PubInputs.SpendTree memory tpi =
+            SpendFixture.spendTree(bytes32(seed + 0x90000), masp.committedCount(), uint8(masp.rootIndex()));
 
         uint256 before = token.balanceOf(to);
         try masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux()) {
@@ -366,21 +378,39 @@ contract YieldHandler is Test {
         _observe();
     }
 
+    /// A lower or equal rate lands here; a higher one is only queued, and
+    /// reaches the pool through `commitParams`.
     function setParams(uint16 buffer, uint16 perf) external {
         uint16 newPerf = uint16(bound(perf, 0, maxPerfBps));
         uint16 oldPerf = masp.yieldState(YIELD_ID).perfBps;
         vm.prank(owner);
-        try masp.setYieldParams(YIELD_ID, uint16(bound(buffer, 0, 10_000)), newPerf) {
-            if (oldPerf == 0 && newPerf != 0) feeEnabled++;
-        } catch { }
+        try masp.setYieldParams(YIELD_ID, uint16(bound(buffer, 0, 10_000)), newPerf) { } catch { }
+        _countFeeEnabled(oldPerf);
         _observe();
+    }
+
+    /// Waits out the raise notice and commits whatever is queued, so raised
+    /// rates, and the re-mark on the off-to-on transition, stay reachable.
+    /// Nothing else in the handler reads the clock.
+    function commitParams() external {
+        uint16 oldPerf = masp.yieldState(YIELD_ID).perfBps;
+        vm.warp(vm.getBlockTimestamp() + ExitTerms.DELAY);
+        try masp.commitExitTerms(YIELD_ID) {
+            commits++;
+        } catch { }
+        _countFeeEnabled(oldPerf);
+        _observe();
+    }
+
+    function _countFeeEnabled(uint16 oldPerf) internal {
+        if (oldPerf == 0 && masp.yieldState(YIELD_ID).perfBps != 0) feeEnabled++;
     }
 }
 
 /// Deployment and helpers shared by the suites below.
 ///
-/// Separated from the properties so the coverage test can reuse the fixture
-/// without re-running every invariant a third time.
+/// Separate from the properties so the coverage test can reuse the fixture
+/// without inheriting the invariants.
 abstract contract YieldInvariantBase is Test {
     uint64 internal constant PLAIN_ID = 1;
     uint64 internal constant YIELD_ID = 9;
@@ -437,10 +467,10 @@ abstract contract YieldInvariantBase is Test {
 
 /// The properties the index must never break, over arbitrary histories.
 contract YieldSolvencyInvariantTest is YieldInvariantBase {
-    /// The pool must actually hold the idle balance it has booked, on top of
-    /// everything the plain id and the treasury are owed out of the same ERC-20.
-    /// This is the property that two asset ids over one token puts at risk, and
-    /// the reason `idle` is tracked rather than read from `balanceOf`.
+    /// The pool holds the idle balance it has booked, on top of everything the
+    /// plain id and the treasury are owed out of the same ERC-20. Two asset ids
+    /// over one token put this property at risk, which is why `idle` is tracked
+    /// rather than read from `balanceOf`.
     function invariant_poolCoversIdlePlusPlainLiability() public view {
         assertGe(
             token.balanceOf(address(masp)),
@@ -458,12 +488,12 @@ contract YieldSolvencyInvariantTest is YieldInvariantBase {
         }
     }
 
-    /// No free money. Over any history, what the yield id has paid out cannot
-    /// exceed what went into it plus what its venue genuinely earned.
+    /// Over any history, what the yield id has paid out does not exceed what
+    /// went into it plus what its venue earned.
     ///
-    /// This is the strongest of the set: a rounding leak, a double-credited
-    /// fee, or a refund priced off a stale index all surface here as the pool
-    /// distributing value that was never deposited or earned.
+    /// A rounding leak, a double-credited fee, or a refund priced off a stale
+    /// index all surface here as the pool distributing value that was never
+    /// deposited or earned.
     function invariant_paysOutNoMoreThanCameInPlusYield() public view {
         assertLe(
             handler.yieldPaidOut(),
@@ -472,21 +502,28 @@ contract YieldSolvencyInvariantTest is YieldInvariantBase {
         );
     }
 
-    /// Booked idle can never exceed the asset's total backing — it is a
-    /// component of it. Catches drift between `_fundVenue` and `_ensureIdle`.
+    /// No cancel, of either id, refunds more than its escrow pulled at submit.
+    /// A plain escrow refunds its pull exactly; a yield escrow refunds its value
+    /// at the current index capped at the pull, so the growth its units carried
+    /// while pending stays with the holders.
+    function invariant_cancelNeverRefundsMoreThanThePull() public view {
+        assertFalse(handler.refundExceededPull(), "a cancel refunded more than its escrow pulled");
+    }
+
+    /// Booked idle never exceeds the asset's total backing, of which it is a
+    /// component. Detects drift between `_fundVenue` and `_ensureIdle`.
     function invariant_idleNeverExceedsGross() public view {
         assertLe(_state().idle, _gross(), "booked idle exceeds the asset's backing");
     }
 
-    /// `lastIdx` is a high-water mark: `_accruePerf` only ever raises it, and
-    /// nothing else writes it. A fall would mean the mark was reset and the
-    /// treasury could bill twice for the same growth.
+    /// `lastIdx` is a high-water mark and never decreases. A fall would mean the
+    /// mark was reset and the treasury could bill twice for the same growth.
     function invariant_highWaterMarkNeverFalls() public view {
         assertFalse(handler.markFell(), "the fee high-water mark moved backwards");
     }
 
-    /// The venue binding is permanent — nothing in the handler's surface can
-    /// change it, and no sequence of calls may either.
+    /// The venue binding is permanent: no call or sequence of calls in the
+    /// handler's surface changes it.
     function invariant_venueBindingIsImmutable() public view {
         assertEq(_state().venue, address(venue), "venue binding moved");
         assertTrue(masp.isYieldAsset(YIELD_ID), "asset stopped being indexed");
@@ -495,16 +532,14 @@ contract YieldSolvencyInvariantTest is YieldInvariantBase {
 
 /// Index monotonicity, with the performance fee switched off.
 ///
-/// The research note asserts the index is "monotone non-decreasing absent a
-/// venue loss". That is false as written: the performance fee is charged by
-/// *minting* units to the treasury, which raises `supply` against an unchanged
-/// `gross` and so lowers the per-unit value by design — and `sweepNormalized`
-/// both mints and clears in one call, so the dilution is not even visible as a
-/// change in the accumulator afterwards.
+/// The index is not monotone non-decreasing absent a venue loss when the
+/// performance fee is on: the fee is charged by minting units to the treasury,
+/// which raises `supply` against an unchanged `gross` and lowers the per-unit
+/// value by design. `sweepNormalized` both mints and clears in one call, so the
+/// dilution is not visible as a change in the accumulator afterwards.
 ///
-/// With `perfBps = 0` there is no dilution channel left and the claim holds
-/// exactly, which is the form worth pinning: nothing other than a venue loss
-/// and the fee may ever move the index down.
+/// With `perfBps = 0` there is no dilution channel and monotonicity holds
+/// exactly: only a venue loss or the fee may move the index down.
 contract YieldIndexMonotonicityInvariantTest is YieldSolvencyInvariantTest {
     function _perfBps() internal view override returns (uint16) {
         return 0;
@@ -515,12 +550,12 @@ contract YieldIndexMonotonicityInvariantTest is YieldSolvencyInvariantTest {
     }
 }
 
-/// Proves the handler actually reaches every path it claims to.
+/// Checks that the handler reaches every path it exposes.
 ///
-/// The invariants above wrap each call in `try`, so a handler whose escrow
-/// arguments were subtly wrong would revert on every attempt, catch silently,
-/// and leave every invariant trivially true over a history that never settled
-/// an escrow. This drives each path deterministically and asserts it fires.
+/// The handler wraps each call in `try`, so a handler with incorrect escrow
+/// arguments would revert on every attempt, catch without signal, and leave
+/// every invariant trivially true over a history that never settled an escrow.
+/// This drives each path deterministically and asserts it executes.
 contract YieldHandlerCoverageTest is YieldInvariantBase {
     function test_handlerReachesEveryPath() public {
         handler.deposit(50_000, true);
@@ -543,9 +578,13 @@ contract YieldHandlerCoverageTest is YieldInvariantBase {
         handler.sweep();
         assertEq(handler.sweeps(), 1, "sweep path");
 
-        // Off, then on: the transition the stale-mark bug lived on.
+        // Off, then on: the transition on which the mark is re-set. Turning the
+        // fee on is a raise, so it lands only at the commit.
         handler.setParams(500, 0);
         handler.setParams(500, 1000);
+        assertEq(handler.feeEnabled(), 0, "a raise applied without notice");
+        handler.commitParams();
+        assertEq(handler.commits(), 1, "commit path");
         assertEq(handler.feeEnabled(), 1, "fee off-to-on transition");
 
         handler.rebalance();

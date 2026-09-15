@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Script, console2 } from "forge-std/Script.sol";
+import { console2 } from "forge-std/Script.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
@@ -11,21 +11,23 @@ import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { UniV3Adapter } from "../../src/swap/UniV3Adapter.sol";
 import { UniV4Adapter } from "../../src/swap/UniV4Adapter.sol";
 
-/// Shared adapter+wrapper deploy + KV log. Used by `DeploySwap.s.sol`
-/// (mainnet) and `DeployTestSwap.s.sol` (anvil w/ mock routers).
-abstract contract BaseSwapDeploy is Script {
+import { BaseBundlerDeploy } from "./BaseBundlerDeploy.s.sol";
+
+/// Shared adapter and wrapper deploy and KEY=value log. Used by
+/// `DeploySwap.s.sol` (mainnet) and `DeployTestSwap.s.sol` (anvil with mock
+/// routers), which also deploy the `BundlerFactory` once the wrapper exists.
+abstract contract BaseSwapDeploy is BaseBundlerDeploy {
     function _requireCode(address a, string memory label) internal view {
         require(a.code.length != 0, label);
     }
 
-    /// Pins the next-CREATE wrapper address from the broadcaster nonce so each
-    /// adapter can take the wrapper address in its constructor before the
-    /// wrapper is deployed. Asserts no drift after.
+    /// Predicts the wrapper's CREATE address from the broadcaster nonce so each
+    /// adapter can take it as a constructor argument before the wrapper is
+    /// deployed, then asserts the deployed address matches.
     ///
-    /// The nonce offset is the number of adapters deployed ahead of the
-    /// wrapper, so it must track `univ4Router` being present or not — a
-    /// hardcoded offset silently mispredicts the address as soon as a second
-    /// adapter exists.
+    /// The nonce offset is the number of adapters deployed before the wrapper,
+    /// so it depends on whether `univ4Router` is set; a hardcoded offset
+    /// mispredicts the address when the adapter count changes.
     ///
     /// `univ4Router == address(0)` deploys the V3-only stack, which is what a
     /// config with no `univ4Router` key gets.
@@ -43,10 +45,10 @@ abstract contract BaseSwapDeploy is Script {
         v3 = new UniV3Adapter(univ3Router, predictedWrapper);
         if (univ4Router != address(0)) v4 = new UniV4Adapter(univ4Router, predictedWrapper);
 
-        // Constructed under the broadcaster so the `onlyOwner` adapter wiring
-        // below succeeds when the deployer is not the configured owner, then
-        // handed over in the same broadcast. `Ownable` is single-step, so the
-        // owner needs no acceptance tx (and no gas) to take custody.
+        // Owned by the broadcaster at construction so the `onlyOwner` adapter
+        // wiring below succeeds when the deployer is not the configured owner,
+        // then transferred in the same broadcast. `Ownable` is single-step, so
+        // the new owner needs no acceptance transaction.
         wrapper = new SwapWrapper(IMASPPool(masp), IAllowanceTransfer(permit2), tx.origin, treasury);
         require(address(wrapper) == predictedWrapper, "wrapper address drift");
 

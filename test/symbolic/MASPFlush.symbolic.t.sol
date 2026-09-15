@@ -8,24 +8,21 @@ import { PoolFixture } from "./PoolFixture.sol";
 
 /// Symbolic proofs for the flush side of the escrow lifecycle.
 ///
-/// `flushBatch` is the counterpart to `cancelDeposit`: both resupply a pending
-/// deposit's digest preimage from calldata and both consume the escrow. The
-/// flush path is the more dangerous of the two — it is called by a relayer, not
-/// the depositor, and it mints the relayer's own fee note from the same
-/// calldata — so the binding matters more here, and the same keccak equality is
-/// what enforces it.
+/// `flushBatch` and `cancelDeposit` both resupply a pending deposit's digest
+/// preimage from calldata and consume the escrow. `flushBatch` is called by a
+/// relayer rather than the depositor and mints the relayer's fee note from the
+/// same calldata, so the keccak equality is its only binding to submit-time
+/// values.
 ///
-/// Everything below is a rejection, and all of it is cheap for the same
-/// structural reason: `flushBatch` drains and digest-checks every deposit in
-/// phase 1 and only reaches `tpi.compress()` and the verifier in phase 3. A
-/// malformed batch never gets near the Fiat-Shamir transcript.
+/// Every proof is a rejection and stays tractable because `flushBatch` validates
+/// the batch header and drains and digest-checks every deposit (phase 1) before
+/// reaching `tpi.compress()` and the verifier (phase 3).
 ///
 /// The pool, its mocks and `_submit`'s symbolic-`cm` escrow come from
-/// `PoolFixture`; the README explains why that field must not be concrete.
+/// `PoolFixture`; see `_submit` for why `cm` must not be concrete.
 contract MASPFlushSymbolicTest is PoolFixture {
-    /// The batch a single pending deposit must be flushed with: two adjacent
-    /// leaves, the principal then the note paying the flusher, aligned to an
-    /// empty tree.
+    /// The valid batch for a single pending deposit: two adjacent leaves (the
+    /// principal, then the note paying the flusher) at the start of an empty tree.
     function _batchFor(bytes32 cm) internal pure returns (PubInputs.TreeUpdateBatch memory tpi) {
         tpi.oldRoot = EMPTY_ROOT;
         tpi.newRoot = bytes32(uint256(0xbeef));
@@ -72,11 +69,10 @@ contract MASPFlushSymbolicTest is PoolFixture {
     /// No preimage but the submitted one flushes the escrow.
     ///
     /// The flusher supplies `payer`, `submittedAt` and `fbps` in `meta` and the
-    /// leaf values in `tpi`, none of it authenticated by anything except this
-    /// equality. Without it a relayer could flush a deposit under an inflated
-    /// `leafPublicIn`, or mint itself a larger fee note than the depositor
-    /// agreed to — the fee leaf is bound exactly because `flushBatch` supplies
-    /// both leaves from calldata.
+    /// leaf values in `tpi`, authenticated only by this equality. Without it a
+    /// relayer could flush a deposit with an inflated `leafPublicIn` or mint a
+    /// larger fee note than the depositor agreed to; the fee leaf is bound because
+    /// `flushBatch` supplies both leaves from calldata.
     function check_flush_digestBindsEveryField(
         bytes32 submittedCm,
         bytes32 cm,
@@ -92,9 +88,8 @@ contract MASPFlushSymbolicTest is PoolFixture {
         bool matchesSubmitted = cm == submittedCm && leafPublicIn == PUBLIC_IN && leafFeeIn == FEE_IN && feeCm == FEE_CM
             && payer == address(this) && subAt == submittedAt && fbps == FEE_BPS;
         vm.assume(!matchesSubmitted);
-        // Widths that would trip the earlier bound checks are covered by
-        // `check_flush_rejectsOutOfRangeLeafAmount`; here the subject is the
-        // digest.
+        // Out-of-range widths fail an earlier check, covered by
+        // `check_flush_rejectsOutOfRangeLeafAmount`.
         vm.assume(leafPublicIn <= type(uint48).max && leafFeeIn <= type(uint48).max);
 
         PubInputs.TreeUpdateBatch memory tpi = _batchFor(cm);
@@ -108,9 +103,8 @@ contract MASPFlushSymbolicTest is PoolFixture {
         assertTrue(masp.escrowed(id) != bytes32(0), "escrow survives a rejected flush");
     }
 
-    /// Both leaf amounts are narrowed to `uint48` before they enter the digest,
-    /// so anything wider is rejected outright rather than silently truncated
-    /// into a matching hash.
+    /// Leaf amounts are narrowed to `uint48` before entering the digest, so a
+    /// wider value is rejected rather than truncated into a matching hash.
     function check_flush_rejectsOutOfRangeLeafAmount(bytes32 submittedCm, uint64 leafPublicIn) public {
         vm.assume(leafPublicIn > type(uint48).max);
 
@@ -123,8 +117,9 @@ contract MASPFlushSymbolicTest is PoolFixture {
         _assertRejected(ok, ret, MASP.PublicInTooLarge.selector);
     }
 
-    /// The fee note is charged in the deposit's own asset. A fee leaf declaring
-    /// a different one would be paid out of an asset the depositor never funded.
+    /// A non-zero fee note is denominated in the deposit's asset. A fee leaf
+    /// declaring another asset would be paid from an asset the depositor never
+    /// funded.
     function check_flush_rejectsMismatchedFeeAsset(bytes32 submittedCm, uint64 feeAsset) public {
         vm.assume(feeAsset != ASSET_ID);
 
@@ -138,7 +133,7 @@ contract MASPFlushSymbolicTest is PoolFixture {
     }
 
     /// Both of a deposit's leaves must be flagged as deposit leaves, for every
-    /// flag pair. The circuit does not force it, so the contract does.
+    /// flag pair. The circuit does not enforce this, so the contract does.
     function check_flush_rejectsNonDepositLeaf(bytes32 submittedCm, uint8 flagA, uint8 flagB) public {
         vm.assume(flagA != 1 || flagB != 1);
 
@@ -156,10 +151,9 @@ contract MASPFlushSymbolicTest is PoolFixture {
 
     /// A cancelled escrow cannot then be flushed.
     ///
-    /// Cancel and flush are the two ways an escrow is consumed, and both clear
-    /// the record; the zero sentinel is what makes them mutually exclusive.
-    /// Without it a depositor could take the refund and still have the note
-    /// inserted.
+    /// Cancel and flush both consume an escrow by clearing the record to the
+    /// zero sentinel, which makes them mutually exclusive; otherwise a depositor
+    /// could take the refund and still have the note inserted.
     function check_flush_rejectsCancelledEscrow(bytes32 submittedCm) public {
         uint256 id = _submit(submittedCm);
 
@@ -177,7 +171,9 @@ contract MASPFlushSymbolicTest is PoolFixture {
                         FEE_BPS,
                         address(this),
                         submittedAt,
-                        PubInputs.FeeNote({ feeIn: FEE_IN, feeCm: FEE_CM, feeCvDep: [FEE_CV_DEP_X, FEE_CV_DEP_Y] })
+                        PubInputs.FeeNote({
+                            feeIn: FEE_IN, feeAssetId: ASSET_ID, feeCm: FEE_CM, feeCvDep: [FEE_CV_DEP_X, FEE_CV_DEP_Y]
+                        })
                     )
                 )
             );
@@ -189,10 +185,9 @@ contract MASPFlushSymbolicTest is PoolFixture {
         _assertRejected(ok, ret, MASP.DepositNotPending.selector);
     }
 
-    /// The same deposit cannot be drained twice inside one batch. `_drainDeposit`
-    /// deletes the record as it goes, restoring the sentinel, so the second slot
-    /// finds nothing pending — the batch is rejected rather than paying the
-    /// relayer's note twice.
+    /// The same deposit cannot be drained twice in one batch. `_drainDeposit`
+    /// deletes each record as it goes, so the second slot finds nothing pending
+    /// and the batch reverts instead of paying the relayer's note twice.
     function check_flush_rejectsRepeatedIdWithinOneBatch(bytes32 submittedCm) public {
         uint256 id = _submit(submittedCm);
 
@@ -225,8 +220,8 @@ contract MASPFlushSymbolicTest is PoolFixture {
 
     // --- batch placement ---------------------------------------------------
 
-    /// A batch must extend the live root and start where the tree is committed
-    /// to, so a flush cannot insert leaves at a gap or over existing ones.
+    /// A batch must extend the live root and start at the committed leaf count,
+    /// so a flush cannot insert leaves at a gap or over existing ones.
     function check_flush_rejectsMisplacedBatch(bytes32 submittedCm, bytes32 oldRoot, uint64 startIndex) public {
         vm.assume(oldRoot != EMPTY_ROOT || startIndex != 0);
 

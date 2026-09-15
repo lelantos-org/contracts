@@ -10,6 +10,7 @@ import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
+import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { MASP } from "../../src/MASP.sol";
 
 import { MASPUpgradeTestBase } from "../utils/MASPUpgradeTestBase.sol";
@@ -17,7 +18,7 @@ import { noAssets } from "../utils/PoolDeployer.sol";
 import { MASPNext } from "../mocks/MASPNext.sol";
 
 /// The pool behind the delayed proxy: pool state survives an upgrade, and
-/// neither the withdraw-fee rule nor a pause can undermine the exit window.
+/// neither a withdraw-fee raise nor a pause can undermine the exit window.
 contract MASPUpgradeTest is MASPUpgradeTestBase {
     function _queue(address next) internal {
         vm.prank(admin);
@@ -50,7 +51,7 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         masp.initialize(tub, spend, p2, ids, tokens, scales, bps, bps, treasury, address(0xdead));
     }
 
-    /// The implementation must not be initializable outside the proxy.
+    /// The implementation is not initializable outside the proxy.
     function test_implementationItselfIsLocked() public {
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = noAssets();
         uint16[] memory bps = new uint16[](0);
@@ -100,7 +101,7 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
 
     // ============== State survives ===========================================
 
-    /// An upgrade must preserve the tree, the escrow ledger and accrued fees.
+    /// An upgrade preserves the tree, the escrow ledger and accrued fees.
     function test_realPoolStateSurvivesAnUpgrade() public {
         bytes32 cm = bytes32(uint256(0x111));
         uint256 id = _deposit(1_000, cm, 0);
@@ -145,51 +146,176 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
 
     // ============== Leak 1: the withdraw-fee ratchet =========================
 
-    /// Otherwise an upgrade could be queued and the exit fee raised to 20% in
-    /// the same window, charging holders who leave ahead of it.
-    function test_withdrawFeeCannotBeRaisedWhileAnUpgradeIsPending() public {
-        MASPNext next = new MASPNext();
-        _queue(address(next));
-
-        vm.prank(poolOwner);
-        vm.expectRevert(AssetRegistry.WithdrawFeeRaisedDuringUpgradeWindow.selector);
-        masp.setAssetFee(ASSET_ID, FEE_BPS, 2_000);
+    function _withdrawBps() internal view returns (uint16 wit) {
+        (, wit) = masp.assetFees(ASSET_ID);
     }
 
-    /// Lowering it is permitted.
-    function test_withdrawFeeMayStillBeLoweredWhileAnUpgradeIsPending() public {
-        MASPNext next = new MASPNext();
-        _queue(address(next));
-
+    function _raiseWithdrawFee(uint16 wit) internal {
         vm.prank(poolOwner);
-        masp.setAssetFee(ASSET_ID, FEE_BPS, 10);
-        (, uint16 wit) = masp.assetFees(ASSET_ID);
-        assertEq(wit, 10);
+        masp.setAssetFee(ASSET_ID, FEE_BPS, wit);
     }
 
-    /// The deposit leg is unrestricted: it is snapshotted into the escrow digest
-    /// at submit, so it cannot reach anyone already in the masp.
-    function test_depositFeeIsUnrestrictedDuringTheWindow() public {
-        MASPNext next = new MASPNext();
-        _queue(address(next));
+    /// A withdraw-fee raise is queued, not applied: the live rate, which every
+    /// spend reads, is unchanged, and the queued value and its notice are
+    /// announced.
+    function test_withdrawFeeRaiseIsQueuedNotApplied() public {
+        vm.expectEmit(address(masp));
+        emit ExitTerms.ExitTermRaisePending(ASSET_ID, ExitTerms.WITHDRAW_BPS, 2_000, T0 + ExitTerms.DELAY);
+        vm.expectEmit(address(masp));
+        emit AssetRegistry.AssetFeeSet(ASSET_ID, FEE_BPS, FEE_BPS);
+        _raiseWithdrawFee(2_000);
 
-        vm.prank(poolOwner);
-        masp.setAssetFee(ASSET_ID, 2_000, FEE_BPS);
-        (uint16 dep,) = masp.assetFees(ASSET_ID);
-        assertEq(dep, 2_000);
+        assertEq(_withdrawBps(), FEE_BPS, "raise applied without notice");
+        assertEq(masp.asset(ASSET_ID).withdrawBps, FEE_BPS, "asset() reports the queued rate");
     }
 
-    /// With nothing queued the rate may move again.
-    function test_withdrawFeeMayRiseAgainAfterTheUpgradeResolves() public {
-        MASPNext next = new MASPNext();
-        _queue(address(next));
+    /// The commit is refused until the notice has run, naming when it will.
+    function test_revert_RaiseNotDue_commitBeforeDelay() public {
+        _raiseWithdrawFee(2_000);
+
+        vm.warp(T0 + ExitTerms.DELAY - 1);
+        vm.expectRevert(abi.encodeWithSelector(ExitTerms.RaiseNotDue.selector, T0 + ExitTerms.DELAY));
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(_withdrawBps(), FEE_BPS);
+    }
+
+    /// With nothing queued there is nothing to wait for.
+    function test_revert_NoPendingRaise_commitWithNothingQueued() public {
+        vm.expectRevert(ExitTerms.NoPendingRaise.selector);
+        masp.commitExitTerms(ASSET_ID);
+    }
+
+    /// Once the notice has run anyone may commit, the raise lands with the
+    /// ordinary applied event, and the queue entry is consumed.
+    function test_commitAppliesTheRaiseAfterDelay() public {
+        _raiseWithdrawFee(2_000);
+
+        vm.warp(T0 + ExitTerms.DELAY);
+        vm.expectEmit(address(masp));
+        emit AssetRegistry.AssetFeeSet(ASSET_ID, FEE_BPS, 2_000);
+        vm.prank(makeAddr("anyone"));
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(_withdrawBps(), 2_000, "commit did not apply the raise");
+
+        vm.expectRevert(ExitTerms.NoPendingRaise.selector);
+        masp.commitExitTerms(ASSET_ID);
+    }
+
+    /// A pause halts exits, so paused time is not notice: the raise waits a
+    /// full delay after the pause ends, however early the pause fell.
+    function test_pauseDefersTheRaiseCommit() public {
+        _raiseWithdrawFee(2_000);
+
+        vm.warp(T0 + ExitTerms.DELAY - 1 days);
+        vm.prank(admin);
+        proxy.pauseSpends(3 days);
+        uint256 due = T0 + ExitTerms.DELAY - 1 days + 3 days + ExitTerms.DELAY;
+
+        vm.warp(T0 + ExitTerms.DELAY);
+        vm.expectRevert(abi.encodeWithSelector(ExitTerms.RaiseNotDue.selector, due));
+        masp.commitExitTerms(ASSET_ID);
+
+        vm.warp(due - 1);
+        vm.expectRevert(abi.encodeWithSelector(ExitTerms.RaiseNotDue.selector, due));
+        masp.commitExitTerms(ASSET_ID);
+
+        vm.warp(due);
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(_withdrawBps(), 2_000);
+    }
+
+    /// Lowering applies at once and withdraws the queued raise, so the raise
+    /// cannot be committed later.
+    function test_decreaseIsImmediateAndCancelsPendingRaise() public {
+        _raiseWithdrawFee(2_000);
+
+        vm.expectEmit(address(masp));
+        emit ExitTerms.ExitTermRaisePending(ASSET_ID, ExitTerms.WITHDRAW_BPS, 0, 0);
+        _raiseWithdrawFee(10);
+        assertEq(_withdrawBps(), 10, "decrease was not immediate");
+
+        vm.warp(T0 + ExitTerms.DELAY);
+        vm.expectRevert(ExitTerms.NoPendingRaise.selector);
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(_withdrawBps(), 10);
+    }
+
+    /// Re-sending the queued withdraw rate with a new deposit rate applies the
+    /// deposit rate and keeps the raise's timer; the deposit rate is bound into
+    /// each escrow digest and reaches no one already in the pool.
+    function test_depositOnlyChangeKeepsPendingRaise() public {
+        _raiseWithdrawFee(2_000);
+
+        vm.warp(T0 + 10 days);
+        vm.recordLogs();
+        vm.prank(poolOwner);
+        masp.setAssetFee(ASSET_ID, 2_000, 2_000);
+        assertEq(vm.getRecordedLogs().length, 1, "only AssetFeeSet; the queue entry is untouched");
+        (uint16 dep, uint16 wit) = masp.assetFees(ASSET_ID);
+        assertEq(dep, 2_000, "deposit rate not immediate");
+        assertEq(wit, FEE_BPS);
+
+        vm.warp(T0 + ExitTerms.DELAY);
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(_withdrawBps(), 2_000, "timer restarted");
+    }
+
+    /// A different queued value restarts the notice: holders are warned of a
+    /// specific rate.
+    function test_changingTheQueuedValueRestartsTheNotice() public {
+        _raiseWithdrawFee(2_000);
+        vm.warp(T0 + 10 days);
+        _raiseWithdrawFee(1_000);
+
+        vm.warp(T0 + ExitTerms.DELAY);
+        vm.expectRevert(abi.encodeWithSelector(ExitTerms.RaiseNotDue.selector, T0 + 10 days + ExitTerms.DELAY));
+        masp.commitExitTerms(ASSET_ID);
+
+        vm.warp(T0 + 10 days + ExitTerms.DELAY);
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(_withdrawBps(), 1_000);
+    }
+
+    /// The audit ordering: one proposal raises the fee and then queues an
+    /// upgrade, which the old pending-upgrade guard let through. Throughout the
+    /// window, pause included, holders exit at the old rate; the raise cannot
+    /// land before the upgrade could activate.
+    function test_raiseThenQueueUpgradeCannotChargeTheWindow() public {
+        _raiseWithdrawFee(2_000);
+        _queue(address(new MASPNext()));
+
+        // A pause inside the window defers both by at least its duration.
+        vm.warp(T0 + 5 days);
+        vm.prank(admin);
+        proxy.pauseSpends(MAX_PAUSE);
+        (, uint256 activationAt) = proxy.pendingUpgrade();
+        assertEq(activationAt, T0 + UPGRADE_DELAY + MAX_PAUSE);
+
+        // Due a full delay after the pause ends, past the deferred activation.
+        uint256 due = T0 + 5 days + MAX_PAUSE + ExitTerms.DELAY;
+        assertGe(due, activationAt);
+        vm.warp(activationAt - 1);
+        vm.expectRevert(abi.encodeWithSelector(ExitTerms.RaiseNotDue.selector, due));
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(_withdrawBps(), FEE_BPS, "window charged at the raised rate");
+
+        vm.warp(activationAt);
+        proxy.activateUpgrade();
+    }
+
+    /// The cancel-and-requeue ordering fares no better: the raise's notice
+    /// runs from the raise, not from any upgrade.
+    function test_cancelRaiseRequeueCannotChargeTheWindow() public {
+        _queue(address(new MASPNext()));
         vm.prank(admin);
         proxy.cancelUpgrade();
+        _raiseWithdrawFee(2_000);
+        _queue(address(new MASPNext()));
 
-        vm.prank(poolOwner);
-        masp.setAssetFee(ASSET_ID, FEE_BPS, 500);
-        (, uint16 wit) = masp.assetFees(ASSET_ID);
-        assertEq(wit, 500);
+        vm.warp(T0 + UPGRADE_DELAY - 1);
+        vm.expectRevert(abi.encodeWithSelector(ExitTerms.RaiseNotDue.selector, T0 + ExitTerms.DELAY));
+        masp.commitExitTerms(ASSET_ID);
+        assertEq(_withdrawBps(), FEE_BPS);
     }
 
     // ============== Leak 2: pause versus exit ================================
@@ -209,9 +335,9 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
     /// recoverable. A cancel verifies no proof.
     function test_cancelDepositStillWorksWhilePaused() public {
         bytes32 cm = bytes32(uint256(0x444));
-        // Absolute block numbers throughout. As with `block.timestamp`, the
-        // optimizer may fold a local copy of `block.number` and re-read it at the
-        // use site, which `vm.roll` invalidates.
+        // Uses absolute block numbers. As with `block.timestamp`, the optimizer
+        // may fold a local copy of `block.number` and re-read it at the use site,
+        // which `vm.roll` invalidates.
         uint32 submittedAt = 100;
         vm.roll(submittedAt);
 
@@ -236,7 +362,9 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
             FEE_BPS,
             payer,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), uint256(0)] })
+            PubInputs.FeeNote({
+                feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), uint256(0)]
+            })
         );
 
         assertGt(token.balanceOf(payer), payerBefore, "refund did not arrive while paused");
@@ -247,7 +375,7 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         vm.prank(admin);
         proxy.pauseSpends(1 days);
         vm.warp(T0 + 1 days);
-        // No revert: the pause has expired without anyone acting.
+        // Does not revert: the pause expires without any call to lift it.
         _deposit(1_000, bytes32(uint256(0x555)), 0);
     }
 

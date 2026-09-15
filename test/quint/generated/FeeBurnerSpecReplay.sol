@@ -70,6 +70,8 @@ abstract contract FeeBurnerSpecReplay is QuintReplayBase {
             require(p.hasP, "feeBurner: action `setLot` did not draw nondet pick `p`");
         } else if (a == FeeBurnerSpec.Action.SetPaused) {
             require(p.hasP, "feeBurner: action `setPaused` did not draw nondet pick `p`");
+        } else if (a == FeeBurnerSpec.Action.SetDecayParams) {
+            require(p.hasP, "feeBurner: action `setDecayParams` did not draw nondet pick `p`");
         }
     }
 
@@ -89,6 +91,10 @@ abstract contract FeeBurnerSpecReplay is QuintReplayBase {
         _mismatches += _eqU("govSupply", model_.govSupply, chain.govSupply);
         _mismatches += _eqU("bidderGov", model_.bidderGov, chain.bidderGov);
         _mismatches += _eqU("secondaryGov", model_.secondaryGov, chain.secondaryGov);
+        _mismatches += _eqU("halfLife", model_.halfLife, chain.halfLife);
+        _mismatches += _eqU("maxHalvings", model_.maxHalvings, chain.maxHalvings);
+        _mismatches += _eqU("lotHalfLife", model_.lotHalfLife, chain.lotHalfLife);
+        _mismatches += _eqU("lotMaxHalvings", model_.lotMaxHalvings, chain.lotMaxHalvings);
         _reportIfDiverged(action);
     }
 }

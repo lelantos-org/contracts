@@ -6,44 +6,43 @@ import { GuardAsserts } from "./GuardAsserts.sol";
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
+import { SwapIntent } from "../swap/SwapIntent.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { MockEscrowPool, MockEscrowToken } from "./mocks/MockEscrowPool.sol";
 
 /// Symbolic proofs for the guard block that admits a shielded swap.
 ///
 /// `swap` is permissionless and most of `SwapArgs` is unauthenticated calldata,
-/// so `_validate` is the entire boundary between the mempool and a withdraw
-/// proof's funds. It runs first and is `view`, and every one of its nine checks
-/// reverts before `POOL.withdraw` — which is what makes this file tractable
-/// where the swap execution path is not. Nothing below reaches the pool, the
-/// adapter or a token; the pool stand-in exists only because the constructor
-/// takes one.
+/// so `_validate` is the full boundary between the mempool and a withdraw
+/// proof's funds. It runs first, is `view`, and all twelve of its checks revert
+/// before `POOL.withdraw`, which keeps these proofs tractable. No proof reaches
+/// the adapter or a token; the pool mock is read only for the registry tokens
+/// the token binding compares against.
 ///
-/// Two of the nine carry most of the weight:
+/// The two most significant checks:
 ///
 /// - **`msg.sender` must be the withdraw proof's `payer`.** `payer` is a public
-///   input of that proof and constrains nothing else on the spend path, so it
-///   is what names the address allowed to drive the swap. Without it, a
-///   withdraw proof observed in the mempool could be replayed under a different
-///   `deposit_d` and the output redirected to the replayer. The proof below
-///   quantifies over both the caller and the payer, which is the statement
-///   "no address but that one", not "some addresses are refused".
-/// - **The three identity checks bind the funds to this wrapper.** `recipient`,
-///   `relayer` and the deposit's `payer` must all be the wrapper: it is the
-///   party that must receive leg 1's output, and the party whose Permit2
-///   allowance leg 2 pulls against.
+///   input of that proof with no other constraint on the spend path, so it names
+///   the address allowed to drive the swap. Without this check, anyone could
+///   lift a withdraw proof from the mempool and land it. The proof quantifies
+///   over both caller and payer, so it states that no other address is accepted.
+/// - **The identity checks bind the funds to this wrapper.** `recipient`,
+///   `relayer` and both deposits' `payer` must be the wrapper: it receives leg
+///   1's output, and its Permit2 allowance funds the output or refund escrow.
+/// - **The token checks bind every measured balance to a pool asset.**
+///   `tokenIn` must be the withdraw asset's registry token and `tokenOut` the
+///   output note's. Otherwise a token with a scripted `balanceOf` satisfies
+///   every bound while the refund escrow pulls a real token the wrapper holds.
 ///
-/// Worth a solver rather than a fuzzer for the reason the access-control proofs
-/// elsewhere in this suite are: each is a statement over the whole address
-/// space or the whole timestamp range, and a sampler that draws neither the
-/// boundary nor the one permitted value proves nothing about either.
+/// Each property ranges over the whole address space or timestamp range, where
+/// a fuzzer is unlikely to draw the boundary or the single permitted value.
 ///
-/// What is deliberately not here: slippage (`InsufficientOut`), the withdraw
-/// receipt floor (`InsufficientWithdraw`) and the closing leftover invariant
-/// (`LeftoverBalance`). All three sit past `POOL.withdraw` and
-/// `_executeAdapterSwap`, so proving them means executing a spend — the
-/// accepting path `README.md` records as out of reach, since it runs
-/// `PubInputs.compress`. They stay with `test/swap/`.
+/// Out of scope: deadline and slippage (`SwapExpired`, `InsufficientOut`, both
+/// of which refund rather than revert), the withdraw receipt floor
+/// (`InsufficientWithdraw`) and the closing leftover invariant
+/// (`LeftoverBalance`). All follow `POOL.withdraw`, so proving them requires
+/// executing a spend, which runs `PubInputs.compress` (see `README.md`). They
+/// are covered in `test/swap/`.
 contract SwapWrapperSymbolicTest is GuardAsserts {
     SwapWrapper internal wrapper;
     MockEscrowPool internal pool;
@@ -56,6 +55,8 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
 
     address internal constant TOKEN_IN = address(0x111);
     address internal constant TOKEN_OUT = address(0x222);
+    uint64 internal constant ASSET_IN = 1;
+    uint64 internal constant ASSET_OUT = 2;
 
     uint256 internal constant T0 = 1_000_000;
     uint256 internal constant DEADLINE = T0 + 1 hours;
@@ -64,6 +65,8 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         vm.warp(T0);
         token = new MockEscrowToken();
         pool = new MockEscrowPool(token);
+        pool.setAssetToken(ASSET_IN, TOKEN_IN);
+        pool.setAssetToken(ASSET_OUT, TOKEN_OUT);
         wrapper = new SwapWrapper(IMASPPool(address(pool)), IAllowanceTransfer(address(0xBEEF)), OWNER, TREASURY);
 
         vm.prank(OWNER);
@@ -72,12 +75,10 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
 
     /// A `SwapArgs` that clears every check in `_validate`.
     ///
-    /// The proofs below each break exactly one field of it, so a rejection is
-    /// attributable to that field rather than to the fixture having drifted out
-    /// of validity. `check_validate_acceptsTheWellFormedRequest` is the anchor
-    /// that keeps that true: `README.md` records that a revert-only assertion
-    /// passes vacuously against a fixture that reverts for an unrelated reason,
-    /// and every proof here is a rejection.
+    /// Each proof below breaks exactly one field, so a rejection is attributable
+    /// to that field. `check_validate_acceptsTheWellFormedRequest` shows the
+    /// fixture itself passes, so rejection proofs cannot pass vacuously on a
+    /// fixture that reverts for an unrelated reason.
     function _args() internal view returns (SwapWrapper.SwapArgs memory a) {
         a.tokenIn = TOKEN_IN;
         a.tokenOut = TOKEN_OUT;
@@ -85,21 +86,25 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         a.minOut = 1e18;
         a.adapter = ADAPTER;
         a.deadline = DEADLINE;
+        a.pi_w.publicAssetId = ASSET_IN;
         a.pi_w.recipient = address(wrapper);
         a.pi_w.relayer = address(wrapper);
         a.pi_w.payer = PAYER;
+        a.refundTo = PAYER;
+        a.deposit_d.publicAssetId = ASSET_OUT;
         a.deposit_d.payer = address(wrapper);
+        a.refund_d.publicAssetId = ASSET_IN;
+        a.refund_d.payer = address(wrapper);
     }
 
     function _swap(SwapWrapper.SwapArgs memory a, address caller) internal returns (bool ok, bytes memory ret) {
         vm.prank(caller);
-        return address(wrapper).call(abi.encodeCall(SwapWrapper.swap, (a)));
+        return address(wrapper).call(abi.encodeCall(SwapWrapper.swap, (SwapIntent.bind(a))));
     }
 
-    /// Non-vacuity anchor. The fixture must get *past* `_validate` — it then
-    /// fails in leg 1, where the pool stand-in has no `withdraw`, and that is
-    /// the point: reaching a failure that is not one of `_validate`'s nine
-    /// selectors is what shows the guard block admitted it.
+    /// Non-vacuity: the fixture passes `_validate` and then fails in leg 1,
+    /// because the pool mock has no `withdraw`. A failure outside `_validate`'s
+    /// twelve selectors shows the guard block admitted the request.
     function check_validate_acceptsTheWellFormedRequest() public {
         (bool ok, bytes memory ret) = _swap(_args(), PAYER);
 
@@ -112,10 +117,9 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
     /// No address but the withdraw proof's `payer` may drive the swap, for
     /// every caller and every payer.
     ///
-    /// This is the guard that makes a withdraw proof safe to broadcast. The
-    /// error carries both addresses, so the proof pins them too — a guard that
-    /// fired but reported the wrong pair would still let an operator
-    /// misdiagnose a replay.
+    /// This makes a withdraw proof safe to broadcast. The error carries both
+    /// addresses, and the proof checks them, so a misreported pair cannot
+    /// mislead diagnosis of a replay attempt.
     function check_swap_rejectsEveryCallerButTheProofPayer(address caller, address payer) public {
         vm.assume(caller != payer);
 
@@ -134,9 +138,8 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
 
     // --- The identity guards ------------------------------------------------
 
-    /// Leg 1's output must land on the wrapper. Any other recipient sends the
-    /// unshielded funds somewhere the wrapper cannot swap them from, and the
-    /// swap would proceed against a balance it does not hold.
+    /// Leg 1's output must go to the wrapper; any other recipient receives the
+    /// unshielded funds where the wrapper cannot swap them.
     function check_validate_rejectsEveryRecipientButTheWrapper(address recipient) public {
         vm.assume(recipient != address(wrapper));
 
@@ -150,8 +153,9 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         );
     }
 
-    /// The relayer note must also be the wrapper's. Defense in depth — MASP
-    /// enforces it too — but it reverts here first and for a named reason.
+    /// The relayer must also be the wrapper. MASP enforces this too; the
+    /// wrapper's check is defense in depth and reverts earlier with a named
+    /// error.
     function check_validate_rejectsEveryRelayerButTheWrapper(address relayer) public {
         vm.assume(relayer != address(wrapper));
 
@@ -165,9 +169,9 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         );
     }
 
-    /// Leg 2 must escrow as the wrapper. The pull runs against the wrapper's
-    /// own Permit2 allowance, so naming any other payer would either fail or —
-    /// worse — pull against a third party that had approved the pool.
+    /// Leg 2 must escrow as the wrapper, since the pull runs against the
+    /// wrapper's Permit2 allowance. MASP also rejects any other payer
+    /// (`PayerNotSender`); this check rejects it before leg 1 with a named error.
     function check_validate_rejectsEveryDepositPayerButTheWrapper(address payer) public {
         vm.assume(payer != address(wrapper));
 
@@ -179,13 +183,26 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, SwapWrapper.WrapperNotPayer.selector, "leg 2 escrowed as somebody else");
     }
 
-    // --- The venue and expiry guards ----------------------------------------
+    /// The refund escrow must also be paid by the wrapper: after a failed venue
+    /// leg it is pulled against the wrapper's allowance.
+    function check_validate_rejectsEveryRefundPayerButTheWrapper(address payer) public {
+        vm.assume(payer != address(wrapper));
+
+        SwapWrapper.SwapArgs memory a = _args();
+        a.refund_d.payer = payer;
+
+        (bool ok, bytes memory ret) = _swap(a, PAYER);
+
+        _assertRejected(ok, ret, SwapWrapper.WrapperNotPayer.selector, "the refund escrowed as somebody else");
+    }
+
+    // --- The venue guard -----------------------------------------------------
 
     /// Only an owner-allowlisted adapter may be used, for every address.
     ///
-    /// The adapter is handed the unshielded funds, so this is the allowlist
-    /// whose revocation the guardian holds — see
-    /// `ProtocolAdmin.symbolic.t.sol`, which proves that revocation is one-way.
+    /// The adapter receives the unshielded funds. The guardian can revoke
+    /// adapters from this allowlist; `ProtocolAdmin.symbolic.t.sol` proves that
+    /// revocation is one-way.
     function check_validate_rejectsEveryNonAllowlistedAdapter(address adapter) public {
         vm.assume(adapter != ADAPTER);
 
@@ -199,24 +216,17 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         );
     }
 
-    /// The deadline is enforced at every timestamp past it, and at none before.
-    ///
-    /// Both directions in one proof: a swap that expires early is as broken as
-    /// one that never expires, and the boundary is inclusive on the accepting
-    /// side (`block.timestamp > deadline` reverts, so equality is still live).
-    function check_validate_enforcesTheDeadlineAtEveryTimestamp(uint64 t) public {
+    /// The guard block admits the request at every timestamp: an expired swap is
+    /// refunded after leg 1 rather than refused.
+    function check_validate_admitsTheSwapAtEveryTimestamp(uint64 t) public {
         SwapWrapper.SwapArgs memory a = _args();
 
         vm.warp(t);
         (bool ok, bytes memory ret) = _swap(a, PAYER);
 
-        if (t > DEADLINE) {
-            _assertRejected(ok, ret, SwapWrapper.SwapExpired.selector, "an expired swap was admitted");
-        } else {
-            // Still live: it must fail, but somewhere past the guard block.
-            assertFalse(ok, "the stand-in pool has no withdraw; nothing here succeeds");
-            _assertNotAValidationRevert(bytes4(ret));
-        }
+        // It must fail, but somewhere past the guard block.
+        assertFalse(ok, "the stand-in pool has no withdraw; nothing here succeeds");
+        _assertNotAValidationRevert(bytes4(ret));
     }
 
     // --- The degenerate-argument guards -------------------------------------
@@ -232,9 +242,8 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, SwapWrapper.AmountInZero.selector);
     }
 
-    /// A zero floor is refused. `minOut` is the only slippage bound the swap
-    /// has, so zero would accept any output the adapter cared to return,
-    /// including none.
+    /// A zero floor is refused. `minOut` is the swap's only slippage bound, so
+    /// zero would accept any output from the adapter, including none.
     function check_validate_rejectsZeroMinOut() public {
         SwapWrapper.SwapArgs memory a = _args();
         a.minOut = 0;
@@ -244,9 +253,9 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, SwapWrapper.MinOutZero.selector);
     }
 
-    /// Input and output must differ, for every token address. A same-token
-    /// swap makes the closing leftover invariant compare one balance against
-    /// two snapshots, which no honest swap can satisfy.
+    /// Input and output must differ, for every token address. For a same-token
+    /// swap the closing leftover check would compare one balance against two
+    /// snapshots, which a correct swap cannot satisfy.
     function check_validate_rejectsEverySameTokenPair(address t) public {
         SwapWrapper.SwapArgs memory a = _args();
         a.tokenIn = t;
@@ -257,22 +266,59 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, SwapWrapper.SameToken.selector, "a same-token swap was admitted");
     }
 
+    // --- The token binding ---------------------------------------------------
+
+    /// `tokenIn` must be the registry token of the withdraw proof's asset, for
+    /// every address. `tokenIn` is outside the intent hash, so this check is the
+    /// only thing tying the balances `swap` measures on the input and refund
+    /// legs to the token the pool actually moves.
+    function check_validate_rejectsEveryTokenInNotBoundToTheWithdrawAsset(address t) public {
+        vm.assume(t != TOKEN_IN && t != TOKEN_OUT);
+
+        SwapWrapper.SwapArgs memory a = _args();
+        a.tokenIn = t;
+
+        (bool ok, bytes memory ret) = _swap(a, PAYER);
+
+        _assertRejected(
+            ok, ret, SwapWrapper.TokenInMismatch.selector, "tokenIn is not the token the withdraw proof unshields"
+        );
+    }
+
+    /// `tokenOut` must be the registry token of the output note's asset, for
+    /// every address. `actualOut`, the pull bounds and the leftover check are
+    /// all measured in it.
+    function check_validate_rejectsEveryTokenOutNotBoundToTheDepositAsset(address t) public {
+        vm.assume(t != TOKEN_OUT && t != TOKEN_IN);
+
+        SwapWrapper.SwapArgs memory a = _args();
+        a.tokenOut = t;
+
+        (bool ok, bytes memory ret) = _swap(a, PAYER);
+
+        _assertRejected(
+            ok, ret, SwapWrapper.TokenOutMismatch.selector, "tokenOut is not the token the output note escrows"
+        );
+    }
+
     // --- helpers ------------------------------------------------------------
 
-    /// The nine selectors `_validate` can revert with. Used by the accepting
-    /// proofs, which cannot assert success — the stand-in pool has no
-    /// `withdraw` — and instead assert that the failure came from past the
-    /// guard block.
+    /// Asserts `sel` is none of the twelve selectors `_validate` can revert with.
+    /// The accepting proofs cannot assert success (the pool mock has no
+    /// `withdraw`), so they assert the failure occurred after the guard block.
     function _assertNotAValidationRevert(bytes4 sel) internal pure {
         assertTrue(sel != SwapWrapper.AmountInZero.selector, "rejected: AmountInZero");
         assertTrue(sel != SwapWrapper.MinOutZero.selector, "rejected: MinOutZero");
         assertTrue(sel != SwapWrapper.SameToken.selector, "rejected: SameToken");
         assertTrue(sel != SwapWrapper.AdapterNotAllowed.selector, "rejected: AdapterNotAllowed");
-        assertTrue(sel != SwapWrapper.SwapExpired.selector, "rejected: SwapExpired");
         assertTrue(sel != SwapWrapper.WrapperNotRecipient.selector, "rejected: WrapperNotRecipient");
         assertTrue(sel != SwapWrapper.WrapperNotRelayer.selector, "rejected: WrapperNotRelayer");
         assertTrue(sel != SwapWrapper.WrapperNotPayer.selector, "rejected: WrapperNotPayer");
         assertTrue(sel != SwapWrapper.UnauthorizedSwapCaller.selector, "rejected: UnauthorizedSwapCaller");
+        assertTrue(sel != SwapWrapper.InvalidRefundTo.selector, "rejected: InvalidRefundTo");
+        assertTrue(sel != SwapWrapper.TokenInMismatch.selector, "rejected: TokenInMismatch");
+        assertTrue(sel != SwapWrapper.TokenOutMismatch.selector, "rejected: TokenOutMismatch");
+        assertTrue(sel != SwapWrapper.IntentMismatch.selector, "rejected: IntentMismatch");
     }
 
     /// Revert data less its four-byte selector.

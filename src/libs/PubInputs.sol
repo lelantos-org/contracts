@@ -13,8 +13,9 @@ library PubInputs {
     uint256 internal constant TRANSACT_IN = 4;
     uint256 internal constant TRANSACT_OUT = 6;
 
-    /// `4x6.circom` public signals: 50 struct words, then `3 * TRANSACT_OUT`
-    /// clue coefficients and the aux digest, all derived in `compress`.
+    /// `4x6.circom` public inputs before compression: 51 struct words, followed
+    /// in the challenge preimage by `3 * TRANSACT_OUT` clue words and the aux
+    /// digest, which `compress` derives from `aux`.
     /// `outCvDep` is the per-output Pedersen value commitment anchoring
     /// (asset, value) into the leaf, forwarded into `tree_update_batch`.
     struct Transact {
@@ -28,13 +29,19 @@ library PubInputs {
         uint256[2][TRANSACT_OUT] outCv;
         uint256[2][TRANSACT_OUT] outCvDep;
         // Constrained nowhere in `4x6.circom`, so hashed into `z` and never
-        // evaluated into `y`. They sit AFTER every pinned member so the
+        // evaluated into `y`. They follow every pinned member so the
         // coefficients are the calldata block's leading `TRANSACT_COEFFS`
-        // words — one Horner span rather than two runs joined by hand.
+        // words, evaluated in one Horner span.
         address recipient;
         uint256 chainId;
         address payer;
         address relayer;
+        // Commitment to what the spend's funds are used for, in the field.
+        // `SwapWrapper` requires it to equal the hash of the swap intent, so
+        // whoever submits the swap cannot change its output, floor, venue,
+        // deadline or refund owner. Every other entry point ignores it, and the
+        // SDK sends zero there. Full word: not re-masked in `compress`.
+        uint256 intentHash;
     }
 
     /// MAX_L of `tree_update_batch.circom`. The challenge preimage and the
@@ -51,7 +58,7 @@ library PubInputs {
     ///   cms[0..MAX_L-1], cvDeps[0..MAX_L-1],
     ///   leafAsset[0..MAX_L-1], leafPublicIn[0..MAX_L-1], isDeposit[0..MAX_L-1].
     /// Every array is indexed by leaf, not by pair: `actualCount` is a leaf
-    /// count in `[1, MAX_L_BATCH]`, so a batch may commit an odd number of
+    /// count in `[1, MAX_L_BATCH]`, so the circuit admits an odd number of
     /// leaves. Slots beyond `actualCount` must be zero, both in-circuit and
     /// on-chain.
     struct TreeUpdateBatch {
@@ -64,6 +71,22 @@ library PubInputs {
         uint64[MAX_L_BATCH] leafAsset;
         uint64[MAX_L_BATCH] leafPublicIn;
         uint8[MAX_L_BATCH] isDeposit;
+    }
+
+    /// The part of a spend's tree update the relayer still supplies.
+    ///
+    /// Everything else in a spend's `TreeUpdateBatch` is fixed: `oldRoot` is the
+    /// live root, `actualCount` is `TRANSACT_OUT`, `cms` and `cvDeps` are the
+    /// spend's own `outCm` and `outCvDep` (the circuit zeroes the two trailing
+    /// slots), and `leafAsset`, `leafPublicIn` and `isDeposit` are zero on every
+    /// spend leaf (circuit steps 3 and 4). `compressSpend` rebuilds that image
+    /// from `Transact` instead of reading a copy from calldata.
+    struct SpendTree {
+        bytes32 newRoot;
+        uint64 startIndex;
+        /// Position of `Transact.merkleRoot` in the root ring buffer. A lookup
+        /// hint, not a public input: a wrong index only fails `UnknownRoot`.
+        uint8 anchorIndex;
     }
 
     /// Depositor-signed payload, bound via the Permit2 witness.
@@ -89,9 +112,17 @@ library PubInputs {
         bytes32 outCm;
         uint256[2] cvDep;
         uint256 rcv;
-        /// Relayer fee note, in the same asset as the deposit. `feeIn` may be
-        /// zero; the leaf is minted either way, so a deposit always occupies
-        /// two leaves.
+        /// Relayer fee note. `feeIn` may be zero; the leaf is minted either
+        /// way, so a deposit always occupies two leaves.
+        ///
+        /// `feeAssetId` is the registered asset the note is denominated in and
+        /// the payer is charged in. It may differ from `publicAssetId`, in which
+        /// case the pool pulls two tokens. Only the relayer's note moves to it:
+        /// the treasury's deposit fee stays in the deposit asset. It must be 0
+        /// when `feeIn` is 0, matching the circuit's canonical asset for a
+        /// zero-value leaf; a valued fee note in a yield asset is accepted only
+        /// when that asset is `publicAssetId`.
+        uint64 feeAssetId;
         uint64 feeIn;
         bytes32 feeCm;
         uint256[2] feeCvDep;
@@ -110,70 +141,75 @@ library PubInputs {
     /// `feeRcv` is absent, as the blinder is published in the event rather than
     /// bound into the digest.
     ///
+    /// `feeAssetId` is carried so the digest binds the fee note's asset:
+    /// `_drainDeposit` fills it from the batch's `leafAsset` of the fee leaf,
+    /// and a cancel refunds the note's value in that asset's token.
+    ///
     /// Fully static, so `abi.encode` of this struct yields the same bytes as the
-    /// three fields encoded inline;
+    /// four fields encoded inline (five words);
     /// `MASPDepositTest.test_happy_pullsFundsAndEscrows` pins that encoding.
     struct FeeNote {
         uint48 feeIn;
+        uint64 feeAssetId;
         bytes32 feeCm;
         uint256[2] feeCvDep;
     }
 
-    /// A walk of the `Transact` calldata block, in struct order, naming the
-    /// word index of each sub-word member that `compress` must re-clean:
-    /// `merkleRoot`, the nullifiers and the output commitments precede the three
-    /// `uint64` publics; those plus both `cv` arrays precede `recipient`,
-    /// followed by `outCvDep`, and only then `recipient`, `chainId`, `payer` and
-    /// `relayer` — the four unpinned words `TRANSACT_CALLDATA_WORDS` adds back,
-    /// placed last so the coefficients are a leading prefix.
+    /// Word indices into the `Transact` calldata block, in struct order, of
+    /// the sub-word members `compress` re-cleans. `merkleRoot`, the nullifiers
+    /// and the output commitments precede the three `uint64` publics; those,
+    /// `inCv`, `outCv` and `outCvDep` precede `recipient`, which is followed by
+    /// `chainId`, `payer`, `relayer` and `intentHash`. These five unpinned words
+    /// come last so the coefficients are a leading prefix.
     uint256 private constant W_PUBLIC_ASSET_ID = 1 + TRANSACT_IN + TRANSACT_OUT;
     uint256 private constant W_RECIPIENT = W_PUBLIC_ASSET_ID + 3 + 2 * TRANSACT_IN + 4 * TRANSACT_OUT;
     uint256 private constant W_PAYER = W_RECIPIENT + 2;
+    uint256 private constant W_INTENT_HASH = W_RECIPIENT + 4;
 
     /// Both structs are fully static, so their ABI calldata block is
     /// word-for-word identical to the challenge preimage, on which the calldata
     /// `compress` overloads rely; `PubInputs.t.sol` pins that equivalence
-    /// against the `memory` reference paths. Derived from the shape (`50` at the
+    /// against the `memory` reference paths. Derived from the shape (`51` at the
     /// 4x6 shape) as the tail of the `W_*` walk, so the struct layout is stated
     /// once and every offset follows `TRANSACT_OUT`.
-    uint256 private constant TRANSACT_CALLDATA_WORDS = W_RECIPIENT + 4;
+    uint256 private constant TRANSACT_CALLDATA_WORDS = W_INTENT_HASH + 1;
 
     /// Words hashed to produce `z`: the struct, then `(clueRx, clueRy,
     /// clueBits)` per output, then the aux digest —
-    /// `9 + 3*TRANSACT_IN + 8*TRANSACT_OUT = 69`.
+    /// `10 + 3*TRANSACT_IN + 8*TRANSACT_OUT = 70`.
     ///
-    /// **Every one of these binds**, and binds by a mechanism that needs no
-    /// circuit constraint: alter any of them and `z` moves, so `y` moves, so the
-    /// proof fails. That covers the recipient, chain id, payer, relayer, the FMD
-    /// clues and the encrypted-payload digest against a tampering relayer.
+    /// Every one of these words is bound without a circuit constraint: altering
+    /// any of them changes `z`, hence `y`, and the proof fails. This binds the
+    /// recipient, chain id, payer, relayer, intent hash, FMD clues and
+    /// encrypted-payload digest against a tampering relayer.
     uint256 internal constant TRANSACT_CHALLENGE_WORDS = TRANSACT_CALLDATA_WORDS + 3 * TRANSACT_OUT + 1;
 
     /// Words the polynomial is evaluated over: `4 + 3*TRANSACT_IN +
     /// 5*TRANSACT_OUT = 46`. A strict subset of the challenge preimage — the
-    /// four address words in the middle of the struct, the clue triples and the
+    /// five unpinned words at the end of the struct, the clue triples and the
     /// aux digest are hashed but not evaluated.
     ///
-    /// **Not an optimisation.** `y = Σ c_k z^k` is affine in each coefficient
-    /// and `z` is derived from calldata the prover authored, so the prover reads
-    /// `z` before choosing its witness. One coefficient the circuit does not
-    /// constrain is then one linear equation in one unknown: solve it and any
-    /// calldata whatsoever verifies against a proof of some other transaction.
-    /// Schwartz-Zippel does not rescue this — it needs the vector fixed before
-    /// the challenge, and here the challenge comes first.
+    /// The subset is a soundness requirement. `y = Σ c_k z^k` is affine in each
+    /// coefficient and `z` is derived from calldata the prover authored, so the
+    /// prover reads `z` before choosing its witness. A coefficient the circuit
+    /// does not constrain is one linear equation in one unknown: solving it
+    /// makes arbitrary calldata verify against a proof of another transaction.
+    /// Schwartz-Zippel does not apply, as it requires the vector fixed before
+    /// the challenge.
     ///
-    /// `recipient`, `chainId`, `payer`, `relayer`, the clue fields and the aux
-    /// digest are constrained nowhere in `4x6.circom`; they were 23 of the
-    /// former 69 coefficients and so were 23 such unknowns. They are excluded
-    /// here and bound through `z` instead, which costs nothing and needs no
-    /// constraint. The circuit's `TransactCompressN` carries the same 46.
+    /// `recipient`, `chainId`, `payer`, `relayer`, `intentHash`, the clue fields
+    /// and the aux digest are constrained nowhere in `4x6.circom`; as
+    /// coefficients each would be such an unknown. They are excluded here and
+    /// bound through `z`, which needs no constraint. The circuit's
+    /// `TransactCompressN` carries the same 46.
     ///
-    /// Adding a coefficient means naming the circuit constraint that pins it.
+    /// Adding a coefficient requires naming the circuit constraint that pins it.
     /// If there is none, hash it into the challenge instead of evaluating it.
-    /// Equal to `W_RECIPIENT` by construction, and written that way: the
-    /// coefficients end exactly where the first unpinned member begins, which is
-    /// the invariant the member order exists to create. Subtracting the tail from
-    /// `TRANSACT_CHALLENGE_WORDS` would restate it in a form that has to be kept
-    /// in lockstep by hand.
+    ///
+    /// Defined as `W_RECIPIENT`: the coefficients end exactly where the first
+    /// unpinned member begins, which is the invariant the member order
+    /// establishes. Deriving it from `TRANSACT_CHALLENGE_WORDS` would need a
+    /// second value kept in step by hand.
     uint256 internal constant TRANSACT_COEFFS = W_RECIPIENT;
     /// Batch challenge preimage: the whole `4 + 6*MAX_L_BATCH = 52` word block.
     uint256 private constant BATCH_CHALLENGE_WORDS = 4 + 6 * MAX_L_BATCH;
@@ -182,32 +218,30 @@ library PubInputs {
     /// 52` of them. Unlike the transact shape, the batch coefficient vector and
     /// its challenge preimage are the same list.
     ///
-    /// `TRANSACT_COEFFS` excludes its trailing words because they are not
-    /// signals of `4x6.circom` at all — there is no witness copy of them, so
-    /// there is nothing for a prover to disagree with. That reasoning does NOT
-    /// carry over here: `leafAsset`, `leafPublicIn` and `isDeposit` ARE signals
-    /// of `tree_update_batch.circom` and drive its deposit binding. Hashing a
-    /// signal into `z` binds nothing, because the prover reads `z` first and may
-    /// hand the verifier a witness that disagrees with the calldata it was
-    /// hashed from. Demoting them here would let a `flushBatch` caller escrow
+    /// `TRANSACT_COEFFS` can exclude its trailing words because they are not
+    /// signals of `4x6.circom`: there is no witness copy for a prover to
+    /// disagree with. That does not hold here: `leafAsset`, `leafPublicIn` and
+    /// `isDeposit` are signals of `tree_update_batch.circom` and drive its
+    /// deposit binding. Hashing a signal into `z` binds nothing, because the
+    /// prover reads `z` first and may supply a witness that disagrees with the
+    /// hashed calldata. Excluding them would let a `flushBatch` caller escrow
     /// one unit and commit a leaf holding `2**63`.
     ///
-    /// So all three are evaluated, and the circuit pins them. The gated deposit
-    /// binding pins `leafPublicIn[k]` and `leafAsset[k]` against `cvDep[k]`
-    /// under discrete-log hardness — but it degenerates on its own, since
+    /// All three are therefore evaluated, and the circuit pins them. The gated
+    /// deposit binding pins `leafPublicIn[k]` and `leafAsset[k]` against
+    /// `cvDep[k]` under discrete-log hardness, but degenerates alone:
     /// `ValueTimesGen(0, gen)` is the curve identity for every `gen`, leaving
     /// `leafAsset[k]` on a zero-value leaf with only a 64-bit range check. A
-    /// range check is not a pin, and four such leaves would be 4 x 64 = 256 bits
-    /// of free dial against a 254-bit modulus.
+    /// range check is not a pin, and four such leaves give 4 x 64 = 256 free
+    /// bits against a 254-bit modulus.
     ///
-    /// `tree_update_batch.circom` step 6a closes that per slot, with no
-    /// reference to a neighbour: on an active deposit leaf `leafAsset` is 0
-    /// exactly when `leafPublicIn` is 0, so a worthless leaf's asset is pinned to
-    /// a constant and a valued one's is pinned by the binding. That is what makes
-    /// every coefficient here pinned; keep it and this constant in step.
-    /// `_drainDeposit` mirrors it on the calldata side.
+    /// `tree_update_batch.circom` step 6a pins this per slot, independently of
+    /// neighbouring slots: on an active deposit leaf `leafAsset` is 0 exactly
+    /// when `leafPublicIn` is 0, so a zero-value leaf's asset is a constant and
+    /// a valued leaf's asset is pinned by the binding. Keep that constraint and
+    /// this constant in step; `_drainDeposit` mirrors it on the calldata side.
     ///
-    /// Adding a coefficient means naming the circuit constraint that pins it.
+    /// Adding a coefficient requires naming the circuit constraint that pins it.
     /// If there is none, hash it into the challenge instead of evaluating it.
     uint256 private constant BATCH_COEFFS = BATCH_CHALLENGE_WORDS;
 
@@ -320,11 +354,10 @@ library PubInputs {
     /// challenge preimage is a single `calldatacopy`.
     ///
     /// One span: all `BATCH_CHALLENGE_WORDS` are hashed into `z` and all
-    /// `BATCH_COEFFS` are evaluated into `y`, and for this shape the two counts
-    /// are equal. The `nCoeffs` argument is still passed explicitly rather than
-    /// inferred from `n`, so demoting a word later is a one-line change here
-    /// that has to be argued at the constant. See `BATCH_COEFFS` for why no word
-    /// is demoted today.
+    /// `BATCH_COEFFS` are evaluated into `y`; for this shape the two counts are
+    /// equal. `nCoeffs` is passed explicitly rather than inferred from `n`, so
+    /// excluding a word from evaluation is a change to the constant, where it
+    /// must be justified. See `BATCH_COEFFS` for why every word is evaluated.
     function compress(TreeUpdateBatch calldata tpi) internal pure returns (uint256[2] memory) {
         uint256 n = BATCH_CHALLENGE_WORDS;
         uint256 head;
@@ -355,6 +388,56 @@ library PubInputs {
         return _finalizeRaw(head, n, BATCH_COEFFS);
     }
 
+    /// Word index of `Transact.outCvDep[0][0]` in the calldata block.
+    uint256 private constant W_OUT_CV_DEP = W_PUBLIC_ASSET_ID + 3 + 2 * TRANSACT_IN + 2 * TRANSACT_OUT;
+    /// Word index of `Transact.outCm[0]`.
+    uint256 private constant W_OUT_CM = 1 + TRANSACT_IN;
+
+    /// `compress(TreeUpdateBatch)` for the batch a spend implies, without that
+    /// batch in calldata. Word-for-word the image `compress(tpi)` hashes when
+    /// `tpi` is the only batch `MASP` and the circuit accept for this spend:
+    ///   [0] oldRoot  [1] newRoot  [2] startIndex  [3] TRANSACT_OUT
+    ///   cms     = pi.outCm ++ zero padding
+    ///   cvDeps  = pi.outCvDep ++ zero padding
+    ///   leafAsset, leafPublicIn, isDeposit = zero
+    function compressSpend(Transact calldata pi, SpendTree calldata st, bytes32 oldRoot)
+        internal
+        pure
+        returns (uint256[2] memory)
+    {
+        uint256 n = BATCH_CHALLENGE_WORDS;
+        uint256 startIndex = st.startIndex;
+        bytes32 newRoot = st.newRoot;
+        uint256 outCm = uint256(W_OUT_CM) * 0x20;
+        uint256 outCvDep = uint256(W_OUT_CV_DEP) * 0x20;
+        uint256 cmsLen = TRANSACT_OUT * 0x20;
+        uint256 cmsPad = (MAX_L_BATCH - TRANSACT_OUT) * 0x20;
+        uint256 cvLen = 2 * TRANSACT_OUT * 0x20;
+        uint256 cvPad = 2 * (MAX_L_BATCH - TRANSACT_OUT) * 0x20 + 3 * MAX_L_BATCH * 0x20;
+        uint256 head;
+        assembly ("memory-safe") {
+            head := mload(0x40)
+            mstore(head, 0x20)
+            mstore(add(head, 0x20), n)
+            let d := add(head, 0x40)
+            mstore(d, oldRoot)
+            mstore(add(d, 0x20), newRoot)
+            mstore(add(d, 0x40), startIndex)
+            mstore(add(d, 0x60), TRANSACT_OUT)
+            d := add(d, 0x80)
+            calldatacopy(d, add(pi, outCm), cmsLen)
+            d := add(d, cmsLen)
+            // Copying from past the end of calldata yields zeros.
+            calldatacopy(d, calldatasize(), cmsPad)
+            d := add(d, cmsPad)
+            calldatacopy(d, add(pi, outCvDep), cvLen)
+            d := add(d, cvLen)
+            calldatacopy(d, calldatasize(), cvPad)
+            mstore(0x40, add(head, add(0x40, mul(n, 0x20))))
+        }
+        return _finalizeRaw(head, n, BATCH_COEFFS);
+    }
+
     /// `head` points at an in-memory `abi.encode(uint256[] memory)` image:
     /// `0x20 || n || words`. All `n` words are hashed for `z`; the first
     /// `nCoeffs` are Horner-evaluated for `y`.
@@ -379,15 +462,15 @@ library PubInputs {
     // independently of the calldata fast paths above. Not used on-chain;
     // `PubInputs.t.sol` fuzzes `compressRef == compress` for drift.
 
-    /// Packs `Transact` into the `TRANSACT_CHALLENGE_WORDS = 69` challenge
+    /// Packs `Transact` into the `TRANSACT_CHALLENGE_WORDS = 70` challenge
     /// preimage and the `TRANSACT_COEFFS = 46` coefficient vector, and derives
     /// `(y, z)`. Two cursor walks, so both layouts are what the reference
     /// asserts. The coefficient order matches `4x6.circom`'s
     /// `TransactCompressN`; the preimage order matches the calldata block.
     ///
-    /// Written as two walks rather than one walk plus a filter so that the
-    /// question "is this word a coefficient?" is answered by where it is
-    /// written, not by an index computation a reader has to re-derive.
+    /// Two walks rather than one walk plus a filter, so whether a word is a
+    /// coefficient is stated by where it is written, not by an index
+    /// computation.
     function compressRef(Transact memory pi, AuxValidation.Output[TRANSACT_OUT] calldata aux)
         internal
         pure
@@ -426,12 +509,13 @@ library PubInputs {
         }
 
         // Everything from here is constrained nowhere in the circuit: hashed
-        // into `z` only. As coefficients these were the free variables an
-        // arbitrary `y` is solved for; see `TRANSACT_COEFFS`.
+        // into `z` only. As coefficients these would be free variables an
+        // arbitrary `y` could be solved for; see `TRANSACT_COEFFS`.
         pre[i++] = uint256(uint160(pi.recipient));
         pre[i++] = pi.chainId;
         pre[i++] = uint256(uint160(pi.payer));
         pre[i++] = uint256(uint160(pi.relayer));
+        pre[i++] = pi.intentHash;
 
         // The FMD clues and the payload digest.
         for (uint256 k; k < TRANSACT_OUT; ++k) {
@@ -448,12 +532,9 @@ library PubInputs {
     /// derives `(y, z)`. The order matches `tree_update_batch.circom`'s
     /// `BatchCompress` and the calldata block alike.
     ///
-    /// One array, unlike the transact path. There the preimage and the
-    /// coefficients are built as two walks so that "is this word a
-    /// coefficient?" is answered per line by which array it is written to;
-    /// here every word is both, so a second array would be a copy of the first
-    /// and would document nothing. A future demotion reintroduces the second
-    /// walk at that point, which is also when the distinction becomes real.
+    /// One array, unlike the transact path: every word is both hashed and
+    /// evaluated, so a second array would duplicate the first. Excluding a word
+    /// from evaluation would require a second walk.
     function compressRef(TreeUpdateBatch memory tpi) internal pure returns (uint256[2] memory) {
         uint256[] memory c = new uint256[](BATCH_COEFFS);
 

@@ -18,25 +18,24 @@ import { MockAllowanceTransfer } from "./mocks/MockAllowanceTransfer.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
 
-/// Deploys a real `MASP` behind the real proxy with the dependencies a symbolic
-/// proof cannot afford to explore replaced by mocks.
+/// Deploys a real `MASP` behind the real proxy, with dependencies that are
+/// intractable for symbolic execution replaced by mocks.
 ///
-/// Free function rather than a base-contract method so a fixture that needs a
-/// different asset — `NativeAdapter`'s wrapped-native pool — can reuse the
-/// wiring without inheriting the escrow helpers it has no use for.
+/// A free function rather than a base-contract method, so a fixture with a
+/// different asset (`NativeAdapter`'s wrapped-native pool) can reuse the wiring
+/// without inheriting the escrow helpers.
 ///
-/// What is mocked, and why each is sound to mock:
+/// Mocked dependencies and why each is sound to mock:
 ///
-/// - **Permit2** — an allowance ledger, a nonce bitmap and an EIP-712 signature
-///   check. No property proved against this pool depends on any of it, and the
-///   token movement it performs stays real.
-/// - **Both Groth16 verifiers** — a pairing check is out of reach for a solver.
-///   The spend verifier answers `true`, which matters only in that it must not
-///   be the reason a call fails; `initialize` also probes it, so the address
-///   must carry code.
+/// - **Permit2**: an allowance ledger, nonce bitmap and EIP-712 signature check.
+///   No property proved against this pool depends on them, and the token
+///   transfer it performs is real.
+/// - **Both Groth16 verifiers**: pairing checks are intractable for the solver.
+///   The spend verifier returns `true` so it is never the cause of a failure;
+///   `initialize` probes it, so the address must have code.
 ///
-/// Every proof built on this either rejects before reaching a verifier, or is
-/// about state the verifier has no bearing on.
+/// Every proof built on this either rejects before reaching a verifier or
+/// concerns state the verifier does not affect.
 function deployMockedPool(IERC20 asset, uint16 feeBps, address permit2, address treasury, address owner)
     returns (MASP)
 {
@@ -61,7 +60,7 @@ function deployMockedPool(IERC20 asset, uint16 feeBps, address permit2, address 
 }
 
 /// Values shared by every pool fixture, in a library so the free function above
-/// and the base contract below agree on them by construction.
+/// and the base contract below use the same values.
 library PoolConstants {
     uint64 internal constant ASSET_ID = 1;
     uint256 internal constant SCALE = 1e10;
@@ -73,13 +72,11 @@ library PoolConstants {
 
 /// Shared fixture for the proofs that drive a real `MASP`.
 ///
-/// Five test contracts deployed a pool and built the same deposit request from
-/// the same constants; this holds that once, so a change to the escrow shape is
-/// one edit rather than five, and a fixture that silently stops being valid
-/// cannot do so in only some of them.
+/// Holds the pool deployment and the canonical deposit request in one place, so
+/// a change to the escrow shape applies to every suite that uses it.
 ///
-/// Named without `Symbolic` on purpose: `match-contract` in `halmos.toml` scopes
-/// a run to contracts matching that word, and a fixture is not a test.
+/// The name omits `Symbolic`: `match-contract` in `halmos.toml` selects contracts
+/// matching that word, and a fixture is not a test.
 abstract contract PoolFixture is GuardAsserts {
     uint64 internal constant ASSET_ID = PoolConstants.ASSET_ID;
     uint256 internal constant SCALE = PoolConstants.SCALE;
@@ -89,12 +86,12 @@ abstract contract PoolFixture is GuardAsserts {
     address internal constant OWNER = PoolConstants.OWNER;
     address internal constant RECIPIENT = PoolConstants.RECIPIENT;
 
-    /// The genesis empty-tree root, and so the only known root in a pool that
-    /// has never advanced.
+    /// The genesis empty-tree root: the only known root in a pool that has not
+    /// advanced.
     bytes32 internal constant EMPTY_ROOT = 0x1cf92e62b512433b35f0064d537576b0184cad5fa7ab64201cd8084ee2dc171f;
 
-    /// The concrete half of the escrow preimage `_submit` writes. `cm` is left
-    /// to the caller and is expected to be symbolic — see `_submit`.
+    /// The concrete fields of the escrow preimage `_submit` writes. `cm` is
+    /// supplied by the caller and is expected to be symbolic; see `_submit`.
     uint48 internal constant PUBLIC_IN = 100;
     uint256 internal constant CV_DEP_X = 0x11;
     uint256 internal constant CV_DEP_Y = 0x22;
@@ -115,7 +112,7 @@ abstract contract PoolFixture is GuardAsserts {
         permit2 = new MockAllowanceTransfer();
         masp = deployMockedPool(IERC20(address(token)), FEE_BPS, address(permit2), TREASURY, OWNER);
 
-        // This contract is the payer, and so also a *contract* payer — the case
+        // This contract is the payer, and therefore a contract payer, which
         // `cancelDeposit` restricts to self-service.
         token.mint(address(this), type(uint128).max);
         token.approve(address(permit2), type(uint256).max);
@@ -134,6 +131,7 @@ abstract contract PoolFixture is GuardAsserts {
         d.outCm = cm;
         d.cvDep = [CV_DEP_X, CV_DEP_Y];
         d.feeIn = FEE_IN;
+        d.feeAssetId = ASSET_ID;
         d.feeCm = FEE_CM;
         d.feeCvDep = [FEE_CV_DEP_X, FEE_CV_DEP_Y];
     }
@@ -141,26 +139,23 @@ abstract contract PoolFixture is GuardAsserts {
     /// A concrete, valid aux payload: the Baby-Jubjub prime-order generator in
     /// both point slots and a minimal well-formed ciphertext.
     ///
-    /// Concrete on purpose. `AuxValidation.validate` runs `isOnCurve` and
-    /// `isLowOrder`, `mulmod` chains over a 254-bit field — the one thing in
-    /// this path a solver cannot carry symbolically. With the points fixed the
-    /// whole check constant-folds, and the aux payload is not what these proofs
-    /// are about; `test/fuzz/BabyJubJub.fuzz.t.sol` covers it.
+    /// Concrete because `AuxValidation.validate` runs `isOnCurve` and
+    /// `isLowOrder`, `mulmod` chains over a 254-bit field that the solver cannot
+    /// carry symbolically. With the points fixed the check constant-folds. The
+    /// curve checks are covered by `test/fuzz/BabyJubJub.fuzz.t.sol`.
     function _aux() internal pure returns (AuxValidation.Output[6] memory) {
         return SpendFixture.validAux();
     }
 
     /// Submits the escrow a proof starts from, recording its block.
     ///
-    /// `cm` is expected to be symbolic, and that is load-bearing rather than
-    /// incidental. Halmos models `keccak256` as an uninterpreted function plus
-    /// an injectivity axiom, which relates uninterpreted hash terms *to each
-    /// other* — it does not tie such a term to a hash computed concretely.
-    /// Submit an entirely concrete preimage and `escrowed[id]` holds a literal
-    /// constant, leaving the solver free to pick a symbolic preimage whose
-    /// uninterpreted hash equals it: a forged match, and a counterexample
-    /// against a contract that is correct. With one field symbolic both sides
-    /// are uninterpreted terms and the proof means what it claims.
+    /// `cm` must be symbolic. Halmos models `keccak256` as an uninterpreted
+    /// function with an injectivity axiom, which relates uninterpreted hash terms
+    /// to each other but not to a concretely computed hash. With a fully concrete
+    /// preimage, `escrowed[id]` holds a literal constant and the solver can choose
+    /// a symbolic preimage whose uninterpreted hash equals it, producing a
+    /// spurious counterexample. With one field symbolic, both sides are
+    /// uninterpreted terms and the injectivity axiom applies.
     function _submit(bytes32 cm) internal returns (uint256 id) {
         submittedAt = uint32(block.number);
         AuxValidation.Output[6] memory aux = _aux();
@@ -169,7 +164,9 @@ abstract contract PoolFixture is GuardAsserts {
 
     /// The fee note matching what `_submit` escrowed.
     function _submittedFeeNote() internal pure returns (PubInputs.FeeNote memory) {
-        return PubInputs.FeeNote({ feeIn: FEE_IN, feeCm: FEE_CM, feeCvDep: [FEE_CV_DEP_X, FEE_CV_DEP_Y] });
+        return PubInputs.FeeNote({
+            feeIn: FEE_IN, feeAssetId: ASSET_ID, feeCm: FEE_CM, feeCvDep: [FEE_CV_DEP_X, FEE_CV_DEP_Y]
+        });
     }
 
     /// Cancels with the preimage `_submit` escrowed under `cm`.
@@ -192,6 +189,4 @@ abstract contract PoolFixture is GuardAsserts {
                 )
             );
     }
-
-    // --- assertions ---------------------------------------------------------
 }

@@ -28,8 +28,8 @@ contract GovDeployHarness is BaseGovernanceDeploy {
 /// Runs the deploy path in-process and asserts the resulting role table.
 ///
 /// The deploy's last transaction is an irreversible renounce, so the failure
-/// modes checked here — an ungranted proposer, a deployer retaining admin, a
-/// burner owned by the wrong address — are unrecoverable on a live chain.
+/// modes checked here (an ungranted proposer, a deployer retaining admin, a
+/// burner owned by the wrong address) are unrecoverable on a live chain.
 contract DeployGovernanceTest is Test {
     GovDeployHarness internal harness;
     MASP internal masp;

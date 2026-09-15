@@ -14,17 +14,15 @@ import { MockEscrowPool, MockEscrowToken } from "./mocks/MockEscrowPool.sol";
 
 /// The concrete satellite the proofs drive.
 ///
-/// `MaspEscrowSatellite` is abstract and both functions under proof are
-/// internal, so a subclass has to exist regardless; this one adds nothing but
-/// external wrappers and a way to seed a record. `NativeAdapter` and
-/// `SwapWrapper` are the production subclasses, and each wraps these two
-/// functions with its own payout — which is exactly the split the base class
-/// documents, and the reason the accounting can be proved without either.
+/// `MaspEscrowSatellite` is abstract and both functions under proof are internal,
+/// so a subclass is required; this one adds only external wrappers and a way to
+/// seed a record. The production subclasses `NativeAdapter` and `SwapWrapper`
+/// each wrap these two functions with their own payout, so the base-class
+/// accounting can be proved independently of either.
 ///
-/// `nonReentrant` is deliberately absent from the wrappers. The base class
-/// requires the subclass to supply it and both production subclasses do; adding
-/// it here would only put a transient-storage guard in front of every path
-/// explored, and no property below is about re-entry.
+/// The wrappers omit `nonReentrant`. The base class requires subclasses to apply
+/// it, and both production subclasses do; here it would add a transient-storage
+/// guard to every explored path, and no property below concerns re-entry.
 contract SatelliteHarness is MaspEscrowSatellite {
     IERC20 internal immutable TOKEN;
 
@@ -32,13 +30,12 @@ contract SatelliteHarness is MaspEscrowSatellite {
         TOKEN = token;
     }
 
-    function _consumeEscrowToken(uint256) internal view override returns (IERC20) {
+    function _escrowToken(uint256, uint64) internal view override returns (IERC20) {
         return TOKEN;
     }
 
-    /// Writes the record `depositAuthorized` would have left, so a cancel proof
-    /// can quantify over the recorded amount directly instead of reaching it
-    /// through a deposit that would fix it.
+    /// Writes the record a deposit would leave, so a cancel proof can quantify
+    /// over the recorded amount directly rather than fixing it through a deposit.
     function seed(uint256 id, address refundTo, uint96 amount) external {
         _escrows[id] = Escrow({ refundTo: refundTo, amount: amount });
     }
@@ -75,38 +72,31 @@ contract SatelliteHarness is MaspEscrowSatellite {
 
 /// Symbolic proofs for the refund accounting every satellite inherits.
 ///
-/// A satellite escrows into MASP as its own payer, so the pool refunds *it* on
-/// a cancel rather than the party that funded the deposit. The record it keeps
-/// of that party, and the amount it verifies arrived, are the only things
-/// standing between a cancel and a misdirected or unfunded payout. Neither is
-/// checked by the pool: from MASP's side a satellite is one payer with one
-/// allowance, and `README.md` records that its Permit2 grant covers the
-/// satellite's entire balance.
+/// A satellite escrows into MASP as its own payer, so the pool refunds the
+/// satellite on a cancel rather than the party that funded the deposit. The
+/// satellite's funder record and its check that the refund arrived prevent a
+/// misdirected or unfunded payout. The pool checks neither: to MASP a satellite
+/// is one payer whose Permit2 allowance covers its entire balance.
 ///
-/// Three properties carry that weight, and all three are statements about every
-/// amount the pool might move:
+/// Three properties, each over every amount the pool might move:
 ///
-/// 1. **The refund floor holds for every delivered amount.** The satellite
-///    cannot recompute what it is owed — it cannot see the pool's deposit fee,
-///    and on a yield asset the refund exceeds the pull by whatever the escrow
-///    earned — so it measures a balance delta and checks it against the floor.
-///    An off-by-one there either strands correct cancels or accepts underfunded
-///    ones.
+/// 1. **The delivered refund equals the reported one, for every amount.** The
+///    satellite cannot recompute what it is owed (it cannot see the pool's
+///    deposit fee, and a yield refund is priced at the current index and may
+///    fall below the pull), so it checks a measured balance delta against the
+///    refund the pool returns. A loose check would accept an underfunded refund;
+///    a floor at the record would block a correct yield cancel.
 /// 2. **An escrow is consumed once.** The record is the authorization; if it
-///    survived a cancel, the second call would pay a second time against one
-///    escrow.
+///    survived a cancel, a second call would pay again against the same escrow.
 /// 3. **The measured pull is bounded on both sides.** `d` is unauthenticated
-///    calldata and the allowance covers everything the satellite holds, so
-///    without a ceiling an oversized `publicIn` escrows balances parked for
+///    calldata and the allowance covers the satellite's whole balance, so
+///    without a ceiling an oversized `publicIn` would escrow balances held for
 ///    other parties.
 ///
-/// Worth a solver rather than a fuzzer because each is a boundary over the full
-/// `uint256` delta the pool can deliver, and the interesting values — exactly
-/// at the floor, one below it, exactly at `type(uint96).max`, one above — are
-/// four points a sampler has no reason to draw. Everything reachable is
-/// comparison and subtraction; there is no division anywhere in either
-/// function, which is what keeps this tractable where the yield accounting that
-/// produces the refund is not.
+/// Each is a boundary over the full `uint256` delta the pool can deliver; the
+/// edge values (one off the report in either direction, zero, far below the
+/// record) are unlikely to be sampled by a fuzzer. Both functions use only comparison and
+/// subtraction, with no division, which keeps them tractable.
 contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
     SatelliteHarness internal sat;
     MockEscrowPool internal pool;
@@ -115,8 +105,8 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
     address internal constant FUNDER = address(0xF00D);
     uint256 internal constant ID = 1;
 
-    /// Headroom on the satellite's balance, so a proof that quantifies over a
-    /// refund is not silently bounded by the token running out.
+    /// Headroom on the satellite's balance, so a proof quantifying over a pull is
+    /// not bounded by an insufficient balance.
     uint256 internal constant SEED_BALANCE = type(uint128).max;
 
     function setUp() public {
@@ -127,76 +117,57 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
         token.credit(address(sat), SEED_BALANCE);
     }
 
-    // --- The refund floor ---------------------------------------------------
+    // --- The refund matches the pool's report -------------------------------
 
-    /// Every refund that falls short of the recorded amount is rejected.
+    /// Every refund whose delivered amount differs from the amount the pool
+    /// reports paying is rejected.
     ///
-    /// This is the guard's reason for existing: a partially delivered or
-    /// entirely absent refund must not clear a record, because clearing it
-    /// destroys the only evidence of what the funder is owed. Quantified over
-    /// both the recorded amount and the delivered one, so the boundary is
-    /// proved rather than sampled at it.
-    function check_cancel_rejectsEveryUnderfundedRefund(uint96 amount, uint256 delivered) public {
-        vm.assume(delivered < amount);
-
-        sat.seed(ID, FUNDER, amount);
-        pool.open(ID);
-        pool.setRefund(delivered);
-
-        (bool ok, bytes memory ret) = _cancel(ID);
-
-        _assertRejected(
-            ok, ret, MaspEscrowSatellite.RefundNotFunded.selector, "an underfunded refund cleared the record"
-        );
-    }
-
-    /// Every refund at or above the recorded amount is accepted, and the amount
-    /// reported back is what actually arrived — not what was recorded.
-    ///
-    /// The other direction of the same boundary, and the one that keeps a
-    /// correct cancel from reverting. Forwarding the measured delta rather than
-    /// the recorded amount is what lets the payout follow a yield index that
-    /// moved while the funds sat in escrow; returning the recorded figure
-    /// instead would strand the difference in the satellite.
-    function check_cancel_acceptsEveryFundedRefund(uint96 amount, uint96 delivered) public {
-        vm.assume(delivered >= amount);
-
-        sat.seed(ID, FUNDER, amount);
-        pool.open(ID);
-        pool.setRefund(delivered);
-
-        (, address refundTo, uint256 paid) = sat.cancelAndVerify(
-            ID, 0, bytes32(0), [uint256(0), 0], 0, 0, 0, PubInputs.FeeNote(0, bytes32(0), [uint256(0), 0])
-        );
-
-        assertEq(refundTo, FUNDER, "refund misdirected");
-        assertEq(paid, uint256(delivered), "payout did not follow the delivered amount");
-    }
-
-    /// A refund too wide for the record's `uint96` is rejected rather than
-    /// truncated. Truncation here would silently pay out a fraction of what
-    /// arrived and leave the remainder stranded in the satellite.
-    function check_cancel_rejectsEveryOversizedRefund(uint96 amount, uint256 delivered) public {
-        vm.assume(delivered > type(uint96).max);
-        // Above the floor, so the only guard left to fire is the width one.
-        vm.assume(delivered >= amount);
-        // The stand-in token credits the refund into a balance that already
-        // holds `SEED_BALANCE`, and Solidity's checked addition reverts before
-        // the satellite is reached if that sum wraps. Excluding only the sums
-        // that overflow keeps every value the token could actually deliver,
-        // which is still the whole range above `type(uint96).max` less a
-        // uint128-sized tail.
+    /// The satellite cannot recompute what it is owed (it cannot see the pool's
+    /// deposit fee, and a yield refund is priced at the current index), so it
+    /// takes the pool's returned refund as the claim and the balance delta as the
+    /// evidence. A short delivery must not clear a record out of another
+    /// escrow's coin, and a long one indicates fee-on-transfer or an unattributed
+    /// balance movement. Quantified over the recorded, delivered and reported
+    /// amounts.
+    function check_cancel_rejectsEveryMisreportedRefund(uint96 amount, uint256 delivered, uint256 reported) public {
+        vm.assume(delivered != reported);
+        // The mock token credits the refund onto `SEED_BALANCE`, and checked
+        // addition reverts before the satellite's check if the sum overflows.
         vm.assume(delivered <= type(uint256).max - SEED_BALANCE);
 
         sat.seed(ID, FUNDER, amount);
         pool.open(ID);
         pool.setRefund(delivered);
+        pool.setReported(reported);
 
         (bool ok, bytes memory ret) = _cancel(ID);
 
-        _assertRejected(
-            ok, ret, MaspEscrowSatellite.EscrowAmountTooLarge.selector, "an out-of-range refund was recorded"
+        _assertRejected(ok, ret, MaspEscrowSatellite.RefundMismatch.selector, "a misreported refund cleared the record");
+    }
+
+    /// Every refund delivered exactly as reported is accepted, and the returned
+    /// amount is the delivered amount, not the recorded one, even below it.
+    ///
+    /// The accepting side of the same boundary, so a correct cancel does not
+    /// revert. A yield refund is capped at the pull and floored at the current
+    /// index, so it falls below the recorded amount by rounding at a flat index
+    /// or by a venue loss; a floor at the record would leave such an escrow with
+    /// no refund path. Returning the recorded amount instead would pay the
+    /// shortfall out of another escrow's coin.
+    function check_cancel_acceptsEveryExactRefund(uint96 amount, uint256 delivered) public {
+        vm.assume(delivered <= type(uint256).max - SEED_BALANCE);
+
+        sat.seed(ID, FUNDER, amount);
+        pool.open(ID);
+        pool.setRefund(delivered);
+        pool.setReported(delivered);
+
+        (, address refundTo, uint256 paid) = sat.cancelAndVerify(
+            ID, 0, bytes32(0), [uint256(0), 0], 0, 0, 0, PubInputs.FeeNote(0, 0, bytes32(0), [uint256(0), 0])
         );
+
+        assertEq(refundTo, FUNDER, "refund misdirected");
+        assertEq(paid, delivered, "payout did not follow the delivered amount");
     }
 
     // --- An escrow is consumed once -----------------------------------------
@@ -204,16 +175,17 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
     /// A cancel cannot be replayed, for every recorded amount.
     ///
     /// The record is the authorization, so the second call must find nothing.
-    /// `delete` before the external call is also what makes the balance delta
-    /// attributable: a re-entrant token could otherwise cancel again inside the
-    /// first refund and both measurements would see the combined movement.
+    /// Deleting before the external call also keeps the balance delta
+    /// attributable: otherwise a re-entrant token could cancel again inside the
+    /// first refund, and both measurements would include the combined movement.
     function check_cancel_cannotBeReplayed(uint96 amount) public {
         sat.seed(ID, FUNDER, amount);
         pool.open(ID);
         pool.setRefund(amount);
+        pool.setReported(amount);
 
         sat.cancelAndVerify(
-            ID, 0, bytes32(0), [uint256(0), 0], 0, 0, 0, PubInputs.FeeNote(0, bytes32(0), [uint256(0), 0])
+            ID, 0, bytes32(0), [uint256(0), 0], 0, 0, 0, PubInputs.FeeNote(0, 0, bytes32(0), [uint256(0), 0])
         );
 
         (address refundTo, uint96 recorded) = sat.recordOf(ID);
@@ -225,8 +197,8 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
     }
 
     /// An id the satellite never escrowed is refused, for every id and every
-    /// refund the pool would pay. Without this, the pool's refund would land in
-    /// the satellite with no record saying whose it is.
+    /// refund amount; otherwise the refund would reach the satellite with no
+    /// record of its funder.
     function check_cancel_rejectsEveryUnknownId(uint256 id, uint256 delivered) public {
         pool.setRefund(delivered);
 
@@ -237,13 +209,11 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
         );
     }
 
-    /// A deposit already settled by a flush carries no refund, and the cancel
-    /// is refused before the record is cleared.
+    /// A deposit already settled by a flush carries no refund, so the cancel is
+    /// refused and the record is left intact.
     ///
-    /// The pool zeroes `escrowed[id]` on both a flush and a cancel, which is
-    /// what makes the two mutually exclusive. A satellite that skipped this
-    /// check would clear its own record and pay out against a refund that never
-    /// arrives — caught by the floor, but only after the evidence was gone.
+    /// The pool zeroes `escrowed[id]` on both flush and cancel, making them
+    /// mutually exclusive; the satellite reads it before clearing its record.
     function check_cancel_rejectsSettledDeposit(uint96 amount) public {
         sat.seed(ID, FUNDER, amount);
         pool.settle(ID);
@@ -258,9 +228,9 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
 
     // --- The measured pull is bounded ---------------------------------------
 
-    /// Every pull below the caller's floor is rejected. A deposit denominated
-    /// in another asset moves none of this token and lands at zero, which is
-    /// the case this bound is written for.
+    /// Every pull below the caller's floor is rejected. A deposit denominated in
+    /// another asset moves none of this token and measures zero, which this
+    /// bound rejects.
     function check_escrow_rejectsEveryPullBelowMin(uint96 pulled, uint96 minPull) public {
         vm.assume(pulled < minPull);
         pool.setPull(pulled);
@@ -272,10 +242,9 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
 
     /// Every pull above the caller's ceiling is rejected.
     ///
-    /// This is the bound that matters most: `d` is unauthenticated calldata and
-    /// the Permit2 allowance granted to the pool covers the satellite's whole
-    /// balance, so an oversized `publicIn` would otherwise escrow funds parked
-    /// there for other parties.
+    /// `d` is unauthenticated calldata and the Permit2 allowance granted to the
+    /// pool covers the satellite's whole balance, so without this bound an
+    /// oversized `publicIn` would escrow funds held for other parties.
     function check_escrow_rejectsEveryPullAboveMax(uint96 pulled, uint96 maxPull) public {
         vm.assume(pulled > maxPull);
         pool.setPull(pulled);
@@ -285,9 +254,9 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, MaspEscrowSatellite.PullExceedsMax.selector, "an oversized pull was recorded");
     }
 
-    /// Non-vacuity, and the accepting direction: every pull inside both bounds
-    /// is accepted and measured exactly. Without this the two proofs above hold
-    /// of a function that rejects everything.
+    /// Non-vacuity: every pull within both bounds is accepted and measured
+    /// exactly, so the two proofs above are not satisfied by a function that
+    /// rejects everything.
     function check_escrow_acceptsAndMeasuresEveryPullInRange(uint96 pulled, uint96 minPull, uint96 maxPull) public {
         vm.assume(pulled >= minPull);
         vm.assume(pulled <= maxPull);
@@ -305,7 +274,7 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
             .call(
                 abi.encodeCall(
                     SatelliteHarness.cancelAndVerify,
-                    (id, 0, bytes32(0), [uint256(0), 0], 0, 0, 0, PubInputs.FeeNote(0, bytes32(0), [uint256(0), 0]))
+                    (id, 0, bytes32(0), [uint256(0), 0], 0, 0, 0, PubInputs.FeeNote(0, 0, bytes32(0), [uint256(0), 0]))
                 )
             );
     }
@@ -319,8 +288,8 @@ contract MaspEscrowSatelliteSymbolicTest is GuardAsserts {
             );
     }
 
-    /// The request is passed straight through to the pool and never read by the
-    /// satellite, so it is held concrete: nothing below depends on its contents.
+    /// The request is passed through to the pool and never read by the
+    /// satellite, so it is concrete; no property depends on its contents.
     function _request() internal pure returns (PubInputs.DepositRequest memory d) { }
 
     function _aux() internal pure returns (AuxValidation.Output memory a) { }

@@ -9,12 +9,11 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { YieldBase } from "./YieldBase.t.sol";
 
 /// Property tests on the index arithmetic, driven through the real pool rather
-/// than a harness over the library's internals: the properties that matter are
-/// about the *composition* of pricing, fee and rounding across a whole
-/// operation, and a unit-level harness would not see a leak introduced by the
-/// order those are applied in.
+/// than a harness over the library's internals: the properties concern the
+/// composition of pricing, fee and rounding across a whole operation, and a
+/// unit-level harness would not detect a leak introduced by their ordering.
 ///
-/// The recurring shape is "the pool never rounds in the user's favour". Every
+/// The recurring property is that the pool never rounds in the user's favour. Every
 /// conversion is ceil on the way in and floor on the way out, so any sequence
 /// that returns more than it cost is a leak, and at these magnitudes a
 /// one-unit slip is worth `scale` base units.
@@ -30,9 +29,9 @@ contract YieldArithmeticFuzzTest is YieldBase {
 
     // ============== Rounding direction =======================================
 
-    /// A round trip that earned nothing must never return more than it cost.
-    /// This is the leak test: deposit rounds up, withdraw rounds down, and any
-    /// inversion shows up here as the pool paying out more than it took.
+    /// A round trip that earned nothing never returns more than it cost.
+    /// Deposit rounds up and withdraw rounds down; any inversion shows up here
+    /// as the pool paying out more than it took.
     function testFuzz_roundTripWithoutYieldNeverProfits(uint64 rawN) public {
         uint64 n = _boundN(rawN);
         (, uint256 paidIn) = _deposit(YIELD_ID, n, 0x101);
@@ -88,13 +87,13 @@ contract YieldArithmeticFuzzTest is YieldBase {
         assertEq(masp.index(YIELD_ID), RAY, "empty pool prices at RAY");
     }
 
-    /// No deposit size is free. Flooring the unit fee charged zero for every
-    /// `publicIn` under `10_000 / FEE_BPS`, and nothing bounds deposit size
-    /// from below, so the whole schedule could be dodged in chunks — worth real
-    /// money at a large `scale`.
+    /// No deposit size is fee-free. A floored unit fee would be zero for every
+    /// `publicIn` under `10_000 / FEE_BPS`, and deposit size has no lower bound,
+    /// so the fee could be avoided by splitting deposits, which is material at a
+    /// large `scale`.
     ///
     /// Swept across the entire sub-threshold range rather than fuzzed, because
-    /// the range is small and the boundary is the point.
+    /// the range is small and the boundary is the property under test.
     function test_noSubThresholdDepositIsFree() public {
         uint64 threshold = 10_000 / FEE_BPS; // 400 at 25 bps
         for (uint64 n = 1; n <= threshold; ++n) {
@@ -106,13 +105,16 @@ contract YieldArithmeticFuzzTest is YieldBase {
         assertEq(Math.ceilDiv(uint256(2 * threshold) * FEE_BPS, 10_000), 2, "exactly two units' worth");
     }
 
-    /// The performance fee is a cut of growth and nothing else: it can never
-    /// exceed `perfBps` of what the venue actually earned.
+    /// The performance fee is a cut of growth only: it never exceeds `perfBps`
+    /// of what the venue earned.
     function testFuzz_perfFeeNeverExceedsItsShareOfGrowth(uint64 rawN, uint96 rawGrowth, uint16 rawPerf) public {
         uint64 n = _boundN(rawN);
         uint16 perfBps = uint16(bound(uint256(rawPerf), 0, 2_000));
         vm.prank(OWNER);
         masp.setYieldParams(YIELD_ID, BUFFER_BPS, perfBps);
+        // A rate above the registered one is queued; land it before any growth.
+        if (perfBps > PERF_BPS) _commit(YIELD_ID);
+        assertEq(masp.yieldState(YIELD_ID).perfBps, perfBps);
 
         _deposit(YIELD_ID, n, 0x101);
         uint256 growth = bound(uint256(rawGrowth), 0, 1e24);
@@ -127,8 +129,8 @@ contract YieldArithmeticFuzzTest is YieldBase {
         assertLe(treasuryValue, (growth * perfBps) / 10_000, "treasury took more than its share of the growth");
     }
 
-    /// A loss can never be billed for. The high-water mark holds until the pool
-    /// climbs back past its old peak, whatever the sequence of moves.
+    /// A loss is never billed. The high-water mark holds until the pool climbs
+    /// back past its previous peak, for any sequence of moves.
     function testFuzz_noPerfFeeWhileUnderWater(uint64 rawN, uint96 rawGrowth, uint96 rawLoss) public {
         uint64 n = _boundN(rawN);
         _deposit(YIELD_ID, n, 0x101);
@@ -151,18 +153,17 @@ contract YieldArithmeticFuzzTest is YieldBase {
         }
     }
 
-    /// Switching the fee on must not reach back over growth that accrued while
-    /// it was off.
+    /// Enabling the fee does not bill growth that accrued while it was off.
     ///
     /// `_accruePerf` returns on `perfBps == 0` before it touches `lastIdx`, so
-    /// the mark sits frozen for the whole time a fee is disabled. Without a
-    /// re-mark when the rate changes, the first accrual after re-enabling bills
-    /// against the mark from *inception* — charging holders a cut of everything
-    /// they earned during an explicitly fee-free period.
+    /// the mark stays fixed while the fee is disabled. Without a re-mark when
+    /// the rate changes, the first accrual after re-enabling would bill against
+    /// the mark from inception, charging holders a cut of growth earned while
+    /// the fee was zero.
     function testFuzz_enablingTheFeeDoesNotBillEarlierGrowth(uint64 rawN, uint96 rawGrowth) public {
         uint64 n = _boundN(rawN);
-        // Large enough that a cut of it would round to at least one unit, so a
-        // regression cannot hide behind `m == 0`.
+        // Large enough that a cut of it rounds to at least one unit, so a
+        // violation is not masked by `m == 0`.
         uint256 early = bound(uint256(rawGrowth), 1e13, 1e22);
 
         vm.prank(OWNER);
@@ -173,10 +174,12 @@ contract YieldArithmeticFuzzTest is YieldBase {
         masp.accruePerf(YIELD_ID);
         assertEq(masp.yieldState(YIELD_ID).accruedFeeNormalized, 0, "charged while the rate was zero");
 
-        // Enabling the fee re-marks the water line to here, so nothing already
-        // earned is billable.
+        // Enabling the fee is a raise, so it lands at the commit, which
+        // re-marks the water line to there: nothing already earned is billable.
         vm.prank(OWNER);
         masp.setYieldParams(YIELD_ID, BUFFER_BPS, PERF_BPS);
+        _commit(YIELD_ID);
+        assertEq(masp.yieldState(YIELD_ID).perfBps, PERF_BPS);
         masp.accruePerf(YIELD_ID);
         assertEq(masp.yieldState(YIELD_ID).accruedFeeNormalized, 0, "billed growth that predates the fee");
 
@@ -191,10 +194,51 @@ contract YieldArithmeticFuzzTest is YieldBase {
         assertLe(treasuryValue, (late * PERF_BPS) / 10_000, "billed more than its share of post-enable growth");
     }
 
+    /// A depositor arriving after sub-unit growth is not billed for it.
+    ///
+    /// A performance cut worth less than one unit mints nothing and carries the
+    /// growth forward. Were the mark left there when the supply grows, the next
+    /// accrual would bill the entrant's units for growth that predates them. At
+    /// `scale = 1` a unit is one base unit, so a tiny position can carry a
+    /// large sub-unit backlog, and the victim's loss would be a real fraction of
+    /// their deposit.
+    ///
+    /// Two measures: the first accrual after arrival, with no growth since,
+    /// mints nothing; and the entrant's units are worth what it paid, less
+    /// rounding. The pull rounds up and the value down (one base unit), and the
+    /// mock vault floors the shares it mints, which can cost up to one share's
+    /// worth of underlying; neither is a fee.
+    function testFuzz_entrantIsNeverBilledPreArrivalGrowth(uint16 rawSeed, uint64 rawGrowth, uint64 rawN, bool poke)
+        public
+    {
+        uint64 seedUnits = uint64(bound(uint256(rawSeed), 1, 1_000));
+        uint256 growth = bound(uint256(rawGrowth), 0, 1e12);
+        uint64 n = _boundN(rawN);
+
+        _deposit(FINE_ID, seedUnits, 0x101);
+        _earnInto(vaultFine, growth);
+        // A permissionless accrual between the growth and the arrival must not
+        // change the outcome.
+        if (poke) masp.accruePerf(FINE_ID);
+
+        uint256 sharePrice = Math.ceilDiv(vaultFine.totalAssetsHeld(), vaultFine.totalSupply());
+        uint256 unitsBefore = masp.yieldState(FINE_ID).totalNormalized;
+        (, uint256 paidIn) = _deposit(FINE_ID, n, 0x301);
+        uint256 entrantUnits = masp.yieldState(FINE_ID).totalNormalized - unitsBefore;
+        uint256 feeAtArrival = masp.yieldState(FINE_ID).accruedFeeNormalized;
+
+        // No growth since arrival: anything minted now is billed on the past.
+        masp.accruePerf(FINE_ID);
+        assertEq(masp.yieldState(FINE_ID).accruedFeeNormalized, feeAtArrival, "billed growth that predates the entrant");
+
+        uint256 value = (entrantUnits * _grossFine()) / _supply(FINE_ID);
+        assertGe(value + 1 + sharePrice, paidIn, "entrant lost more than rounding");
+    }
+
     // ============== Escrow ===================================================
 
-    /// A cancellation returns the escrowed units at the current index and never
-    /// more than the pool holds for them.
+    /// A cancellation returns the escrowed units at the current index, capped at
+    /// the amount pulled at submit, and never more than the pool holds for them.
     function testFuzz_cancelRefundIsBounded(uint64 rawN, uint96 rawGrowth) public {
         uint64 n = _boundN(rawN);
         uint32 submittedAt = uint32(vm.getBlockNumber());
@@ -215,10 +259,11 @@ contract YieldArithmeticFuzzTest is YieldBase {
             FEE_BPS,
             payer,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0x102)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0x102)), feeCvDep: [uint256(0), 0] })
         );
         uint256 refunded = token.balanceOf(payer) - before;
 
+        assertLe(refunded, paidIn, "refund exceeded the submit-time pull");
         assertLe(refunded, grossBefore, "refund exceeded what the pool held");
         assertLe(refunded, paidIn + growth, "refund exceeded the deposit plus everything it earned");
         assertEq(masp.yieldState(YIELD_ID).totalNormalized, 0, "holder liability released in full");
@@ -226,13 +271,12 @@ contract YieldArithmeticFuzzTest is YieldBase {
 
     // ============== Scale ====================================================
 
-    /// `scale` must not leak into the index.
+    /// `scale` does not affect the index.
     ///
     /// Two assets holding the same number of units, whose venues grew by the
-    /// same *proportion*, must report the same index — the underlying amounts
-    /// differ by `scale`, and that factor has to cancel. This is the bug a
-    /// USDC-only suite cannot see: at `scale = 1` an index formula that omits
-    /// `scale` is accidentally correct.
+    /// same proportion, report the same index: the underlying amounts differ by
+    /// `scale`, and that factor cancels. A USDC-only suite cannot detect this,
+    /// since at `scale = 1` an index formula that omits `scale` is correct.
     function testFuzz_scaleDoesNotDistortTheIndex(uint64 rawN, uint96 rawGrowth) public {
         uint64 n = _boundN(rawN);
         uint256 growth = bound(uint256(rawGrowth), 0, 1e18);

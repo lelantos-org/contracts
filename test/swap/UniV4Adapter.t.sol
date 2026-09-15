@@ -40,9 +40,9 @@ contract UniV4AdapterTest is Test {
         assertEq(MockERC20(hi).balanceOf(address(adapter)), 0, "adapter keeps no dust");
     }
 
-    /// The reverse direction must produce the same sorted `PoolKey` with
-    /// `zeroForOne = false`. The mock asserts the ordering, so a bug here
-    /// surfaces as a decode failure rather than a silent mispricing.
+    /// The reverse direction produces the same sorted `PoolKey` with
+    /// `zeroForOne = false`. The mock asserts the ordering, so an ordering error
+    /// reverts in the mock rather than mispricing silently.
     function testSwapOneForZero() public {
         (address lo, address hi) = _sorted();
         _fund(hi, 1_000e18, 980e18);
@@ -58,8 +58,8 @@ contract UniV4AdapterTest is Test {
         adapter.swap(lo, hi, 1_000e18, 990e18, block.timestamp + 1, route);
     }
 
-    /// `deadline` is genuinely forwarded here, unlike `UniV3Adapter` where
-    /// SwapRouter02 takes none.
+    /// `deadline` is forwarded to the router, unlike in `UniV3Adapter`, whose
+    /// SwapRouter02 call takes no deadline.
     function testRevertsOnExpiredDeadline() public {
         (address lo, address hi) = _sorted();
         _fund(lo, 1_000e18, 990e18);

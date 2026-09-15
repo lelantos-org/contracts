@@ -10,9 +10,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Foundry release is pinned so CI reproduces local bytecode exactly. The
-# compiler itself is pinned by the exact `pragma solidity 0.8.36` in
-# src/, test/ and script/ — foundry only has to fetch it.
+# The Foundry release is pinned so CI reproduces local bytecode exactly. The
+# compiler is pinned by the exact `pragma solidity 0.8.36` in src/, test/ and
+# script/; Foundry only fetches it.
 env:
   FOUNDRY_PROFILE: default
   FOUNDRY_VERSION: v1.8.1
@@ -72,8 +72,8 @@ jobs:
         with:
           node-version: "24"
       - uses: extractions/setup-just@v2
-      # Catches a contract rename/removal breaking the generator before a
-      # release tag does.
+      # Catches a contract rename or removal that breaks the generator before
+      # a release is tagged.
       - run: just abi
 
   quint:
@@ -92,12 +92,12 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just quint-install
       - run: just quint-spec
-      # Cheap gate: re-derives the schema hash from the config and compares it
+      # Fast gate: re-derives the schema hash from the config and compares it
       # against the committed fixtures, without running quint.
       - run: just quint-check
-      # Expensive gate: actually regenerate and prove it changed nothing. The
-      # seed is pinned, so a diff here means either a spec edit that was not
-      # regenerated, or something in the pipeline that is not deterministic.
+      # Full gate: regenerates and checks nothing changed. The seed is pinned,
+      # so a diff indicates either an unregenerated spec edit or
+      # non-determinism in the pipeline.
       - run: just quint-diff
 
   slither:
@@ -108,33 +108,32 @@ jobs:
         with:
           submodules: recursive
       # slither-action installs JS dependencies whenever the target directory
-      # has a lockfile, and would need a GitHub Packages token this job does
-      # not have. The repo root no longer carries one, so nothing triggers that
-      # today — but building here and telling the action to skip its own
-      # toolchain setup keeps the job independent of any lockfile reappearing,
-      # and skips a redundant solc/node/foundry install either way.
+      # has a lockfile, which would need a GitHub Packages token this job does
+      # not have. Building here and having the action skip its own toolchain
+      # setup keeps the job independent of any lockfile at the repo root and
+      # avoids a redundant solc/node/foundry install.
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
       # `--build-info` emits the solc standard-json output that crytic-compile
       # reads under `--ignore-compile`.
-      # `--no-dynamic-test-linking`: foundry 1.8 injects synthetic
-      # `foundry-pp/*.sol` sources that crytic-compile cannot resolve. The
-      # `slither` recipe in the justfile carries the detail.
+      # `--no-dynamic-test-linking`: dynamic test linking (Foundry 1.8+)
+      # injects synthetic `foundry-pp/*.sol` sources that crytic-compile cannot
+      # resolve. See the `slither` recipe in the justfile.
       - run: forge build --build-info --no-dynamic-test-linking
-      # v0.4.2 is the first release whose image is Python 3.10; the 3.9 images
-      # in v0.4.0/v0.4.1 cannot install slither 0.11.5 (Requires-Python >=3.10).
+      # v0.4.2 or later is required: slither 0.11.5 needs Python >=3.10, and
+      # earlier action images ship Python 3.9.
       - uses: crytic/slither-action@v0.4.2
         with:
           target: .
           slither-config: slither.config.json
           ignore-compile: true
           fail-on: medium
-          # Pinned deliberately. Unpinned, the action takes the latest release,
-          # so a new detector lands as a CI failure on an unrelated PR: 0.11.5
-          # added `reentrancy-balance` (high impact), which fires on every
-          # balance-delta measurement in SwapWrapper. Bump this on purpose,
-          # with the findings reviewed, rather than discovering them mid-PR.
+          # Pinned. Unpinned, the action takes the latest release, so a new
+          # detector surfaces as a CI failure on an unrelated PR (for example
+          # `reentrancy-balance`, high impact, fires on every balance-delta
+          # measurement in SwapWrapper). Bump explicitly after reviewing the
+          # new findings.
           slither-version: 0.11.5
 
   symbolic:
@@ -164,12 +163,12 @@ jobs:
           submodules: recursive
       - uses: extractions/setup-just@v2
       # Aderyn drives solc itself rather than reading a forge build, and its
-      # bundled svm release list predates solc 0.8.36, so on a clean runner it
-      # cannot resolve the `=0.8.36` pragma pinned across src/ and dies with
+      # bundled svm release list does not include solc 0.8.36, so on a clean
+      # runner it cannot resolve the `=0.8.36` pragma and fails with
       # "No solc version exists that matches the version requirement".
-      # It does read the shared svm store (~/.svm), so a forge build ahead of it
-      # is enough: foundry resolves and downloads 0.8.36 there, and aderyn then
-      # finds it. Remove once an Aderyn release ships a list that has 0.8.36.
+      # It reads the shared svm store (~/.svm), so a preceding forge build is
+      # sufficient: Foundry downloads 0.8.36 there and Aderyn finds it.
+      # TODO: remove once an Aderyn release's list includes 0.8.36.
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}

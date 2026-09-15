@@ -89,7 +89,7 @@ contract MASPSpendEventsTest is Test {
     function _spend(uint64 publicOut)
         internal
         view
-        returns (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi)
+        returns (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi)
     {
         bytes32 genesis = masp.currentRoot();
         pi.chainId = block.chainid;
@@ -101,15 +101,15 @@ contract MASPSpendEventsTest is Test {
         SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
         pi.merkleRoot = genesis;
 
-        tpi = SpendFixture.batchFor(pi, genesis, bytes32(uint256(0xABCD)), 0);
+        tpi = SpendFixture.spendTree(bytes32(uint256(0xABCD)), 0);
     }
 
     /// `withdraw` reports the gross unshielded amount, before the pool fee, as
     /// `outAmount`, and zero on the shield side. `publicOut` carries the same
-    /// value in circuit units, which is what an indexer needs once a yield
-    /// index makes `outAmount / scale` no longer recover it.
+    /// value in circuit units, which an indexer needs when a yield index means
+    /// `outAmount / scale` does not recover it.
     function test_withdraw_emitsAssetMovedGrossOut() public {
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(7);
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(7);
         uint256 gross = 7 * SCALE;
 
         vm.expectEmit(true, true, true, true, address(masp));
@@ -124,18 +124,18 @@ contract MASPSpendEventsTest is Test {
         assertEq(masp.accruedFee(IERC20(address(token))), fee, "accrued fee");
     }
 
-    /// `transfer` moves no tokens, so only the note payloads are emitted —
-    /// one per output leaf.
+    /// `transfer` moves no tokens, so it emits no `AssetMoved`, and one note
+    /// payload per output leaf.
     function test_transfer_emitsNoAssetMoved() public {
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(0);
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(0);
 
         vm.recordLogs();
         vm.prank(RELAYER);
         masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux());
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        // Must track the event's real signature: pinned against a stale one this
-        // assertion passes vacuously, since the stale topic is never emitted.
+        // The signature must match the event's declaration: a mismatched topic
+        // is never emitted, so the assertion would pass vacuously.
         bytes32 assetMovedSig = keccak256("AssetMoved(uint64,address,uint256,uint256,uint64,uint64)");
         bytes32 notePayloadSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
         uint256 notePayloads;
@@ -149,7 +149,7 @@ contract MASPSpendEventsTest is Test {
     /// Each `NotePayload` carries its own commitment as the indexed topic, so
     /// the set of emitted topics is exactly the set of output commitments.
     function test_spend_notePayloadIndexesCommitments() public {
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(0);
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(0);
 
         vm.recordLogs();
         vm.prank(RELAYER);
@@ -170,16 +170,16 @@ contract MASPSpendEventsTest is Test {
 
     /// A wallet learns its note's Merkle leaf index by pairing `RootAdvanced`
     /// with the per-leaf `NotePayload` events: leaf `k` sits at
-    /// `startIndex + k`. Nothing in the events states the index directly, so
-    /// the mapping rests entirely on emission order and count. A wrong index
+    /// `startIndex + k`. The events do not state the index directly, so the
+    /// mapping depends on emission order and count. A wrong index
     /// yields a bad Merkle path and an unspendable note, and at the 4x6 shape
     /// a mis-mapping misplaces three leaves rather than two.
     ///
-    /// This pins the whole indexer contract for a spend: how many events of
+    /// This pins the indexer-facing event sequence for a spend: how many events of
     /// each kind, in what order, and that the counts track
     /// `PubInputs.TRANSACT_IN` / `TRANSACT_OUT` rather than a literal 2 or 3.
     function test_spend_eventsAllowLeafIndexReconstruction() public {
-        (PubInputs.Transact memory pi, PubInputs.TreeUpdateBatch memory tpi) = _spend(0);
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(0);
         uint64 startBefore = masp.committedCount();
 
         vm.recordLogs();
@@ -226,7 +226,7 @@ contract MASPSpendEventsTest is Test {
         assertEq(noteCount, PubInputs.TRANSACT_OUT, "one NotePayload per output leaf");
         assertEq(rootCount, 1, "exactly one RootAdvanced");
         // On the spend path the root advance precedes the note payloads. The
-        // flush path emits DepositFlushed BEFORE its RootAdvanced, so an indexer
+        // flush path emits DepositFlushed before its RootAdvanced, so an indexer
         // cannot assume a single global ordering across the two paths.
         assertLt(rootAt, firstNoteAt, "spend path: RootAdvanced precedes NotePayload");
 

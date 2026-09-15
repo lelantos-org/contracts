@@ -4,9 +4,9 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 
-/// Edge tests for `BabyJubJub.isOnCurve`. The library is the gatekeeper for
-/// `AuxValidation` (off-curve clueRx/Ry and ephPub points are rejected) —
-/// bugs here would let a malformed FMD clue corrupt SNARK PIs.
+/// Edge tests for `BabyJubJub.isOnCurve` and `isLowOrder`. `AuxValidation`
+/// relies on the library to reject off-curve and low-order clue R and
+/// ephemeral points; an error here admits malformed FMD clues.
 contract BabyJubJubTest is Test {
     uint256 internal constant P = BabyJubJub.P;
 
@@ -18,7 +18,7 @@ contract BabyJubJubTest is Test {
         19_074_974_479_579_335_435_926_212_694_086_463_865_934_978_035_491_619_549_852_413_897_256_554_942_562;
 
     /// Identity element of the twisted Edwards group: (0, 1).
-    /// Plug into a*x^2 + y^2 = 1 + d*x^2*y^2 → 0 + 1 = 1 + 0. ✓
+    /// a*x^2 + y^2 = 1 + d*x^2*y^2 reduces to 0 + 1 = 1 + 0.
     function testIdentityIsOnCurve() public pure {
         assertTrue(BabyJubJub.isOnCurve(0, 1));
     }
@@ -66,19 +66,19 @@ contract BabyJubJubTest is Test {
     function testFuzz_RandomPointsAlmostAlwaysOffCurve(uint256 x, uint256 y) public pure {
         x = x % P;
         y = y % P;
-        // Rejecting on-curve coincidences (probability ~1/P) keeps the assert clean.
+        // Skips on-curve coincidences (probability ~1/P).
         if (BabyJubJub.isOnCurve(x, y)) return;
         assertFalse(BabyJubJub.isOnCurve(x, y));
     }
 
-    /// Identity (0, 1) is the trivial low-order point — `[1]·O = O`. Must be
-    /// flagged so `AuxValidation` rejects placeholder clue/eph points.
+    /// Identity (0, 1) is the trivial low-order point (`[1]·O = O`). It is
+    /// flagged so `AuxValidation` rejects placeholder clue and ephemeral points.
     function testIdentityIsLowOrder() public view {
         assertTrue(BabyJubJub.isLowOrder(0, 1));
     }
 
-    /// Canonical `8·Base` generator of the prime-order subgroup is NOT low
-    /// order — used by indexers as a valid sentinel.
+    /// The canonical `8·Base` generator of the prime-order subgroup is not
+    /// low-order; indexers use it as a valid sentinel.
     function testBase8IsNotLowOrder() public view {
         assertFalse(BabyJubJub.isLowOrder(BabyJubJub.BASE8_X, BabyJubJub.BASE8_Y));
     }

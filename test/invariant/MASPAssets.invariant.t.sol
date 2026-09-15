@@ -14,9 +14,9 @@ import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { MASPHarness, deployHarness } from "./MASPHarness.sol";
 
 /// Handler drives `addAsset` + `setAssetDisabled` with fuzz-generated inputs.
-/// Tracks the live id set as a ghost array so invariants can cross-check
-/// `masp.asset(id)`. The registry is add-only: once an id is registered it
-/// must remain resolvable.
+/// Tracks the registered id set as a ghost array so invariants can cross-check
+/// `masp.asset(id)`. The registry is add-only: a registered id remains
+/// resolvable.
 contract AssetsHandler is Test {
     MASPHarness public masp;
     uint64[] public ghostIds;
@@ -66,8 +66,9 @@ contract MASPAssetsInvariantTest is StdInvariant, Test {
         targetContract(address(handler));
     }
 
-    /// Every id ever successfully added must remain resolvable — the registry
-    /// is add-only, so no admin action can strand an outstanding note.
+    /// Every successfully added id remains resolvable (`asset` does not
+    /// revert). The registry is add-only, so no admin action strands an
+    /// outstanding note.
     function invariant_AllAddedIdsRemainLive() public view {
         uint256 n = handler.ghostIdsLength();
         for (uint256 i; i < n; ++i) {

@@ -20,18 +20,18 @@ import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { deployPoolUniform, singleAsset } from "./PoolDeployer.sol";
 import { TestConstants } from "./TestConstants.sol";
 
-/// Shared deployment + setup harness for MASP unit tests. Wires up real
-/// Groth16 verifiers, a real Uniswap Permit2, and a `MockERC20` registered
-/// against the fixture asset id so the bundled proof verifies end-to-end.
+/// Shared deployment and setup for MASP unit tests. Wires real Groth16
+/// verifiers, a real Uniswap Permit2, and a `MockERC20` registered at the
+/// fixture asset id so the bundled proof verifies end-to-end.
 ///
-/// The fixture payer is a hard-coded address (`0xface`) with no associated
-/// private key, so Permit2 signatures from it are made acceptable by etching a
-/// permissive ERC-1271 stub — `Stubs.installPermissiveERC1271`. Suites call it
-/// themselves rather than inheriting it here: which address gets the stub, and
-/// whether one is installed at all, is part of what a suite is testing.
+/// The fixture payer is a hard-coded address (`0xface`) with no private key, so
+/// Permit2 accepts signatures from it only once a permissive ERC-1271 stub is
+/// etched there (`Stubs.installPermissiveERC1271`). Suites install it
+/// themselves because which address gets the stub, and whether one is
+/// installed, is part of what a suite tests.
 contract MASPTestBase is Test {
-    /// SCALE picked so `publicIn * SCALE * FEE_BPS / 10_000 != 0` — fixture
-    /// publicIn=100 → fee=2.5e9 wei, exercises the FeeCollected branch.
+    /// SCALE is chosen so `publicIn * SCALE * FEE_BPS / 10_000 != 0`: at the
+    /// fixture's publicIn = 100 the fee is 2.5e9 wei, exercising fee accrual.
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
     uint256 internal constant SCALE = TestConstants.SCALE;
     uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
@@ -69,14 +69,14 @@ contract MASPTestBase is Test {
             OWNER
         );
 
-        // Default test addresses; subclasses override to supply fixture-bound
-        // payer/relayer addresses for the legacy Transact PI shape.
+        // Default test addresses; subclasses override them with the payer and
+        // relayer addresses a fixture's Transact public inputs bind.
         payer = address(0xface);
         relayer = address(0xcafe);
     }
 
-    /// Override to seat WETH (or any other token) at `ASSET_ID` at deploy time.
-    /// Default = the plain MockERC20 created in `setUp`.
+    /// Override to register WETH (or any other token) at `ASSET_ID` at deploy
+    /// time. Defaults to the `MockERC20` created in `setUp`.
     function _fixtureAssetToken() internal view virtual returns (IERC20) {
         return IERC20(address(token));
     }

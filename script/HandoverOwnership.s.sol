@@ -11,8 +11,8 @@ import { SwapWrapper } from "../src/swap/SwapWrapper.sol";
 /// Moves the pool, the wrapper and the pool proxy under governance. Signed by
 /// the current owner EOA and run separately from any deploy.
 ///
-/// Order matters: treasuries are repointed first, while the EOA can still do so
-/// in one transaction rather than through a proposal.
+/// Treasuries are repointed first, while the EOA can do so directly rather than
+/// through a proposal.
 ///
 /// Ownership transfer is single-step, so there is no acceptance transaction and
 /// a mistyped address is unrecoverable. Every write is read back and asserted.
@@ -51,7 +51,7 @@ contract HandoverOwnership is Script {
         proxy.changeProxyAdmin(protocolAdmin);
         vm.stopBroadcast();
 
-        // 6: read back and assert. A silent misfire here is unrecoverable.
+        // 6: read back and assert, since a wrong owner or admin is unrecoverable.
         require(masp.owner() == protocolAdmin, "masp owner mismatch");
         require(wrapper.owner() == protocolAdmin, "wrapper owner mismatch");
         require(masp.treasury() == feeBurner, "masp treasury mismatch");

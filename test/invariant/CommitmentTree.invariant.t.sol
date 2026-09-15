@@ -7,7 +7,8 @@ import { StdInvariant } from "forge-std/StdInvariant.sol";
 import { CommitmentTreeHarness } from "../fuzz/CommitmentTreeHarness.sol";
 
 /// Handler narrows the fuzzer's call surface to a single bounded entrypoint
-/// (`advanceRoot`) and tracks ghost state needed for monotonicity checks.
+/// (`advance`, wrapping `advanceRoot`) and tracks ghost state for the
+/// monotonicity checks.
 contract CommitmentTreeHandler is Test {
     CommitmentTreeHarness public tree;
     uint64 public lastCommittedCount;
@@ -43,23 +44,34 @@ contract CommitmentTreeInvariantTest is StdInvariant, Test {
         targetContract(address(handler));
     }
 
-    /// rootIndex must always stay in [0, ROOT_HISTORY).
+    /// rootIndex stays in [0, ROOT_HISTORY).
     function invariant_RootIndexInRange() public view {
         assertLt(tree.rootIndex(), ROOT_HISTORY);
     }
 
-    /// `roots[rootIndex]` and `currentRoot()` must agree.
+    /// `roots[rootIndex]` and `currentRoot()` agree.
     function invariant_CurrentRootMatchesRing() public view {
         assertEq(tree.rootAt(tree.rootIndex()), tree.currentRoot());
     }
 
-    /// Whatever root is current must be marked known.
+    /// A non-zero current root reads as known, and `rootIndexOf` names a slot
+    /// holding it. A zero root is never known: zero marks an unfilled slot, and
+    /// no Poseidon root is zero.
     function invariant_CurrentRootIsKnown() public view {
-        assertTrue(tree.isKnownRoot(tree.currentRoot()));
+        bytes32 current = tree.currentRoot();
+        if (current == bytes32(0)) {
+            assertFalse(tree.isKnownRoot(current), "zero root never known");
+            return;
+        }
+        assertTrue(tree.isKnownRoot(current));
+        (bool found, uint256 index) = tree.rootIndexOf(current);
+        assertTrue(found, "current root found");
+        assertEq(tree.rootAt(index), current, "found slot holds it");
     }
 
-    /// Sanity: live count matches the last value the handler observed.
-    /// Strict monotonicity itself is enforced inside the handler on every call.
+    /// Live count matches the last value the handler observed. Monotonicity
+    /// (non-decreasing, advancing by exactly `inserted`) is asserted inside the
+    /// handler on every call.
     function invariant_CommittedCountMatchesGhost() public view {
         assertEq(tree.committedCount(), handler.lastCommittedCount());
     }

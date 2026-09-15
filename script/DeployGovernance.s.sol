@@ -9,9 +9,9 @@ import { BaseGovernanceDeploy } from "./base/BaseGovernanceDeploy.s.sol";
 /// `FeeBurner` and `ProtocolAdmin`, wires the Timelock role table, and renounces
 /// the deployer's admin as the final transaction.
 ///
-/// It does **not** hand the pool over. See `HandoverOwnership.s.sol`, and run it
-/// only once real delegated weight exists — a Timelock-owned pool with nobody
-/// delegated has no working administrator at all.
+/// It does not hand the pool over; that is `HandoverOwnership.s.sol`, to be run
+/// only once delegated voting weight exists. A Timelock-owned pool with no
+/// delegated weight has no working administrator.
 ///
 /// Config schema (`GOV_CONFIG`, default `script/config/mainnet.gov.json`):
 ///   {
@@ -23,7 +23,7 @@ import { BaseGovernanceDeploy } from "./base/BaseGovernanceDeploy.s.sol";
 ///     "votingDelay":           172800,   2 days, in seconds (timestamp clock)
 ///     "votingPeriod":          604800,   7 days
 ///     "proposalThreshold":     "2500000000000000000000000",     0.25%
-///     "quorumNumerator":       3,        percent of TOTAL supply, see below
+///     "quorumNumerator":       3,        percent of total supply, see below
 ///     "guardian":              "0x...",  optional; address(0) = no guardian
 ///     "masp":                  "0x...",  must have code
 ///     "swapWrapper":           "0x...",  must have code
@@ -34,17 +34,17 @@ import { BaseGovernanceDeploy } from "./base/BaseGovernanceDeploy.s.sol";
 ///     "auctionRestartMultBps": 20000     2x on a full fill, scaled by fill size
 ///   }
 ///
-/// Quorum guidance: the denominator is **total supply**, not delegated supply —
-/// `Votes` checkpoints the total only on mint and burn. Tokens sitting
-/// undelegated in a treasury or an unclaimed airdrop still count, so the bar
-/// against the active float is higher than the numerator suggests. Start low (3)
-/// and raise by proposal once the distribution is known; too high is a deadlock
-/// that only the deadlocked governance could fix.
+/// Quorum guidance: the denominator is total supply, not delegated supply;
+/// `Votes` checkpoints the total only on mint and burn. Undelegated tokens in a
+/// treasury or an unclaimed airdrop still count, so the effective threshold
+/// against the active float is higher than the numerator suggests. Start low
+/// (3) and raise by proposal once the distribution is known; a quorum set too
+/// high cannot be lowered, because lowering it requires passing a proposal.
 ///
-/// Auction guidance: seed prices are set per token *after* deploy, via
+/// Auction guidance: seed prices are set per token after deploy via
 /// `FeeBurner.setLot`, and every lot starts disabled. Enable one lot first,
-/// observe a few clears, then calibrate the rest from the observed ratio — and
-/// seed high, since too high only delays the first sale while too low leaks value
+/// observe a few clears, then calibrate the rest from the observed ratio. Seed
+/// high: too high only delays the first sale, while too low sells below value
 /// once before the ratchet corrects.
 contract DeployGovernance is BaseGovernanceDeploy {
     string constant DEFAULT_CONFIG = "script/config/mainnet.gov.json";
@@ -76,8 +76,8 @@ contract DeployGovernance is BaseGovernanceDeploy {
         require(p.proposalThreshold < p.totalSupply, "threshold exceeds supply");
 
         vm.startBroadcast();
-        // Under broadcast, `msg.sender` is the broadcaster — the address that
-        // actually sends the role calls below.
+        // Under broadcast, `msg.sender` is the broadcaster, which sends the role
+        // calls below.
         GovStack memory s = _deployGovernanceStack(p, msg.sender);
         vm.stopBroadcast();
 

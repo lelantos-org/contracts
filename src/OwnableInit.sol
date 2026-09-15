@@ -29,8 +29,8 @@ abstract contract OwnableInit {
         _;
     }
 
-    /// Held outside the modifier: the check guards functions across four
-    /// contracts, and inlining it at each site costs bytecode.
+    /// Factored out of the modifier so its body is not inlined at every
+    /// `onlyOwner` function across the inheriting contracts.
     function _requireOwner() private view {
         if (msg.sender != _owner) revert OwnableUnauthorizedAccount(msg.sender);
     }

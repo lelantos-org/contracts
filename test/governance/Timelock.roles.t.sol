@@ -10,11 +10,11 @@ import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 
 import { GovTestBase } from "./GovTestBase.sol";
 
-/// The post-deploy role table, and the guardian's veto.
+/// The post-deploy role table and the guardian's veto.
 ///
 /// The deploy script's last transaction is the deployer renouncing
-/// `DEFAULT_ADMIN_ROLE`. Everything before it is recoverable and everything after
-/// it is not, so the resulting table is worth pinning exactly.
+/// `DEFAULT_ADMIN_ROLE`. Steps before it are recoverable and the resulting role
+/// table is not, so the table is pinned exactly.
 contract TimelockRolesTest is GovTestBase {
     /// Mirrors `GovernorTimelockControl._timelockSalt`, which is private.
     function _salt(bytes32 descriptionHash) internal view returns (bytes32) {
@@ -25,7 +25,7 @@ contract TimelockRolesTest is GovTestBase {
         return _one(address(protocolAdmin), abi.encodeCall(ProtocolAdmin.execute, (address(masp), data)));
     }
 
-    // ============== The table ================================================
+    // ============== Role table ===============================================
 
     function test_deployerHoldsNothing() public view {
         assertFalse(timelock.hasRole(timelock.DEFAULT_ADMIN_ROLE(), address(this)), "deployer kept admin");
@@ -39,14 +39,14 @@ contract TimelockRolesTest is GovTestBase {
         assertFalse(timelock.hasRole(timelock.PROPOSER_ROLE(), guardian), "guardian must not propose");
     }
 
-    /// Open execution: after the delay the payload is fixed, public, and was
-    /// vetoable for three days, so execution carries liveness only.
+    /// Open execution: after the delay the payload is fixed, public, and has been
+    /// vetoable for the full delay, so execution carries liveness only.
     function test_executionIsOpenToAnyone() public view {
         assertTrue(timelock.hasRole(timelock.EXECUTOR_ROLE(), address(0)));
     }
 
-    /// The timelock administers itself, which is what lets governance rotate the
-    /// guardian without an external admin existing.
+    /// The timelock administers itself, so governance can rotate the guardian
+    /// without an external admin.
     function test_timelockSelfAdministers() public view {
         assertTrue(timelock.hasRole(timelock.DEFAULT_ADMIN_ROLE(), address(timelock)));
     }
@@ -57,14 +57,14 @@ contract TimelockRolesTest is GovTestBase {
         assertFalse(timelock.hasRole(timelock.DEFAULT_ADMIN_ROLE(), guardian));
     }
 
-    // ============== The veto =================================================
+    // ============== Veto =====================================================
 
-    /// The guardian's real job: kill a queued proposal inside the delay window.
-    /// This is the backstop against a hostile `migrateAdmin` or a malicious
-    /// parameter change surviving a vote.
+    /// The guardian can cancel a queued proposal within the delay window. This is
+    /// the backstop against a hostile `migrateAdmin` or a malicious parameter
+    /// change that passes a vote.
     function test_guardianCanVetoAQueuedProposal() public {
         (address[] memory t, uint256[] memory v, bytes[] memory c) =
-            _adminCall(abi.encodeCall(MASP.setCancelDelay, (9_000)));
+            _adminCall(abi.encodeCall(MASP.setCancelDelay, (4_000)));
         string memory desc = "vetoed proposal";
         bytes32 h = keccak256(bytes(desc));
 
@@ -91,8 +91,7 @@ contract TimelockRolesTest is GovTestBase {
         timelock.schedule(address(masp), 0, "", bytes32(0), bytes32(0), TIMELOCK_DELAY);
     }
 
-    /// The guardian is revocable, so granting the veto is not a permanent
-    /// concession.
+    /// Governance can revoke the guardian's veto by proposal.
     function test_governanceCanRevokeTheGuardiansVeto() public {
         bytes32 cancellerRole = timelock.CANCELLER_ROLE();
         (address[] memory t, uint256[] memory v, bytes[] memory c) =
@@ -117,7 +116,7 @@ contract TimelockRolesTest is GovTestBase {
     /// the Governor's bookkeeping.
     function test_directTimelockExecutionStillReportsExecuted() public {
         (address[] memory t, uint256[] memory v, bytes[] memory c) =
-            _adminCall(abi.encodeCall(MASP.setCancelDelay, (8_888)));
+            _adminCall(abi.encodeCall(MASP.setCancelDelay, (5_555)));
         string memory desc = "executed directly on the timelock";
         bytes32 h = keccak256(bytes(desc));
 
@@ -125,12 +124,12 @@ contract TimelockRolesTest is GovTestBase {
         governor.queue(t, v, c, h);
         vm.warp(governor.proposalEta(id) + 1);
 
-        // Anyone may execute, and they may do it on the timelock directly.
+        // Any account may execute, including directly on the timelock.
         address randomer = makeAddr("randomer");
         vm.prank(randomer);
         timelock.executeBatch(t, v, c, 0, _salt(h));
 
-        assertEq(masp.cancelDelay(), 8_888);
+        assertEq(masp.cancelDelay(), 5_555);
         assertEq(uint8(governor.state(id)), uint8(IGovernor.ProposalState.Executed));
     }
 }

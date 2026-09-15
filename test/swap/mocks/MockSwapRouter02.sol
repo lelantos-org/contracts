@@ -21,9 +21,15 @@ interface IMintable {
 ///   1. `nextOut` if non-zero — fixed override (used by e2e slippage tests).
 ///   2. `rate[tokenIn][tokenOut]` linear rate — `amountIn * rate / 1e18`.
 ///   3. revert (no rate configured).
+///
+/// `consumeBps` models a partial fill: when non-zero the router pulls only that
+/// share of `amountIn`, as an exact-input swap stopped by `sqrtPriceLimitX96`
+/// or thin liquidity does, while still delivering the resolved output.
 contract MockSwapRouter02 is ISwapRouter02 {
     uint256 public nextOut;
     mapping(address => mapping(address => uint256)) public rate;
+    /// Share of `amountIn` pulled, in basis points; zero pulls all of it.
+    uint256 public consumeBps;
 
     error NoRate();
 
@@ -31,13 +37,18 @@ contract MockSwapRouter02 is ISwapRouter02 {
         nextOut = v;
     }
 
+    function setConsumeBps(uint256 bps) external {
+        consumeBps = bps;
+    }
+
     function setRate(address tokenIn, address tokenOut, uint256 ratePer1e18) external {
         rate[tokenIn][tokenOut] = ratePer1e18;
     }
 
     function exactInputSingle(ExactInputSingleParams calldata p) external payable returns (uint256 amountOut) {
-        IERC20(p.tokenIn).transferFrom(msg.sender, address(this), p.amountIn);
-        amountOut = _resolveOut(p.tokenIn, p.tokenOut, p.amountIn);
+        uint256 pulled = _pulled(p.amountIn);
+        IERC20(p.tokenIn).transferFrom(msg.sender, address(this), pulled);
+        amountOut = _resolveOut(p.tokenIn, p.tokenOut, pulled);
         require(amountOut >= p.amountOutMinimum, "MockSwapRouter02: too little received");
         IMintable(p.tokenOut).mint(p.recipient, amountOut);
     }
@@ -46,10 +57,15 @@ contract MockSwapRouter02 is ISwapRouter02 {
         // Decode first/last token from the packed path: [token0 | fee | ... | tokenN].
         address tokenIn = _firstToken(p.path);
         address tokenOut = _lastToken(p.path);
-        IERC20(tokenIn).transferFrom(msg.sender, address(this), p.amountIn);
-        amountOut = _resolveOut(tokenIn, tokenOut, p.amountIn);
+        uint256 pulled = _pulled(p.amountIn);
+        IERC20(tokenIn).transferFrom(msg.sender, address(this), pulled);
+        amountOut = _resolveOut(tokenIn, tokenOut, pulled);
         require(amountOut >= p.amountOutMinimum, "MockSwapRouter02: too little received");
         IMintable(tokenOut).mint(p.recipient, amountOut);
+    }
+
+    function _pulled(uint256 amountIn) private view returns (uint256) {
+        return consumeBps == 0 ? amountIn : (amountIn * consumeBps) / 10_000;
     }
 
     function _resolveOut(address tokenIn, address tokenOut, uint256 amountIn) private view returns (uint256) {

@@ -47,6 +47,9 @@ contract UniV3Adapter is ISwapAdapter {
     /// Multi-hop routes use the packed path layout, which has no per-pool
     /// square-root price limit.
     uint256 private constant SINGLE_HOP_ROUTE_LEN = 64;
+    /// Packed multi-hop path: `token (20) || [fee (3) || token (20)] * hops`.
+    uint256 private constant PATH_ADDR_LEN = 20;
+    uint256 private constant PATH_HOP_LEN = 23;
 
     ISwapRouter02 public immutable ROUTER;
     /// The only permitted `swap` caller; others revert `UnauthorizedCaller`.
@@ -56,6 +59,12 @@ contract UniV3Adapter is ISwapAdapter {
     error WrapperZero();
     error UnauthorizedCaller();
     error InsufficientOut(uint256 actualOut, uint256 minOut);
+    /// The router consumed less (or more) than `amountIn`. A price limit or an
+    /// exhausted pool fills an exact-input swap partially; the remainder would be
+    /// stranded here, where nothing can move it.
+    error PartialFill(uint256 consumed, uint256 amountIn);
+    /// A multi-hop path that is malformed or does not run `tokenIn` → `tokenOut`.
+    error BadPath();
 
     constructor(address router, address wrapper) {
         if (router == address(0)) revert RouterZero();
@@ -64,7 +73,7 @@ contract UniV3Adapter is ISwapAdapter {
         WRAPPER = wrapper;
     }
 
-    /// Approve, swap, then reset. The trailing reset to zero keeps tokens that
+    /// Approves, swaps, then resets. The trailing reset to zero keeps tokens that
     /// reject non-zero-to-non-zero approval changes, such as USDT, usable on the
     /// next swap.
     ///
@@ -97,6 +106,7 @@ contract UniV3Adapter is ISwapAdapter {
         IERC20 outToken = IERC20(tokenOut);
         inToken.forceApprove(address(ROUTER), amountIn);
 
+        uint256 inBefore = inToken.balanceOf(address(this));
         uint256 outBefore = outToken.balanceOf(address(this));
         if (route.length == SINGLE_HOP_ROUTE_LEN) {
             (uint24 fee, uint160 sqrtPriceLimitX96) = abi.decode(route, (uint24, uint160));
@@ -115,6 +125,15 @@ contract UniV3Adapter is ISwapAdapter {
                 })
             );
         } else {
+            // The path is unauthenticated calldata. Its ends must be the tokens
+            // this call measures, or the router would spend and deliver tokens
+            // the balance checks never read.
+            uint256 len = route.length;
+            if (
+                len <= PATH_ADDR_LEN || (len - PATH_ADDR_LEN) % PATH_HOP_LEN != 0
+                    || address(bytes20(route[:PATH_ADDR_LEN])) != tokenIn
+                    || address(bytes20(route[len - PATH_ADDR_LEN:])) != tokenOut
+            ) revert BadPath();
             // As above: the reported output is ignored in favour of the delta.
             // slither-disable-next-line unused-return
             ROUTER.exactInput(
@@ -126,6 +145,13 @@ contract UniV3Adapter is ISwapAdapter {
         actualOut = outToken.balanceOf(address(this)) - outBefore;
 
         inToken.forceApprove(address(ROUTER), 0);
+
+        // An exact-input swap may stop early at a `sqrtPriceLimitX96` or when a
+        // pool runs out of liquidity, pulling only part of `amountIn`. The rest
+        // would stay here with no way out, so a partial fill reverts: inside the
+        // wrapper's `venueLeg` that becomes a refund of the whole input.
+        uint256 consumed = inBefore - inToken.balanceOf(address(this));
+        if (consumed != amountIn) revert PartialFill(consumed, amountIn);
 
         // Defense in depth: the router enforces `minOut`, but the wrapper
         // settles against the measured delta, so that is checked too.

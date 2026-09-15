@@ -84,13 +84,13 @@ contract MASPFlushBatchTest is Test {
     function _submit(uint64 publicIn, uint64 assetId, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
         PubInputs.DepositRequest memory d = _request(publicIn, assetId, cm);
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
         return masp.deposit(d, sig, _aux()[0], _aux()[1]);
     }
 
     /// Digest meta for deposits submitted in the current block by `payer` at
-    /// the deploy-time fee — matches every `_submit` in this suite.
+    /// the deploy-time fee, matching every `_submit` in this suite.
     function _meta(uint256 n) internal view returns (MASP.DepositMeta[] memory m) {
         m = new MASP.DepositMeta[](n);
         for (uint256 i = 0; i < n; i++) {
@@ -107,22 +107,22 @@ contract MASPFlushBatchTest is Test {
         Stubs.acceptTreeUpdateProofs(tubVerifier, ok);
     }
 
-    /// Build the batch public inputs for `n` deposits.
-    ///
-    /// Each deposit owns two adjacent leaves — its principal at `2i` and the
-    /// relayer's fee note at `2i + 1` — so `actualCount` is `2n` and the
-    /// deposit's own commitments land on the even slots.
     /// The `feeCm` `_request` seeds on every deposit here.
     bytes32 internal constant FEE_CM = bytes32(uint256(0xfee));
 
+    /// Builds the batch public inputs for `n` deposits.
+    ///
+    /// Each deposit owns two adjacent leaves (its principal at `2i` and the
+    /// relayer's fee note at `2i + 1`), so `actualCount` is `2n` and the
+    /// deposit's own commitments land on the even slots.
     function _tpi(uint256 n, bytes32[] memory cms) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xfeedbeef));
         tpi.startIndex = masp.committedCount();
         // forge-lint: disable-next-line(unsafe-typecast)
         tpi.actualCount = uint64(n * PubInputs.LEAVES_PER_DEPOSIT);
-        // Clamp to `bytes32[MAX_L_BATCH]` capacity; oversize cms arrays
-        // (used by oversize-batch revert tests) must not OOB tpi.cms.
+        // Clamps to `bytes32[MAX_L_BATCH]` capacity so oversize cms arrays
+        // (used by the oversize-batch revert tests) do not index past tpi.cms.
         uint256 cap = PubInputs.MAX_L_BATCH;
         for (uint256 i = 0; i < cms.length; i++) {
             uint256 slot = i * PubInputs.LEAVES_PER_DEPOSIT;
@@ -132,9 +132,9 @@ contract MASPFlushBatchTest is Test {
         }
     }
 
-    /// Fill the per-active-slot PIs that `flushBatch` cross-checks against
-    /// the escrow record. cvDep coords stay zero — `_request` leaves
-    /// `DepositRequest.cvDep` zero so the escrow digest is over (0,0).
+    /// Fills the per-active-slot PIs that `flushBatch` cross-checks against
+    /// the escrow record. cvDep coordinates stay zero: `_request` leaves
+    /// `DepositRequest.cvDep` zero, so the escrow digest is over (0, 0).
     function _fillLeafPI(PubInputs.TreeUpdateBatch memory tpi, uint64[] memory assetIds, uint64[] memory publicIns)
         internal
         pure
@@ -145,8 +145,8 @@ contract MASPFlushBatchTest is Test {
             tpi.leafAsset[slot] = assetIds[i];
             tpi.leafPublicIn[slot] = publicIns[i];
             tpi.isDeposit[slot] = 1;
-            // The fee note rides in the deposit's own asset, at the value the
-            // builder escrowed (zero here — these tests do not price a fee).
+            // The fee note carries the value the builder escrowed, zero here
+            // (these tests do not price a fee), so its asset slot is zero.
             tpi.leafAsset[slot + 1] = 0;
             tpi.leafPublicIn[slot + 1] = 0;
             tpi.isDeposit[slot + 1] = 1;
@@ -175,11 +175,11 @@ contract MASPFlushBatchTest is Test {
         _mockSnark(true);
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
 
-        // Root advanced
+        // Root advanced.
         assertEq(masp.currentRoot(), tpi.newRoot, "root advanced");
         assertEq(masp.committedCount(), 2, "count += 2 (principal + relayer fee note)");
 
-        // Slot cleared (sentinel check)
+        // Slot cleared (sentinel check).
         assertEq(masp.escrowed(id), bytes32(0), "slot cleared");
 
         // Fee accrued at flush (submit accrues nothing).
@@ -194,8 +194,8 @@ contract MASPFlushBatchTest is Test {
         uint256 id0 = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
         uint256 id1 = _submit(100, ASSET_ID, bytes32(uint256(3)), 1);
 
-        // Two deposits fill the batch: each owns a principal leaf and the
-        // relayer's fee leaf, so `MAX_L_BATCH = 4` is exactly consumed.
+        // Two deposits, each owning a principal leaf and the relayer's fee
+        // leaf, occupy four of the `MAX_L_BATCH = 8` slots.
         bytes32[] memory cms = new bytes32[](2);
         cms[0] = bytes32(uint256(1));
         cms[1] = bytes32(uint256(3));
@@ -441,9 +441,9 @@ contract MASPFlushBatchTest is Test {
         _mockSnark(true);
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
 
-        // Replay with a refreshed tpi (root + startIndex aligned to post-flush
-        // state) reaches the sentinel; without the refresh StaleOldRoot fires
-        // first.
+        // A replay with a refreshed tpi (root and startIndex aligned to the
+        // post-flush state) reaches the sentinel; without the refresh
+        // StaleOldRoot fires first.
         PubInputs.TreeUpdateBatch memory tpi2 = _tpi(1, cms);
         _fillLeafPI(tpi2, a, p);
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id));
@@ -452,12 +452,12 @@ contract MASPFlushBatchTest is Test {
 
     // --- relayer fee leaf ---------------------------------------------------
     //
-    // Every test above prices the relayer's note at zero, which leaves the odd
-    // leaf's guards unexercised: a tampered zero still reconstructs the same
-    // digest as an untampered zero for any field the attacker sets back to
-    // zero. The tests below escrow a *priced* fee note and then mutate exactly
-    // one fee-leaf field of an otherwise-valid batch, so each guard is the only
-    // thing standing between the flusher and a note it did not fund.
+    // The tests above price the relayer's note at zero, which leaves the odd
+    // leaf's guards unexercised: a zero-valued field reconstructs the same
+    // digest whether or not it was tampered with. The tests below escrow a
+    // priced fee note and mutate exactly one fee-leaf field of an otherwise
+    // valid batch, so each test isolates the guard that prevents a flusher
+    // from minting a note it did not fund.
 
     uint64 internal constant FEE_PUBLIC_IN = 100;
     uint64 internal constant FEE_IN = 7;
@@ -465,10 +465,10 @@ contract MASPFlushBatchTest is Test {
     uint256 internal constant FEE_CVDEP_X = 0xfeed01;
     uint256 internal constant FEE_CVDEP_Y = 0xfeed02;
 
-    /// Escrow one deposit carrying a priced relayer note, and build the batch
-    /// that flushes it. The returned `tpi` is valid: each test below mutates a
+    /// Escrows one deposit carrying a priced relayer note and builds the batch
+    /// that flushes it. The returned `tpi` is valid; each test below mutates a
     /// single fee-leaf field of it, so a passing test pins that field's guard
-    /// and nothing else.
+    /// alone.
     function _pricedDeposit() internal returns (uint256 id, PubInputs.TreeUpdateBatch memory tpi) {
         uint256 inAmt = uint256(FEE_PUBLIC_IN) * SCALE;
         // The payer funds the relayer's leg on top of principal and treasury
@@ -479,10 +479,12 @@ contract MASPFlushBatchTest is Test {
 
         PubInputs.DepositRequest memory d = _request(FEE_PUBLIC_IN, ASSET_ID, FEE_DEPOSIT_CM);
         d.feeIn = FEE_IN;
+        d.feeAssetId = ASSET_ID;
         d.feeCvDep = [FEE_CVDEP_X, FEE_CVDEP_Y];
         d.feeRcv = 0xf00d;
-        MASP.Permit2Sig memory sig =
-            MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00" });
+        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
+            nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
+        });
         id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
 
         tpi = _feeTpi();
@@ -533,43 +535,43 @@ contract MASPFlushBatchTest is Test {
         assertEq(token.balanceOf(address(masp)), escrowed, "flush moves no tokens");
     }
 
-    /// The fee leaf must be in deposit mode. Only the principal leaf's mode was
-    /// covered before, so a spend-mode fee slot reached the digest check.
+    /// The fee leaf must be in deposit mode; a spend-mode fee slot reverts with
+    /// `BadDepositMode`, as the principal leaf does.
     function test_revert_BadDepositMode_feeLeafMarkedSpend() public {
         (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
         tpi.isDeposit[1] = 0;
         _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.BadDepositMode.selector));
     }
 
-    /// The fee leaf's value is narrowed to `uint48` for the digest, so it needs
-    /// the same range check the principal leaf gets — otherwise the truncation
-    /// lets a wide `leafPublicIn` reconstruct a digest it does not match.
+    /// The fee leaf's value is narrowed to `uint48` for the digest, so it gets
+    /// the same range check as the principal leaf; otherwise truncation would
+    /// let a wide `leafPublicIn` reconstruct a digest it does not match.
     function test_revert_PublicInTooLarge_feeLeaf() public {
         (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
         tpi.leafPublicIn[1] = uint64(uint256(type(uint48).max) + 1);
         _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.PublicInTooLarge.selector));
     }
 
-    /// The fee note rides in the deposit's own asset. One registry lookup
-    /// serves both leaves, so a fee leaf naming a different asset would
-    /// otherwise be priced against the principal's scale.
+    /// The fee leaf's asset is bound by the digest's `feeAssetId`, here the
+    /// deposit's own asset. A flusher naming another registered asset would
+    /// otherwise mint the relayer a note in a token the payer never funded.
     function test_revert_DigestMismatch_feeLeafAssetDiffers() public {
         (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
         tpi.leafAsset[1] = ASSET_ID_ALT;
         _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
     }
 
-    /// The attack the fee leaf's digest binding exists to stop: `flushBatch` is
-    /// permissionless and supplies both leaves from calldata, so a flusher that
-    /// could swap `cms[f]` would mint the payer-funded note to itself.
+    /// The fee leaf's digest binding prevents this: `flushBatch` is
+    /// permissionless and takes both leaves from calldata, so a flusher able to
+    /// swap `cms[f]` would mint the payer-funded note to itself.
     function test_revert_DigestMismatch_feeCmTampered() public {
         (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
         tpi.cms[1] = bytes32(uint256(0xbad)); // flusher's own commitment
         _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
     }
 
-    /// Same binding, other direction: inflating the fee leaf's value mints a
-    /// note worth more than the payer funded, draining pool principal.
+    /// The same binding covers value: inflating the fee leaf's value would mint
+    /// a note worth more than the payer funded, draining pool principal.
     function test_revert_DigestMismatch_feeInInflated() public {
         (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
         tpi.leafPublicIn[1] = FEE_IN + 1;

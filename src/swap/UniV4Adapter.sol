@@ -28,10 +28,10 @@ struct PoolKey {
     address hooks;
 }
 
-/// `IV4Router.ExactInputSingleParams` as deployed. Upstream revisions after
-/// March 2026 add a `minHopPriceX36` field between `amountOutMinimum` and
-/// `hookData`; the live routers on mainnet, Arbitrum and Base predate that
-/// change, so this five-field layout is what they decode.
+/// `IV4Router.ExactInputSingleParams` as decoded by the routers deployed on
+/// mainnet, Arbitrum and Base. Upstream v4-periphery revisions after March 2026
+/// add a `minHopPriceX36` field between `amountOutMinimum` and `hookData`; the
+/// deployed routers use this five-field layout.
 struct ExactInputSingleParams {
     PoolKey poolKey;
     bool zeroForOne;
@@ -151,18 +151,18 @@ contract UniV4Adapter is ISwapAdapter {
                 hookData: ""
             })
         );
-        // Settle the input from the router's own balance, funded by the caller
-        // just after this returns. `payerIsUser = false` names the router as
+        // Settles the input from the router's own balance, which `swap` funds
+        // after this returns. `payerIsUser = false` names the router as
         // payer, keeping the flow off Permit2 and requiring no approval.
         //
         // The amount is the exact `amountIn`, not
         // `ActionConstants.CONTRACT_BALANCE`: the UniversalRouter is a shared
         // public contract, so settling its whole balance would over-pay the
         // PoolManager debt and leave an unclaimed credit, reverting the unlock
-        // with `CurrencyNotSettled`. A 1 wei donation would brick every swap for
-        // that token.
+        // with `CurrencyNotSettled`; a 1 wei donation would make every swap of
+        // that token revert.
         params[1] = abi.encode(tokenIn, amountIn, false);
-        // Take the full output credit to this adapter, with `minOut` re-checked
+        // Takes the full output credit to this adapter, with `minOut` re-checked
         // by the router on top of the swap's own `amountOutMinimum`.
         params[2] = abi.encode(tokenOut, minOut);
 

@@ -103,7 +103,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         d.feeCm = bytes32(uint256(0xfee));
 
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, signature: hex"00"
+            nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
         id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
         _pre[id] = _Pre({ publicIn: uint48(publicIn), cm: cm, cvDep: d.cvDep });
@@ -123,7 +123,7 @@ contract MASPFlushBatchDuplicateTest is Test {
             tpi.leafPublicIn[slot] = p.publicIn;
             tpi.isDeposit[slot] = 1;
             // The relayer's fee note: zero value as escrowed, and therefore
-            // asset 0 — the circuit canonicalises the asset of a leaf whose
+            // asset 0; the circuit canonicalises the asset of a leaf whose
             // Pedersen binding cannot see it (step 6a).
             tpi.cms[slot + 1] = bytes32(uint256(0xfee));
             tpi.leafAsset[slot + 1] = 0;
@@ -134,14 +134,14 @@ contract MASPFlushBatchDuplicateTest is Test {
 
     // --- tests: duplicate id in batch -------------------------------------
 
-    /// `ids = [0, 0]`: after draining slot 0 on the first iteration,
-    /// `escrowed[0] == bytes32(0)` → DepositNotPending(0) on second.
+    /// `ids = [0, 0]`: the first iteration drains slot 0, so `escrowed[0]` is
+    /// zero and the second iteration reverts with `DepositNotPending(0)`.
     function test_revert_duplicateIdInBatch() public {
         uint256 id = _submit(100, bytes32(uint256(0x111)));
         assertEq(id, 0);
 
-        // Build a tpi as if draining id twice — but only the first slot is valid.
-        // The revert fires before SNARK verification (storage check comes first).
+        // A tpi that drains the same id twice; only the first drain can succeed.
+        // The storage check runs before SNARK verification.
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
@@ -159,7 +159,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[1] = 0;
         tpi.isDeposit[1] = 1;
-        // Deposit 1: same id, same preimage — fails after id 0 is deleted.
+        // Deposit 1: same id and preimage; fails once id 0 is deleted.
         tpi.cms[2] = bytes32(uint256(0x111));
         tpi.leafAsset[2] = ASSET_ID;
         tpi.leafPublicIn[2] = 100;
@@ -187,7 +187,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         PubInputs.TreeUpdateBatch memory tpi = _buildTpi(ids);
         masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
 
-        // Escrow slot deleted by flush; cancel must see DepositNotPending.
+        // Flush deleted the escrow slot, so cancel reverts with DepositNotPending.
         vm.roll(block.number + masp.cancelDelay());
         _Pre memory p = _pre[id];
         uint256[2] memory zCv;
@@ -201,7 +201,7 @@ contract MASPFlushBatchDuplicateTest is Test {
             FEE_BPS,
             payer,
             0,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 
@@ -217,7 +217,7 @@ contract MASPFlushBatchDuplicateTest is Test {
 
         vm.roll(block.number + masp.cancelDelay());
 
-        // Both must revert.
+        // Both revert.
         uint256[2] memory zCv;
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id0));
         masp.cancelDeposit(
@@ -229,7 +229,7 @@ contract MASPFlushBatchDuplicateTest is Test {
             FEE_BPS,
             payer,
             0,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
 
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id1));
@@ -242,7 +242,7 @@ contract MASPFlushBatchDuplicateTest is Test {
             FEE_BPS,
             payer,
             0,
-            PubInputs.FeeNote({ feeIn: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
         );
     }
 }
