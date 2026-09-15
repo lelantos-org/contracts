@@ -1,7 +1,7 @@
 {
   "meta": {
     "spec": "spec/nullifier_set.qnt",
-    "specHash": "0xf1b226c09d8533a24f0a2335f1267faee3a93d8d75944a29503fc06710c10502",
+    "specHash": "0x8aaa9658d3d88e394ac61521b575401c5582246d3453e4b3b2bf009c0e32f50b",
     "module": "nullifier_set",
     "quintVersion": "0.32.0",
     "backend": "rust",

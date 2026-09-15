@@ -19,6 +19,23 @@ env:
   ADERYN_VERSION: "0.6.8"
   HALMOS_VERSION: "0.3.3"
 
+# Build caching. A clean via_ir build takes ~4 minutes; with `out/` and `cache/`
+# restored, Foundry recompiles only sources whose content hash changed (it does
+# not go by mtime, so a fresh checkout still hits). An edit to a widely imported
+# file such as src/libs/DepositOps.sol still recompiles ~94 files, about 2/3 of
+# a clean build; an unrelated or no-op change builds in seconds.
+#
+# Each job keeps its own cache because the jobs build differently: `forge test`
+# and `forge build` select different outputs, `size` uses the deploy profile,
+# and `symbolic` the halmos profile. The key prefix pins the Foundry release
+# and foundry.toml: a settings change needs a clean build (see the comment on
+# `additional_compiler_profiles` there), so it must not restore an old cache.
+# The suffix hashes every compiled source, so a restore-keys hit is incremental.
+#
+# Slither is not cached: an incremental build leaves superseded files in
+# `out/build-info/`, so a source appears in more than one build-info and
+# crytic-compile would read both.
+
 jobs:
   test:
     name: Build & test
@@ -31,6 +48,13 @@ jobs:
         with:
           version: ${{ env.FOUNDRY_VERSION }}
       - uses: extractions/setup-just@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-test-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-${{ hashFiles('foundry.lock', 'src/**/*.sol', 'test/**/*.sol', 'script/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-test-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-
       - run: just version
       - run: just test
 
@@ -56,6 +80,13 @@ jobs:
         with:
           version: ${{ env.FOUNDRY_VERSION }}
       - uses: extractions/setup-just@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-size-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-${{ hashFiles('foundry.lock', 'src/**/*.sol', 'test/**/*.sol', 'script/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-size-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-
       - run: just size
 
   abi:
@@ -72,6 +103,14 @@ jobs:
         with:
           node-version: "24"
       - uses: extractions/setup-just@v2
+      # `aderyn` restores this cache too.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-build-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-${{ hashFiles('foundry.lock', 'src/**/*.sol', 'test/**/*.sol', 'script/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-build-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-
       # Catches a contract rename or removal that breaks the generator before
       # a release is tagged.
       - run: just abi
@@ -152,6 +191,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: pipx install halmos==${{ env.HALMOS_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            out/halmos
+            cache/halmos
+          key: forge-halmos-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ env.HALMOS_VERSION }}-${{ hashFiles('foundry.toml') }}-${{ hashFiles('foundry.lock', 'src/**/*.sol', 'test/**/*.sol', 'script/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-halmos-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ env.HALMOS_VERSION }}-${{ hashFiles('foundry.toml') }}-
       - run: just halmos
 
   aderyn:
@@ -172,6 +218,15 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
+      # Restore-only: the `abi` job's `forge build` output covers this narrower
+      # build, which then compiles only what changed (seconds when nothing did).
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            out
+            cache
+          key: forge-build-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-${{ hashFiles('foundry.lock', 'src/**/*.sol', 'test/**/*.sol', 'script/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-build-${{ runner.os }}-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('foundry.toml') }}-
       - name: Populate the svm store with solc 0.8.36
         run: forge build --skip test --skip script
       - name: Install Aderyn ${{ env.ADERYN_VERSION }}

@@ -82,6 +82,7 @@ library DepositOps {
             from: payer,
             to: address(this),
             // forge-lint: disable-next-line(unsafe-typecast)
+            // aderyn-fp-next-line(unsafe-casting)
             amount: uint160(total),
             token: address(token)
         });
@@ -89,6 +90,7 @@ library DepositOps {
             from: payer,
             to: address(this),
             // forge-lint: disable-next-line(unsafe-typecast)
+            // aderyn-fp-next-line(unsafe-casting)
             amount: uint160(feePull),
             token: address(feeToken)
         });

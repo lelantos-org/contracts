@@ -968,6 +968,10 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         // only a plain asset for a note in another asset, so its refund is the
         // fixed amount pulled.
         uint256 relayerIn = feeNote.feeIn;
+        // `fa` is read only under `feeRefunded != 0`, which is set only on the
+        // branch that assigns `fa`; on every other path it stays zeroed and
+        // unread.
+        // slither-disable-next-line uninitialized-local
         AssetEntry memory fa;
         if (!_sameFeeAsset(relayerIn, feeNote.feeAssetId, publicAssetId)) {
             fa = _getAsset(feeNote.feeAssetId);

@@ -94,6 +94,9 @@ contract BundlerFactory is IBundlerDeployer {
     /// over `Bundler`'s creation code and its constructor arguments.
     function predict(address owner_) public view returns (address) {
         bytes32 initCodeHash = keccak256(
+            // No collision: the creation code is a compile-time constant, so the
+            // boundary between it and the encoded arguments cannot shift.
+            // aderyn-fp-next-line(abi-encode-packed-hash-collision)
             abi.encodePacked(type(Bundler).creationCode, abi.encode(owner_, POOL, NATIVE_ADAPTER, SWAP_WRAPPER))
         );
         return address(

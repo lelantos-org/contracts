@@ -1,7 +1,7 @@
 {
   "meta": {
     "spec": "spec/commitment_tree.qnt",
-    "specHash": "0x128c3337b06d7c8e31ff3a3c7d91f210933c5cbf6e952fc5a002a174ed263ed2",
+    "specHash": "0xaa9048434f31e7d82aad27a71bf2ed3e504c18f407e0d5d3619deb1c8d8b1c2e",
     "module": "commitment_tree",
     "quintVersion": "0.32.0",
     "backend": "rust",
