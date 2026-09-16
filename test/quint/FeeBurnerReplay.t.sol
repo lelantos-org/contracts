@@ -82,9 +82,7 @@ abstract contract FeeBurnerReplay is FeeBurnerSpecReplay {
 
     // --- the switch -------------------------------------------------------
 
-    function apply_(FeeBurnerSpec.Action action, FeeBurnerSpec.Picks memory picks) external override {
-        require(msg.sender == address(this), "self-call only");
-
+    function _apply(FeeBurnerSpec.Action action, FeeBurnerSpec.Picks memory picks) internal override {
         if (action == FeeBurnerSpec.Action.AccrueFees) {
             // Equivalent to `FeeConfig.sweep` with the burner as treasury: fee
             // tokens arrive. The spec does not model the route.

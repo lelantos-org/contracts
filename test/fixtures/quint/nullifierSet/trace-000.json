@@ -5,7 +5,7 @@
     "module": "nullifier_set",
     "quintVersion": "0.32.0",
     "backend": "rust",
-    "toolVersion": "0.2.0",
+    "formatVersion": 2,
     "seed": "0x5eed0002",
     "traces": 6,
     "maxSteps": 24,
@@ -21,7 +21,7 @@
       "consume": 7,
       "consumeSpent": 17
     },
-    "schemaHash": "0x85d64f8c2bf353aa33f77740381709510d765b8febe5e61ac1e1ac6ff5ba9325",
+    "schemaHash": "0xffbdc37fae81a45cdaf37f266ee43452ac1765f17360662d7cb11ff0b6bec8f6",
     "testName": "test_quint_nullifierSet_000",
     "exemplar": true,
     "itf": "test/fixtures/quint/nullifierSet/exemplar.itf.json"

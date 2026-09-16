@@ -53,11 +53,10 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
 
     // --- the switch -------------------------------------------------------
 
-    function apply_(DelayedUpgradeProxySpec.Action action, DelayedUpgradeProxySpec.Picks memory picks)
-        external
+    function _apply(DelayedUpgradeProxySpec.Action action, DelayedUpgradeProxySpec.Picks memory picks)
+        internal
         override
     {
-        require(msg.sender == address(this), "self-call only");
         address admin = admins[_adminIndex()];
 
         if (action == DelayedUpgradeProxySpec.Action.QueueUpgrade) {
@@ -90,8 +89,8 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
             // Absolute, from an accumulator, rather than
             // `vm.warp(block.timestamp + dt)`.
             //
-            // A relative warp would also be correct here: `apply_` is reached
-            // through an external self-call, so `block.timestamp` is read fresh
+            // A relative warp would also be correct here: `_apply` is reached
+            // through an external self-call (`quintApply`), so `block.timestamp` is read fresh
             // in that frame and the via_ir caching described in
             // test/upgrade/DelayedUpgradeProxy.t.sol does not apply.
             //

@@ -203,7 +203,7 @@ injections above are how it is checked.
 **A `via_ir` hazard that lands on the read, not the write.**
 `test/upgrade/DelayedUpgradeProxy.t.sol` records that warps must be absolute
 because the optimizer caches `block.timestamp`. In a replay driver the warp is
-actually safe — it happens inside `apply_`, which is reached through an external
+actually safe — it happens inside `_apply`, which is reached through an external
 self-call and so reads the clock fresh. What is *not* safe is reading
 `block.timestamp` in `_project`, which is inlined into the replay loop: the
 optimizer hoists it, every step reads the starting timestamp, and every trace
@@ -273,7 +273,7 @@ a reproduce command. Then:
 2. Add an entry to [`quint-sol-connect.config.mjs`](../../quint-sol-connect.config.mjs)
    giving the Solidity type of each state variable and each pick.
 3. `just quint-gen <name>` — or scaffold a driver stub first.
-4. Write the driver: `setUp`, `apply_`, `_project`. Prefer live reads; where the
+4. Write the driver: `setUp`, `_apply`, `_project`. Prefer live reads; where the
    contract cannot expose one, shadow it and `require` the shadow against the
    nearest observable.
 5. **Fault-inject before believing it.** Change the spec so it disagrees with the

@@ -36,9 +36,7 @@ abstract contract CommitmentTreeReplay is CommitmentTreeSpecReplay {
         emptyRoot = tree.rootAt(0);
     }
 
-    function apply_(CommitmentTreeSpec.Action action, CommitmentTreeSpec.Picks memory picks) external override {
-        require(msg.sender == address(this), "self-call only");
-
+    function _apply(CommitmentTreeSpec.Action action, CommitmentTreeSpec.Picks memory picks) internal override {
         if (action == CommitmentTreeSpec.Action.Advance) {
             tree.advanceRoot(_toChain(picks.newRoot), uint64(picks.inserted));
         } else {

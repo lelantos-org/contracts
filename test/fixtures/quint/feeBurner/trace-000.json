@@ -5,7 +5,7 @@
     "module": "fee_burner",
     "quintVersion": "0.32.0",
     "backend": "typescript",
-    "toolVersion": "0.2.0",
+    "formatVersion": 2,
     "seed": "0x5eed0005",
     "traces": 8,
     "maxSteps": 96,
@@ -29,7 +29,7 @@
       "setPaused": 21,
       "setDecayParams": 12
     },
-    "schemaHash": "0x5688bdbb60f141e503197960d9a5e7fe627faf9d8a38f9fec101757e78654d09",
+    "schemaHash": "0xb8fc043af3ee2eff810b9c50fbb89c1f2d45e39558cf1ce354233c9b16460b83",
     "testName": "test_quint_feeBurner_000",
     "exemplar": true,
     "itf": "test/fixtures/quint/feeBurner/exemplar.itf.json"

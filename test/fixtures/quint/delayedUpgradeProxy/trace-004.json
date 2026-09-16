@@ -5,7 +5,7 @@
     "module": "delayed_upgrade_proxy",
     "quintVersion": "0.32.0",
     "backend": "rust",
-    "toolVersion": "0.2.0",
+    "formatVersion": 2,
     "seed": "0x5eed0004",
     "traces": 8,
     "maxSteps": 76,
@@ -33,7 +33,7 @@
       "changeProxyAdmin": 14,
       "advanceTime": 14
     },
-    "schemaHash": "0xa1c9ce522c895aee2a1327942f173cd654af9b4531e768c78f7aab55a6b5fee2",
+    "schemaHash": "0x4aaab110c9d84e7e0d8b757f7b127d18bf1fed306f7721dff3ea3129532b10c4",
     "testName": "test_quint_delayedUpgradeProxy_004",
     "exemplar": true,
     "itf": "test/fixtures/quint/delayedUpgradeProxy/exemplar.itf.json"

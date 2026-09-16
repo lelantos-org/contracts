@@ -34,8 +34,7 @@ abstract contract NullifierSetReplay is NullifierSetSpecReplay {
         nfs = new NullifierSetHarness();
     }
 
-    function apply_(NullifierSetSpec.Action action, NullifierSetSpec.Picks memory picks) external override {
-        require(msg.sender == address(this), "self-call only");
+    function _apply(NullifierSetSpec.Action action, NullifierSetSpec.Picks memory picks) internal override {
         _assertDomain(picks.nf);
 
         if (action == NullifierSetSpec.Action.Consume) {

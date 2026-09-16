@@ -109,9 +109,7 @@ abstract contract MaspReplay is MaspSpecReplay {
 
     // --- the switch -------------------------------------------------------
 
-    function apply_(MaspSpec.Action action, MaspSpec.Picks memory picks) external override {
-        require(msg.sender == address(this), "self-call only");
-
+    function _apply(MaspSpec.Action action, MaspSpec.Picks memory picks) internal override {
         if (action == MaspSpec.Action.Submit) {
             _submit(uint64(picks.publicIn));
         } else if (action == MaspSpec.Action.Flush) {

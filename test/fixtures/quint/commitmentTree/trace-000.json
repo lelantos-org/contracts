@@ -5,7 +5,7 @@
     "module": "commitment_tree",
     "quintVersion": "0.32.0",
     "backend": "rust",
-    "toolVersion": "0.2.0",
+    "formatVersion": 2,
     "seed": "0x5eed0001",
     "traces": 2,
     "maxSteps": 90,
@@ -19,7 +19,7 @@
     "actionCounts": {
       "advance": 90
     },
-    "schemaHash": "0xe70cac44ba79711172b4fdd2b9ebe0f13e33f424f6f38e4f2835f6c91519b941",
+    "schemaHash": "0xc667e7f7363eb8912cffe5aa37e03bdb351f496fa822e9db7d72764c83f9c0a9",
     "testName": "test_quint_commitmentTree_000",
     "exemplar": true,
     "itf": "test/fixtures/quint/commitmentTree/exemplar.itf.json"
