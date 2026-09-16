@@ -107,8 +107,8 @@ Regenerate with `script/fixtures/gen_proof_fixture.sh transact_4x6`.
 
 ### `verification_key_4x6.json`, `verification_key_tree_update_batch.json`
 
-The two published verification keys, copied verbatim from the v0.15.0 release
-(SHA-256 `ac220632…1826966d` and `b5c9dcd1…18933c4798`). Read by
+The two published verification keys, copied verbatim from the v0.16.0 release
+(SHA-256 `44a3cdb1…e4010007` and `178f4297…14984179`). Read by
 [VerifyingKeys.t.sol](../VerifyingKeys.t.sol), which pins every constant in
 `src/verifiers/VerifyingKeys.sol` against them. The codegen verifiers' own
 constants are contract-scoped and non-public, so Solidity cannot compare against
@@ -134,9 +134,9 @@ verifier before proving anything, so a mismatched artifact set fails there
 rather than as an unexplained rejection in a test.
 
 ```
-gh release download v0.15.0 --repo lelantos-org/circuits -D /tmp/rel0150 \
+gh release download v0.16.0 --repo lelantos-org/circuits -D /tmp/rel0160 \
   -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
-RELEASE=/tmp/rel0150 CIRCUITS=../circuits \
+RELEASE=/tmp/rel0160 CIRCUITS=../circuits \
   script/fixtures/gen_proof_fixture.sh transact_4x6
 ```
 
