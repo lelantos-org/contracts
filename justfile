@@ -11,7 +11,8 @@ ECHIDNA_PROFILE := "echidna"
 # machine; `EchidnaMaspYield` covers the indexed-asset accounting, whose setup
 # (a venue, a vault, two ids over one ERC-20) and properties are disjoint from
 # it. A shared contract would make every sequence pay for both.
-ECHIDNA_CONTRACTS := "EchidnaMasp EchidnaMaspYield"
+# `EchidnaGenericCall` drives `GenericCallWrapper` against a stub pool.
+ECHIDNA_CONTRACTS := "EchidnaMasp EchidnaMaspYield EchidnaGenericCall"
 # Must match `libraries` in [profile.echidna] (foundry.toml).
 ECHIDNA_YIELDOPS_ADDR := "0x000000000000000000000000000000000000eC1d"
 ECHIDNA_DEPOSITOPS_ADDR := "0x000000000000000000000000000000000000eC1e"

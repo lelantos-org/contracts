@@ -22,6 +22,7 @@ import { BaseGovernanceDeploy } from "./base/BaseGovernanceDeploy.s.sol";
 ///     "timelockMinDelay":      259200,   3 days
 ///     "votingDelay":           172800,   2 days, in seconds (timestamp clock)
 ///     "votingPeriod":          604800,   7 days
+///     "quorumVoteCutoff":      86400,    1 day; For/Abstain close this long before the deadline
 ///     "proposalThreshold":     "2500000000000000000000000",     0.25%
 ///     "quorumNumerator":       3,        percent of total supply, see below
 ///     "guardian":              "0x...",  optional; address(0) = no guardian
@@ -61,6 +62,7 @@ contract DeployGovernance is BaseGovernanceDeploy {
         p.timelockMinDelay = vm.parseJsonUint(j, ".timelockMinDelay");
         p.votingDelay = uint48(vm.parseJsonUint(j, ".votingDelay"));
         p.votingPeriod = uint32(vm.parseJsonUint(j, ".votingPeriod"));
+        p.quorumVoteCutoff = uint32(vm.parseJsonUint(j, ".quorumVoteCutoff"));
         p.proposalThreshold = vm.parseJsonUint(j, ".proposalThreshold");
         p.quorumNumerator = vm.parseJsonUint(j, ".quorumNumerator");
         p.guardian = vm.parseJsonAddress(j, ".guardian");
@@ -74,6 +76,7 @@ contract DeployGovernance is BaseGovernanceDeploy {
 
         require(p.quorumNumerator > 0 && p.quorumNumerator <= 100, "quorumNumerator out of range");
         require(p.proposalThreshold < p.totalSupply, "threshold exceeds supply");
+        require(p.quorumVoteCutoff < p.votingPeriod, "quorumVoteCutoff not below votingPeriod");
 
         vm.startBroadcast();
         // Under broadcast, `msg.sender` is the broadcaster, which sends the role

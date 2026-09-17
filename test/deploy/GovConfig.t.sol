@@ -79,6 +79,20 @@ contract GovConfigTest is Test {
         }
     }
 
+    /// `LelantosGovernor` refuses a cutoff at or above the voting period, which
+    /// would close For for the whole window.
+    function test_quorumVoteCutoffIsBelowVotingPeriod() public view {
+        string[2] memory files = _configs();
+        for (uint256 f; f < files.length; ++f) {
+            string memory j = vm.readFile(files[f]);
+            assertLt(
+                vm.parseJsonUint(j, ".quorumVoteCutoff"),
+                vm.parseJsonUint(j, ".votingPeriod"),
+                string.concat(files[f], ": quorumVoteCutoff leaves no window for For votes")
+            );
+        }
+    }
+
     function test_timelockDelayIsNonZero() public view {
         string[2] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {

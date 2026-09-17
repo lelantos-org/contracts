@@ -65,6 +65,13 @@ contract MockEscrowPool {
         TOKEN = token;
     }
 
+    /// Asset ids that report a yield venue.
+    mapping(uint64 id => bool) public isYieldAsset;
+
+    function setYieldAsset(uint64 id, bool yield_) external {
+        isYieldAsset[id] = yield_;
+    }
+
     function setAssetToken(uint64 id, address token) external {
         assetToken[id] = token;
     }

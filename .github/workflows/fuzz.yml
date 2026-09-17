@@ -50,6 +50,18 @@ jobs:
       - run: just quint-install
       - name: Fresh-seed Quint sweep
         run: just quint-fresh
+      - name: Echidna optimization sweep (EchidnaGenericCall)
+        uses: crytic/echidna-action@v2
+        # Non-zero exit in optimization mode regardless of result; see above.
+        continue-on-error: true
+        with:
+          files: test/echidna/EchidnaGenericCall.sol
+          contract: EchidnaGenericCall
+          config: test/echidna/EchidnaGenericCall.optimize.generated.yaml
+          echidna-version: v2.3.3
+          test-limit: 50000
+          format: text
+          crytic-args: --compile-force-framework foundry --ignore-compile
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -99,6 +111,7 @@ jobs:
       - run: |
           just _echidna-config EchidnaMasp
           just _echidna-config EchidnaMaspYield
+          just _echidna-config EchidnaGenericCall
       # Append-only cache: the key is unique per run so this job always writes
       # a fresh entry, and `restore-keys` picks up the newest previous one. A
       # fixed key would restore the first saved corpus indefinitely and never
@@ -147,6 +160,16 @@ jobs:
           config: test/echidna/EchidnaMaspYield.generated.yaml
           echidna-version: v2.3.3
           test-limit: 250000
+          format: text
+          crytic-args: --compile-force-framework foundry --ignore-compile
+      - name: Echidna property sweep (EchidnaGenericCall)
+        uses: crytic/echidna-action@v2
+        with:
+          files: test/echidna/EchidnaGenericCall.sol
+          contract: EchidnaGenericCall
+          config: test/echidna/EchidnaGenericCall.generated.yaml
+          echidna-version: v2.3.3
+          test-limit: 150000
           format: text
           crytic-args: --compile-force-framework foundry --ignore-compile
       - name: Echidna optimization sweep (EchidnaMasp)

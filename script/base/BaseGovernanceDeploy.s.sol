@@ -26,6 +26,9 @@ abstract contract BaseGovernanceDeploy is Script {
         uint256 timelockMinDelay;
         uint48 votingDelay;
         uint32 votingPeriod;
+        /// Seconds before the deadline at which quorum votes (For, Abstain)
+        /// close; must be below `votingPeriod`.
+        uint32 quorumVoteCutoff;
         uint256 proposalThreshold;
         uint256 quorumNumerator;
         /// Optional. Zero deploys the no-guardian variant.
@@ -73,7 +76,13 @@ abstract contract BaseGovernanceDeploy is Script {
         s.timelock = new TimelockController(p.timelockMinDelay, noProposers, openExecutor, deployer);
 
         s.governor = new LelantosGovernor(
-            IVotes(address(s.token)), s.timelock, p.votingDelay, p.votingPeriod, p.proposalThreshold, p.quorumNumerator
+            IVotes(address(s.token)),
+            s.timelock,
+            p.votingDelay,
+            p.votingPeriod,
+            p.proposalThreshold,
+            p.quorumNumerator,
+            p.quorumVoteCutoff
         );
 
         s.timelock.grantRole(s.timelock.PROPOSER_ROLE(), address(s.governor));

@@ -15,6 +15,7 @@ import { Bundler } from "../../src/bundler/Bundler.sol";
 import { BundlerFactory } from "../../src/bundler/BundlerFactory.sol";
 import { NativeAdapter } from "../../src/native/NativeAdapter.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
+import { GenericCallWrapper } from "../../src/generic/GenericCallWrapper.sol";
 import { SwapIntent } from "../swap/SwapIntent.sol";
 import { OwnableInit } from "../../src/OwnableInit.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
@@ -110,6 +111,7 @@ contract BundlerTest is Test {
     MASP internal masp;
     NativeAdapter internal nativeAdapter;
     SwapWrapper internal wrapper;
+    GenericCallWrapper internal generic;
     MockSwapAdapter internal swapAdapter;
     BundlerFactory internal factory;
     Bundler internal bundler;
@@ -148,7 +150,9 @@ contract BundlerTest is Test {
         wrapper.prepareToken(IERC20(address(tokenB)));
         wrapper.prepareToken(IERC20(address(tokenA)));
 
-        factory = new BundlerFactory(address(masp), address(nativeAdapter), address(wrapper));
+        generic = new GenericCallWrapper(IMASPPool(address(masp)), IAllowanceTransfer(permit2));
+
+        factory = new BundlerFactory(address(masp), address(nativeAdapter), address(wrapper), address(generic));
         bundler = _createBundler(BUNDLER_OWNER);
 
         Stubs.installPermissiveERC1271(DEPOSIT_PAYER);
@@ -346,7 +350,7 @@ contract BundlerTest is Test {
     /// has the gas to report it.
     function testFuzz_execute_lateFailure_alwaysReported(uint256 gasLimit, uint256 leave) public {
         GreedyPool pool = new GreedyPool();
-        Bundler b = _createBundler(new BundlerFactory(address(pool), address(0), address(0)), BUNDLER_OWNER);
+        Bundler b = _createBundler(new BundlerFactory(address(pool), address(0), address(0), address(0)), BUNDLER_OWNER);
 
         gasLimit = bound(gasLimit, 60_000, 3_000_000);
         leave = bound(leave, 0, gasLimit);
@@ -544,12 +548,24 @@ contract BundlerTest is Test {
     /// Each target admits only its own entry points: a selector valid on one
     /// allowed contract is refused on another.
     function test_execute_revert_selectorOfAnotherTarget() public {
-        address[4] memory targets = [address(masp), address(masp), address(nativeAdapter), address(wrapper)];
-        bytes4[4] memory selectors = [
+        address[7] memory targets = [
+            address(masp),
+            address(masp),
+            address(nativeAdapter),
+            address(wrapper),
+            address(masp),
+            address(generic),
+            address(generic)
+        ];
+        bytes4[7] memory selectors = [
             NativeAdapter.withdrawNative.selector,
             SwapWrapper.swap.selector,
             MASP.withdraw.selector,
-            MASP.transfer.selector
+            MASP.transfer.selector,
+            GenericCallWrapper.execute.selector,
+            SwapWrapper.swap.selector,
+            // Escrow recovery is not a tree-advancing entry point.
+            GenericCallWrapper.cancelEscrow.selector
         ];
         for (uint256 i; i < targets.length; ++i) {
             Bundler.Call[] memory calls = new Bundler.Call[](1);
@@ -564,12 +580,25 @@ contract BundlerTest is Test {
         assertEq(bundler.POOL(), address(masp), "pool");
         assertEq(bundler.NATIVE_ADAPTER(), address(nativeAdapter), "native adapter");
         assertEq(bundler.SWAP_WRAPPER(), address(wrapper), "swap wrapper");
+        assertEq(bundler.GENERIC_CALL_WRAPPER(), address(generic), "generic call wrapper");
+    }
+
+    /// `GenericCallWrapper.execute` passes `_decode`: a malformed payload reaches
+    /// the wrapper and fails there, reported as a failed item rather than
+    /// refused up front.
+    function test_execute_genericCallWrapper_admitted() public {
+        Bundler.Call[] memory calls = new Bundler.Call[](1);
+        calls[0] =
+            Bundler.Call({ target: address(generic), data: abi.encodePacked(GenericCallWrapper.execute.selector) });
+        vm.prank(OPERATOR);
+        (uint256 executed,) = bundler.execute(calls);
+        assertEq(executed, 0, "reached the wrapper and failed there");
     }
 
     /// A chain without the adapters leaves those slots zero. Zero is never a
     /// target, and the deployed adapters are not either.
     function test_absentAdapters_notCallable() public {
-        Bundler b = _createBundler(new BundlerFactory(address(masp), address(0), address(0)), BUNDLER_OWNER);
+        Bundler b = _createBundler(new BundlerFactory(address(masp), address(0), address(0), address(0)), BUNDLER_OWNER);
 
         Bundler.Call[] memory calls = new Bundler.Call[](1);
         calls[0] = Bundler.Call({ target: address(0), data: abi.encodePacked(NativeAdapter.withdrawNative.selector) });
@@ -578,6 +607,12 @@ contract BundlerTest is Test {
         b.execute(calls);
 
         calls[0] = Bundler.Call({ target: address(wrapper), data: abi.encodePacked(SwapWrapper.swap.selector) });
+        vm.expectRevert(abi.encodeWithSelector(Bundler.CallNotAllowed.selector, 0));
+        vm.prank(OPERATOR);
+        b.execute(calls);
+
+        calls[0] =
+            Bundler.Call({ target: address(generic), data: abi.encodePacked(GenericCallWrapper.execute.selector) });
         vm.expectRevert(abi.encodeWithSelector(Bundler.CallNotAllowed.selector, 0));
         vm.prank(OPERATOR);
         b.execute(calls);
@@ -747,7 +782,7 @@ contract BundlerTest is Test {
     /// by the operator check: it is made an operator here.
     function test_execute_reentrancyBlocked() public {
         Reenterer pool = new Reenterer();
-        Bundler b = _createBundler(new BundlerFactory(address(pool), address(0), address(0)), BUNDLER_OWNER);
+        Bundler b = _createBundler(new BundlerFactory(address(pool), address(0), address(0), address(0)), BUNDLER_OWNER);
         pool.setBundler(b);
         vm.prank(BUNDLER_OWNER);
         b.setOperator(address(pool), true);

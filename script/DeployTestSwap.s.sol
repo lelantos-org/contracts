@@ -6,6 +6,7 @@ import { console2 } from "forge-std/Script.sol";
 import { UniV3Adapter } from "../src/swap/UniV3Adapter.sol";
 import { UniV4Adapter } from "../src/swap/UniV4Adapter.sol";
 import { SwapWrapper } from "../src/swap/SwapWrapper.sol";
+import { GenericCallWrapper } from "../src/generic/GenericCallWrapper.sol";
 import { Bundler } from "../src/bundler/Bundler.sol";
 import { BundlerFactory } from "../src/bundler/BundlerFactory.sol";
 import { MockQuoterV2 } from "../test/swap/mocks/MockQuoterV2.sol";
@@ -65,6 +66,7 @@ contract DeployTestSwap is BaseSwapDeploy {
         address univ4Adapter;
         address mockUniversalRouter;
         address wrapper;
+        address genericCallWrapper;
         address bundlerFactory;
         address bundler;
     }
@@ -102,7 +104,8 @@ contract DeployTestSwap is BaseSwapDeploy {
         _seedVenue(ISeedableQuoter(address(q)), ISeedableRouter(address(r)), tokens);
         _seedVenue(ISeedableQuoter(address(q4)), ISeedableRouter(address(r4)), tokens);
         _prepareTokens(w, tokens);
-        BundlerFactory factory = _deployBundlerFactory(masp, nativeAdapter, address(w));
+        GenericCallWrapper generic = _deployGenericCall(masp, permit2, tokens);
+        BundlerFactory factory = _deployBundlerFactory(masp, nativeAdapter, address(w), address(generic));
         Bundler bundler = _createBundlerFromEnv({ factory: factory, ownerRequired: false });
 
         vm.stopBroadcast();
@@ -115,6 +118,7 @@ contract DeployTestSwap is BaseSwapDeploy {
             univ4Adapter: address(a4),
             mockUniversalRouter: address(r4),
             wrapper: address(w),
+            genericCallWrapper: address(generic),
             bundlerFactory: address(factory),
             bundler: address(bundler)
         });
@@ -126,6 +130,7 @@ contract DeployTestSwap is BaseSwapDeploy {
         console2.log(string.concat("UNIV4_ADAPTER=", vm.toString(d.univ4Adapter)));
         console2.log(string.concat("MOCK_UNIVERSAL_ROUTER=", vm.toString(d.mockUniversalRouter)));
         console2.log(string.concat("SWAP_WRAPPER=", vm.toString(d.wrapper)));
+        _logGenericCallKv(generic);
         _logBundlerKv(factory, bundler);
     }
 

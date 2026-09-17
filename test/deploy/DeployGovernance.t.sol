@@ -13,6 +13,7 @@ import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
+import { LelantosGovernor } from "../../src/governance/LelantosGovernor.sol";
 import { TreeUpdateBatchGroth16Verifier } from "../../src/verifiers/TreeUpdateBatchVerifier.sol";
 import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifier.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
@@ -70,6 +71,7 @@ contract DeployGovernanceTest is Test {
         p.timelockMinDelay = 3 days;
         p.votingDelay = 2 days;
         p.votingPeriod = 7 days;
+        p.quorumVoteCutoff = 1 days;
         p.proposalThreshold = 2_500_000e18;
         p.quorumNumerator = 3;
         p.guardian = guardian;
@@ -127,6 +129,7 @@ contract DeployGovernanceTest is Test {
         BaseGovernanceDeploy.GovStack memory s = harness.deployStack(_params());
         assertEq(s.governor.votingDelay(), 2 days);
         assertEq(s.governor.votingPeriod(), 7 days);
+        assertEq(s.governor.quorumVoteCutoff(), 1 days);
         assertEq(s.governor.proposalThreshold(), 2_500_000e18);
         assertEq(s.governor.quorumNumerator(), 3);
         assertEq(s.timelock.getMinDelay(), 3 days);
@@ -144,6 +147,17 @@ contract DeployGovernanceTest is Test {
         BaseGovernanceDeploy.GovParams memory p = _params();
         p.masp = makeAddr("notAPool");
         vm.expectRevert(bytes("masp has no code"));
+        harness.deployStack(p);
+    }
+
+    /// A cutoff at the voting period would close For for the whole window, so
+    /// no proposal could ever pass; the constructor refuses it.
+    function test_revertsIfQuorumVoteCutoffNotBelowVotingPeriod() public {
+        BaseGovernanceDeploy.GovParams memory p = _params();
+        p.quorumVoteCutoff = p.votingPeriod;
+        vm.expectRevert(
+            abi.encodeWithSelector(LelantosGovernor.InvalidQuorumVoteCutoff.selector, p.votingPeriod, p.votingPeriod)
+        );
         harness.deployStack(p);
     }
 

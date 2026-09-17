@@ -60,6 +60,13 @@ contract MockMASPSwap is IMASPPool {
         PERMIT2 = permit2_;
     }
 
+    /// assetId ⇒ whether it reports a yield venue.
+    mapping(uint64 assetId => bool) public isYieldAsset;
+
+    function setYieldAsset(uint64 assetId, bool yield_) external {
+        isYieldAsset[assetId] = yield_;
+    }
+
     function registerAsset(uint64 assetId, address token, uint256 scale) external {
         assetToken[assetId] = token;
         assetScale[assetId] = scale;

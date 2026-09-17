@@ -4,6 +4,7 @@ pragma solidity 0.8.36;
 import { UniV3Adapter } from "../src/swap/UniV3Adapter.sol";
 import { UniV4Adapter } from "../src/swap/UniV4Adapter.sol";
 import { SwapWrapper } from "../src/swap/SwapWrapper.sol";
+import { GenericCallWrapper } from "../src/generic/GenericCallWrapper.sol";
 import { Bundler } from "../src/bundler/Bundler.sol";
 import { BundlerFactory } from "../src/bundler/BundlerFactory.sol";
 
@@ -28,6 +29,7 @@ import { BaseSwapDeploy } from "./base/BaseSwapDeploy.s.sol";
 ///     "owner":         "0x...",     wrapper owner
 ///     "treasury":      "0x...",     slippage-dust recipient
 ///     "prepareTokens": ["0x...", ...]  optional, pre-prepare Permit2 path
+///     "genericCall":   true,        optional, default false; also deploys GenericCallWrapper
 ///   }
 ///
 /// Run: `forge script script/DeploySwap.s.sol --rpc-url $RPC --broadcast`
@@ -72,11 +74,20 @@ contract DeploySwap is BaseSwapDeploy {
             prepareTokens = new address[](0);
         }
 
+        // Optional, off unless `.genericCall` is true: the generic wrapper is
+        // unaudited, so a mainnet deploy opts in explicitly.
+        bool genericCall;
+        try vm.parseJsonBool(j, ".genericCall") returns (bool b) {
+            genericCall = b;
+        } catch { }
+
         vm.startBroadcast();
         (UniV3Adapter v3, UniV4Adapter v4, SwapWrapper wrapper) =
             _deploySwapStack(masp, permit2, router, univ4Router, owner, treasury);
         if (prepareTokens.length != 0) _prepareTokens(wrapper, prepareTokens);
-        BundlerFactory factory = _deployBundlerFactory(masp, nativeAdapter, address(wrapper));
+        GenericCallWrapper generic;
+        if (genericCall) generic = _deployGenericCall(masp, permit2, prepareTokens);
+        BundlerFactory factory = _deployBundlerFactory(masp, nativeAdapter, address(wrapper), address(generic));
         Bundler bundler = _createBundlerFromEnv({ factory: factory, ownerRequired: true });
         vm.stopBroadcast();
 
@@ -84,6 +95,7 @@ contract DeploySwap is BaseSwapDeploy {
         univ4Adapter = address(v4);
         wrapperAddr = address(wrapper);
         _logSwapKv(univ3Adapter, univ4Adapter, wrapperAddr);
+        _logGenericCallKv(generic);
         _logBundlerKv(factory, bundler);
     }
 }

@@ -11,15 +11,17 @@ import { BundlerFactory } from "../../src/bundler/BundlerFactory.sol";
 ///
 /// The factory fixes the contracts every Bundler may call, so it is deployed
 /// after all of them exist: MASP → NativeAdapter → SwapWrapper →
-/// BundlerFactory → Bundler. The swap scripts deploy the wrapper, so they deploy
+/// GenericCallWrapper → BundlerFactory → Bundler. The swap scripts deploy both
+/// wrappers, so they deploy
 /// the factory too.
 abstract contract BaseBundlerDeploy is Script {
-    /// `nativeAdapter` and `swapWrapper` may be zero on a chain without them.
-    function _deployBundlerFactory(address masp, address nativeAdapter, address swapWrapper)
+    /// `nativeAdapter`, `swapWrapper` and `genericCallWrapper` may be zero on a
+    /// chain without them.
+    function _deployBundlerFactory(address masp, address nativeAdapter, address swapWrapper, address genericCallWrapper)
         internal
         returns (BundlerFactory)
     {
-        return new BundlerFactory(masp, nativeAdapter, swapWrapper);
+        return new BundlerFactory(masp, nativeAdapter, swapWrapper, genericCallWrapper);
     }
 
     /// Creates the broadcaster's `Bundler`, operated by `operator`, and hands

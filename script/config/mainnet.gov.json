@@ -6,6 +6,7 @@
   "timelockMinDelay": 259200,
   "votingDelay": 172800,
   "votingPeriod": 604800,
+  "quorumVoteCutoff": 86400,
   "proposalThreshold": "2500000000000000000000000",
   "quorumNumerator": 3,
   "guardian": "0x0000000000000000000000000000000000000000",

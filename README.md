@@ -82,6 +82,8 @@ A relayer lands several tree-advancing operations in one transaction through its
 
 Pool administration is held by [`ProtocolAdmin`](src/governance/ProtocolAdmin.sol), owned by a `TimelockController` that executes proposals from [`LelantosGovernor`](src/governance/LelantosGovernor.sol). Vote weight is a delegated-balance snapshot of [`LelantosToken`](src/governance/LelantosToken.sol), a fixed-supply `ERC20Votes` with no mint function and no owner.
 
+The voting window is asymmetric, as in Railgun: For and Abstain, the votes that count toward quorum, close `quorumVoteCutoff` seconds before the proposal deadline (1 day on mainnet), while Against stays open to it, so a last-minute swing toward passing or quorum can still be answered. The cutoff is changed only by proposal, must stay below the voting period, and is fixed per proposal when it is created.
+
 `ProtocolAdmin` splits the owner role in two. The Timelock reaches everything through `execute`; a guardian holds only five one-way switches — `disableAsset`, `haltYield`, `emergencyUnwind`, `pauseSpends`, `disallowAdapter` — whose direction is fixed in bytecode; reversing any of them goes through `execute`. `pauseSpends` is latched to one use until governance re-arms it, so pauses cannot be chained into an indefinite freeze. `execute` rejects both `Ownable` ownership selectors and `changeProxyAdmin`, leaving `migrateAdmin` and its five checks as the only route by which pool ownership, wrapper ownership and the proxy admin can leave the contract; all three move in one call.
 
 Upgrades are queued, not applied. `DelayedUpgradeProxy` activates a queued implementation only after `UPGRADE_DELAY`, which is `immutable` and has no setter; until then the current implementation serves every call, so holders may withdraw under the terms in force when they entered. `activateUpgrade` is permissionless. A guardian pause halts every proof-dependent entry point and defers any pending activation by the pause duration, so the window measures unpaused time; `cancelDeposit` and `sweep` stay open, keeping escrowed funds recoverable. Raises to the terms a holder exits under (`withdrawBps`, `perfBps`, `cancelDelay`) are queued for 30 days, measured from the raise and extended past any pause, and applied only through the permissionless `commitExitTerms`; the proxy constructor rejects an `UPGRADE_DELAY` longer than that, so a raise cannot land inside an upgrade window whatever the call order.
@@ -127,7 +129,7 @@ Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 | Contract | Runtime (B) | Margin (B) |
 | --- | --- | --- |
 | `MASP` | 23 929 | 647 |
-| `LelantosGovernor` | 16 373 | 8 203 |
+| `LelantosGovernor` | 16 991 | 7 585 |
 | `SwapWrapper` | 10 410 | 14 166 |
 | `YieldOps` | 9 349 | 15 227 |
 | `LelantosToken` | 7 823 | 16 753 |

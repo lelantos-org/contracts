@@ -51,6 +51,8 @@ const CONTRACTS = [
     { source: "src/MaspEscrowSatellite.sol", contract: "MaspEscrowSatellite", export: "maspEscrowSatelliteAbi" },
     { source: "src/native/NativeAdapter.sol", contract: "NativeAdapter", export: "nativeAdapterAbi" },
     { source: "src/swap/SwapWrapper.sol", contract: "SwapWrapper", export: "swapWrapperAbi" },
+    { source: "src/generic/GenericCallWrapper.sol", contract: "GenericCallWrapper", export: "genericCallWrapperAbi" },
+    { source: "src/generic/CallExecutor.sol", contract: "CallExecutor", export: "callExecutorAbi" },
     { source: "src/swap/UniV3Adapter.sol", contract: "UniV3Adapter", export: "uniV3AdapterAbi" },
     { source: "src/swap/UniV4Adapter.sol", contract: "UniV4Adapter", export: "uniV4AdapterAbi" },
     { source: "src/swap/ISwapAdapter.sol", contract: "ISwapAdapter", export: "swapAdapterAbi" },

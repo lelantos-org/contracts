@@ -27,6 +27,7 @@ For build instructions, gas figures, and deployed sizes, see the [repository REA
 - [Governance and upgrades](#governance-and-upgrades)
 - [Escrow satellites](#escrow-satellites)
 - [Shielded Swap](#shielded-swap)
+- [Generic calls](#generic-calls)
 - [Native coin](#native-coin)
 - [Bundling](#bundling)
 - [Constants](#constants)
@@ -228,12 +229,13 @@ classDiagram
 | [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) | Abstract base for peripherals that escrow as their own `payer`: Permit2 arming, balance-delta escrow measurement, escrow record, cancel-and-verify. |
 | [native/](native/) | `NativeAdapter`: wraps native coin into the deposit path and unwraps it out of the withdraw path. The pool itself is ERC-20 only. |
 | [governance/LelantosToken.sol](governance/LelantosToken.sol) | Governance token: `ERC20` + `Burnable` + `Permit` + `Votes`. Fixed supply minted once; no mint function and no owner. Timestamp clock (ERC-6372). |
-| [governance/LelantosGovernor.sol](governance/LelantosGovernor.sol) | OZ `Governor` executing through a `TimelockController`. Inherits the token's clock through `GovernorVotes`. |
+| [governance/LelantosGovernor.sol](governance/LelantosGovernor.sol) | OZ `Governor` executing through a `TimelockController`. Inherits the token's clock through `GovernorVotes`. For and Abstain, the votes counted toward quorum, close `quorumVoteCutoff` seconds before the deadline; Against stays open to it. |
 | [governance/ProtocolAdmin.sol](governance/ProtocolAdmin.sol) | Owner of `MASP` and `SwapWrapper`. The Timelock reaches everything through `execute`, which rejects both ownership selectors; the guardian holds four one-way switches. `migrateAdmin` is the only ownership exit. |
 | [burn/FeeBurner.sol](burn/FeeBurner.sol) | The pool's `treasury`. Auctions accrued fee tokens for the governance token and burns the proceeds. Prices from stored state and `block.timestamp` only. |
 | [swap/](swap/) | Atomic unshield → swap → re-shield wrapper, plus the Uniswap v3 and v4 adapters. |
+| [generic/](generic/) | `GenericCallWrapper`: atomic unshield → arbitrary calls → re-shield into up to four notes, the calls run in a fresh `CallExecutor` clone. |
 
-`NativeAdapter` and `SwapWrapper` both extend `MaspEscrowSatellite`; see [Escrow satellites](#escrow-satellites).
+`NativeAdapter`, `SwapWrapper` and `GenericCallWrapper` all extend `MaspEscrowSatellite`; see [Escrow satellites](#escrow-satellites).
 
 `Verifier.sol` and `TreeUpdateBatchVerifier.sol` are generated output and carry `SPDX-License-Identifier: GPL-3.0` with their own upstream terms; everything else, `VerifyingKeys.sol` and `BatchedGroth16Verifier.sol` included, is MIT.
 
@@ -662,6 +664,8 @@ Quorum is a fraction of **total** supply, not delegated supply: `Votes` checkpoi
 
 Vote weight is read at `proposalSnapshot`, and the proposal threshold at `clock() - 1`. Both are past timepoints, so tokens borrowed and delegated inside one transaction carry no weight.
 
+The voting window is asymmetric. For and Abstain, the two vote types counted toward quorum, close `quorumVoteCutoff` seconds before `proposalDeadline` (`QuorumVotingClosed`); Against stays open until the deadline. A For or Abstain vote cast at the last moment could otherwise carry a proposal past the For/Against comparison or past quorum with no time left to answer it, whereas a late Against can only defeat. The cutoff is set in the constructor (1 day on mainnet), changed only by proposal through `setQuorumVoteCutoff`, and must stay below `votingPeriod`; `setVotingPeriod` enforces the same bound. Each proposal stores its own `proposalQuorumVoteDeadline` at propose time and emits `ProposalQuorumVoteDeadline` right after `ProposalCreated`, so a cutoff change never reschedules a proposal already open.
+
 ### ProtocolAdmin
 
 | Function | Caller | Effect |
@@ -742,7 +746,7 @@ Only a fill of at least `minLot` ratchets the price, and an enabled lot requires
 | `Escrow { refundTo, amount }` + `_cancelAndVerify` | The pool refunds the digest-bound payer — the satellite — so a cancel needs an on-satellite record of who funded it, and the refund has to be verified by delta before it is paid out. The delta must equal the refund `cancelDeposit` returns, not the recorded pull: a yield refund is floored and capped at that pull, so it can fall below it by a wei of rounding or by a venue loss, and a floor at the recorded amount would leave such an escrow with no refund path. |
 | `ReentrancyGuardTransient` | Every delta above is sound only if nothing can move the balance between the two reads, so the guard is a property of being a satellite. Subclasses still apply `nonReentrant` at their own entry points. |
 
-**The pull window is an argument, not a convention.** The Permit2 allowance a satellite grants the pool is unbounded and covers its entire balance, while `DepositRequest` is unauthenticated calldata — so a caller who oversizes `publicIn` could escrow coin parked in the satellite for somebody else into a note of their own. Every satellite must therefore bound the measured pull, and `_escrowMeasured` takes that bound as two required parameters rather than documenting the obligation: `NativeAdapter` passes `[1, msg.value]`, `SwapWrapper` passes `[minOut, actualOut]`. A satellite that omits the bound does not compile, and one that wants no ceiling has to write `type(uint256).max` where a reviewer can see it. The floor catches a deposit denominated in another asset only if the measured token is the real one: such a deposit moves none of it, lands as a zero pull and trips `PullBelowMin`. The satellite must therefore measure a token bound to the pool's registry, not one taken from its caller. A caller-chosen token with a scripted `balanceOf` passes every bound while the pool pulls whatever real token the satellite holds. `NativeAdapter` measures its immutable wrapped-native token; `SwapWrapper._validate` requires `tokenIn` to be the registry token of `pi_w.publicAssetId` (and of `refund_d`) and `tokenOut` that of `deposit_d`.
+**The pull window is an argument, not a convention.** The Permit2 allowance a satellite grants the pool is unbounded and covers its entire balance, while `DepositRequest` is unauthenticated calldata — so a caller who oversizes `publicIn` could escrow coin parked in the satellite for somebody else into a note of their own. Every satellite must therefore bound the measured pull, and `_escrowMeasured` takes that bound as two required parameters rather than documenting the obligation: `NativeAdapter` passes `[1, msg.value]`, `SwapWrapper` passes `[minOut, actualOut]`, `GenericCallWrapper` passes `[minOut, delivered]` per output. A satellite that omits the bound does not compile, and one that wants no ceiling has to write `type(uint256).max` where a reviewer can see it. The floor catches a deposit denominated in another asset only if the measured token is the real one: such a deposit moves none of it, lands as a zero pull and trips `PullBelowMin`. The satellite must therefore measure a token bound to the pool's registry, not one taken from its caller. A caller-chosen token with a scripted `balanceOf` passes every bound while the pool pulls whatever real token the satellite holds. `NativeAdapter` measures its immutable wrapped-native token; `SwapWrapper._validate` requires `tokenIn` to be the registry token of `pi_w.publicAssetId` (and of `refund_d`) and `tokenOut` that of `deposit_d`.
 
 **The record is one storage slot.** `refundTo` is an address and `amount` is a `uint96`, so the pair fills a slot exactly and an escrow costs one cold `SSTORE` instead of two — around 22 000 gas on every `depositNative` and every `swap`, and about 18 000 more on each cancel. The pool bounds what can reach that width from far below it: `publicIn` and `feeIn` are each validated against `type(uint48).max`, so a pull cannot exceed roughly `2^48 · scale · 2.2`. At the registered scales (`1` and `1e10`) the worst case is about `6.2e24` against a ceiling of `7.92e28` — four orders of magnitude of headroom — and the width is only reachable by an asset registered with a `scale` above roughly `1.2e14`. `_escrowMeasured` enforces it regardless: a pull that would not fit reverts `EscrowAmountTooLarge` rather than truncating, which would misreport the escrow through `escrows()`. The cancel path does not depend on the recorded amount: it forwards the refund `cancelDeposit` reports.
 
@@ -833,6 +837,34 @@ Adding a venue is additive: a new `ISwapAdapter`, `setAdapterAllowed`, and nothi
 
 ---
 
+## Generic calls
+
+`GenericCallWrapper` is the generic counterpart of `SwapWrapper`, in the style of Railgun's RelayAdapt: one withdraw proof unshields one asset, an arbitrary list of calls runs against it, and up to `MAX_OUTPUTS` (4) outputs are escrowed back as notes. An integration (adding liquidity, staking, claiming) needs no contract and no governance action, only calldata the wallet builds. The wrapper is ownerless.
+
+| Leg | What happens | Measured as |
+| --- | --- | --- |
+| 1 | `MASP.withdraw` to the wrapper | balance delta, `>= amountIn` |
+| 2 | `callLeg` in its own frame: clone `CallExecutor`, send it the input, `run(calls)`, the clone pushes back its whole balance of every output token and of the input token | per-output delta, `>= minOut` |
+| 3 | `_escrowMeasured` per output within `[minOut, delivered]`; the rest of each, and unused input, to `surplusTo` | pool pull |
+
+A failing call, an output below its floor, or a passed `deadline` unwinds leg 2 (the clone included) and escrows the input back as `refund_d`, as a swap refund does. What reverts instead is fixed before sending: `_validate`, leg 1, a failing escrow, gas below `minGas`, and a leg that exhausts its gas (`CallLegOutOfGas`).
+
+**Binding.** `pi_w.intentHash` is `keccak256(abi.encode(refundTo, surplusTo, deadline, minGas, calls, outputs, refund_d, refund_aux_d, refund_fee_aux_d)) mod R`, exposed as the `intentHash(args)` view so wallets can compute it on-chain. `msg.sender` must be `pi_w.payer` (the relayer's Bundler), and `recipient`, `relayer` and every deposit's `payer` must be the wrapper. Input, refund and output tokens are the registry tokens of their asset ids, never calldata; outputs must be distinct by token address, since two asset ids may share one.
+
+**Why calls never run from the wrapper.** The wrapper holds the Permit2 allowance to the pool and the escrow records, and the pool accepts a contract payer's cancel only from the payer. A call made as the wrapper could reach both. The calls run in `CallExecutor`, which holds neither, and every wrapper entry point shares one transient re-entrancy guard, so a call that loops back into `execute` or `cancelEscrow` reverts and the execution refunds.
+
+**Why a fresh clone per execution.** Calls leave approvals behind, on tokens and on Permit2. In a shared executor a spender approved by one user's calls, reached through a later user's hook or callback, could pull that user's balance down to their floor. Each execution clones the executor (ERC-1167, about 41k gas), so a clone starts with no allowances and is never reused. Permit2 is therefore not denied as a target, which Universal Router flows need. Denied: the pool, the wrapper, the clone itself and the zero address; a non-empty payload must reach code.
+
+**Forced balances.** Anyone can send tokens or native coin to the next clone's address before it exists, or to the wrapper mid-execution. Neither can force a refund: the clone sweeps whole balances rather than checking leftovers, native leftovers go to `surplusTo`, and extra delivered tokens leave as surplus. A balance stuck on the wrapper stays out of reach, since every pull is bounded by what the calls delivered.
+
+**Gas.** A submitter picks the gas limit, so without a floor it could starve the call leg into a refund. `minGas` is intent-bound and checked against what the leg is actually forwarded (all but `REFUND_GAS_RESERVE`, capped at EIP-150's 63/64): below it, `execute` reverts and the proof stays unspent. The calls are forwarded to the clone straight from calldata, and the pre-withdraw balance snapshot doubles as the leg's baseline, so the wrapper adds little beyond the clone, the transfers and one escrow record per output; `test/generic/GenericCallWrapperGas.t.sol` measures the common shapes.
+
+**Yield assets are not accepted** as outputs or refund, until a cancelled yield escrow is settled at its submit-time value.
+
+**What stays public** is what any unshield exposes: the calls, the amounts and `surplusTo`. Only the link to the spending note is hidden. Tokens the calls produce but the outputs do not name stay on the abandoned clone and are lost. Relayers must simulate an execution before submitting it.
+
+---
+
 ## Native coin
 
 `MASP` is ERC-20 only: it has no `receive`, no wrapped-native immutable, and no native branch in any entry point. `NativeAdapter` is the sole bridge, wrapping on the way in and unwrapping on the way out. It is ownerless and permissionless — all authority comes from the SNARK public inputs or from the adapter's own escrow bookkeeping.
@@ -857,7 +889,7 @@ Every native payout (the withdraw proceeds, a deposit's surplus, a refund) is pu
 
 ## Bundling
 
-Every tree-advancing call — `transfer`, `withdraw`, `flushBatch`, and `withdrawNative` and `swap` through the adapters — must extend the live root: `tpi.startIndex == committedCount`, and the batch's old root is `currentRoot()` (checked against `tpi.oldRoot` on a flush, built into the proof image on a spend). A relayer that proves several chained tree updates can therefore only land them in order. [`Bundler`](bundler/Bundler.sol) lands them in one transaction: `execute` calls each in sequence, and each call sees the state the previous one left.
+Every tree-advancing call — `transfer`, `withdraw`, `flushBatch`, and `withdrawNative`, `swap` and `execute` through the adapters — must extend the live root: `tpi.startIndex == committedCount`, and the batch's old root is `currentRoot()` (checked against `tpi.oldRoot` on a flush, built into the proof image on a spend). A relayer that proves several chained tree updates can therefore only land them in order. [`Bundler`](bundler/Bundler.sol) lands them in one transaction: `execute` calls each in sequence, and each call sees the state the previous one left.
 
 The calls are plain `CALL`s from the Bundler, not a delegatecall into the pool, so neither the pool nor the adapters change and every existing binding keeps its meaning:
 
@@ -866,6 +898,7 @@ The calls are plain `CALL`s from the Bundler, not a delegatecall into the pool, 
 | `MASP.transfer` / `MASP.withdraw` | the Bundler | `pi.relayer = Bundler` |
 | `NativeAdapter.withdrawNative` | the Bundler; MASP sees the adapter | `pi.relayer = NativeAdapter` (unchanged) |
 | `SwapWrapper.swap` | the Bundler | `pi_w.payer = Bundler`; `pi_w.intentHash` fixes the output, floor, venue, deadline and `refundTo`, so operators choose only the route and timing |
+| `GenericCallWrapper.execute` | the Bundler | `pi_w.payer = Bundler`; `pi_w.intentHash` fixes the calls, outputs, refund, deadline, `minGas` and receivers, so operators choose only timing |
 | `MASP.flushBatch` | the Bundler | nothing; permissionless |
 
 `execute` stops at the **first failing call** and returns `(executed, reason)`: calls before it stay committed, the failure is emitted as `BundleItemFailed(index, reason)`, and later calls are not made. Stopping saves gas on the bundles relayers build. Those are chained, each call's tree update starting where the previous one ends, so every later call would revert: `BatchMisaligned` for a spend, `StaleOldRoot` for a flush. The Bundler does not check the chaining, so a later call proved on an earlier root is not made either. Keeping the prefix, rather than reverting the whole bundle, stops an item that fails or runs out of gas from undoing other users' operations. Neither a swap nor a native payout fails on conditions set after the bundle is simulated: a failed venue leg refunds, and a payout cannot be refused (see [Native coin](#native-coin)).
@@ -894,7 +927,7 @@ sequenceDiagram
   B-->>R: BundleExecuted(4, 4)
 ```
 
-**One Bundler per relayer.** [`BundlerFactory`](bundler/BundlerFactory.sol) is permissionless: `create(operators)` deploys a full `Bundler` with CREATE2, owned by `msg.sender`, salted by the caller, and set up in its constructor. The constructor arguments are `(owner, POOL, NATIVE_ADAPTER, SWAP_WRAPPER)`; the operators are handed over through the factory's transient storage (`pendingOperators`) rather than as an argument, so the address depends on the owner alone and `predict(owner)` is plain CREATE2 over the creation code and those arguments. A relayer publishes that address as the relayer address wallets bind into proofs, so a proof bound to one relayer's Bundler reverts through any other's. The owner is the caller rather than an argument so no one can create a Bundler at another relayer's advertised address with operators of their own, and a second `create` by the same owner reverts `AlreadyCreated`. A full deployment rather than an ERC-1167 clone costs more once, at `create`, and saves the proxy's `DELEGATECALL` on every `execute`.
+**One Bundler per relayer.** [`BundlerFactory`](bundler/BundlerFactory.sol) is permissionless: `create(operators)` deploys a full `Bundler` with CREATE2, owned by `msg.sender`, salted by the caller, and set up in its constructor. The constructor arguments are `(owner, POOL, NATIVE_ADAPTER, SWAP_WRAPPER, GENERIC_CALL_WRAPPER)`; the operators are handed over through the factory's transient storage (`pendingOperators`) rather than as an argument, so the address depends on the owner alone and `predict(owner)` is plain CREATE2 over the creation code and those arguments. A relayer publishes that address as the relayer address wallets bind into proofs, so a proof bound to one relayer's Bundler reverts through any other's. The owner is the caller rather than an argument so no one can create a Bundler at another relayer's advertised address with operators of their own, and a second `create` by the same owner reverts `AlreadyCreated`. A full deployment rather than an ERC-1167 clone costs more once, at `create`, and saves the proxy's `DELEGATECALL` on every `execute`.
 
 **Targets are fixed.** The factory is constructed with the pool, the native adapter and the swap wrapper, and every Bundler it creates holds them as immutables, each admitting only its own entry points:
 
@@ -903,8 +936,9 @@ sequenceDiagram
 | `POOL` | `transfer`, `withdraw`, `flushBatch` |
 | `NATIVE_ADAPTER` | `withdrawNative` |
 | `SWAP_WRAPPER` | `swap` |
+| `GENERIC_CALL_WRAPPER` | `execute` |
 
-An adapter a chain lacks is zero, and zero is never a target. Supporting another adapter, or a redeployed one, takes a new factory and a new Bundler per relayer. The factory must therefore be deployed after the adapters: MASP → NativeAdapter → SwapWrapper → BundlerFactory → Bundler, which is why the swap deploy scripts deploy it.
+An adapter a chain lacks is zero, and zero is never a target. Supporting another adapter, or a redeployed one, takes a new factory and a new Bundler per relayer. The factory must therefore be deployed after the adapters: MASP → NativeAdapter → SwapWrapper → GenericCallWrapper → BundlerFactory → Bundler, which is why the swap deploy scripts deploy it.
 
 The owner manages the **operator set**, which lets a relayer rotate its signing key without moving the address in-flight proofs are bound to. An operator key can reorder, delay or drop the items it lands, and pick a swap's route, but cannot change what a proof committed to. The Bundler holds no funds, grants no approvals, has no `payable` entry point, and guards `execute` against re-entry.
 

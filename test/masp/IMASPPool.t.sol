@@ -42,6 +42,11 @@ contract IMASPPoolTest is MASPTestBase {
         assertEq(IMASPPool.asset.selector, AssetRegistry.asset.selector, "asset drifted");
     }
 
+    function test_selector_isYieldAsset() public view {
+        assertEq(IMASPPool.isYieldAsset.selector, bytes4(keccak256("isYieldAsset(uint64)")), "isYieldAsset drifted");
+        assertTrue(!MASP(address(masp)).isYieldAsset(1), "isYieldAsset dispatches");
+    }
+
     /// `withdrawNative` forwards its own argument bytes under `withdraw`'s
     /// selector, which is sound only while the two take identical arguments.
     function test_withdrawNative_sharesWithdrawArguments() public pure {

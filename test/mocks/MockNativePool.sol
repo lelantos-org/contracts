@@ -32,6 +32,11 @@ contract MockNativePool is IMASPPool {
 
     uint256 public nextId;
 
+    /// The native adapter never asks; no asset here carries a venue.
+    function isYieldAsset(uint64) external pure returns (bool) {
+        return false;
+    }
+
     constructor(IAllowanceTransfer permit2, MockWETH9 weth) {
         PERMIT2 = permit2;
         WETH = weth;

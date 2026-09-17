@@ -28,6 +28,7 @@ abstract contract GovTestBase is MASPTestBase {
     uint256 internal constant SUPPLY = 1_000_000_000e18;
     uint48 internal constant VOTING_DELAY = 2 days;
     uint32 internal constant VOTING_PERIOD = 7 days;
+    uint32 internal constant QUORUM_VOTE_CUTOFF = 1 days;
     uint256 internal constant PROPOSAL_THRESHOLD = 2_500_000e18;
     uint256 internal constant QUORUM_NUMERATOR = 3;
     uint256 internal constant TIMELOCK_DELAY = 3 days;
@@ -64,7 +65,13 @@ abstract contract GovTestBase is MASPTestBase {
         timelock = new TimelockController(TIMELOCK_DELAY, new address[](0), _openExecutor(), address(this));
 
         governor = new LelantosGovernor(
-            IVotes(address(gov)), timelock, VOTING_DELAY, VOTING_PERIOD, PROPOSAL_THRESHOLD, QUORUM_NUMERATOR
+            IVotes(address(gov)),
+            timelock,
+            VOTING_DELAY,
+            VOTING_PERIOD,
+            PROPOSAL_THRESHOLD,
+            QUORUM_NUMERATOR,
+            QUORUM_VOTE_CUTOFF
         );
 
         timelock.grantRole(timelock.PROPOSER_ROLE(), address(governor));

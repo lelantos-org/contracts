@@ -10,6 +10,7 @@ import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { UniV3Adapter } from "../../src/swap/UniV3Adapter.sol";
 import { UniV4Adapter } from "../../src/swap/UniV4Adapter.sol";
+import { GenericCallWrapper } from "../../src/generic/GenericCallWrapper.sol";
 
 import { BaseBundlerDeploy } from "./BaseBundlerDeploy.s.sol";
 
@@ -63,6 +64,26 @@ abstract contract BaseSwapDeploy is BaseBundlerDeploy {
             wrapper.prepareToken(IERC20(tokens[i]));
             console2.log("prepared token", tokens[i]);
         }
+    }
+
+    /// Deploys the ownerless `GenericCallWrapper` (which deploys its executor
+    /// implementation) and arms `tokens` for escrow through it.
+    function _deployGenericCall(address masp, address permit2, address[] memory tokens)
+        internal
+        returns (GenericCallWrapper wrapper)
+    {
+        wrapper = new GenericCallWrapper(IMASPPool(masp), IAllowanceTransfer(permit2));
+        for (uint256 i; i < tokens.length; ++i) {
+            _requireCode(tokens[i], "prepare token has no code");
+            wrapper.prepareToken(IERC20(tokens[i]));
+        }
+    }
+
+    /// Both keys are logged as the zero address when no wrapper was deployed.
+    function _logGenericCallKv(GenericCallWrapper wrapper) internal view {
+        address impl = address(wrapper) == address(0) ? address(0) : wrapper.EXECUTOR_IMPL();
+        console2.log(string.concat("GENERIC_CALL_WRAPPER=", vm.toString(address(wrapper))));
+        console2.log(string.concat("CALL_EXECUTOR_IMPL=", vm.toString(impl)));
     }
 
     /// `univ4Adapter` is logged as the zero address on a V3-only deploy, so the

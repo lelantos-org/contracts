@@ -14,6 +14,7 @@ contract BundlerFactoryTest is Test {
     address internal pool;
     address internal nativeAdapter;
     address internal swapWrapper;
+    address internal genericCallWrapper;
 
     address internal constant RELAYER = address(0x5E1A7E5);
     address internal constant OPERATOR = address(0x0FE7A70);
@@ -22,7 +23,8 @@ contract BundlerFactoryTest is Test {
         pool = address(new MockERC20("p", "p", 18));
         nativeAdapter = address(new MockERC20("n", "n", 18));
         swapWrapper = address(new MockERC20("s", "s", 18));
-        factory = new BundlerFactory(pool, nativeAdapter, swapWrapper);
+        genericCallWrapper = address(new MockERC20("g", "g", 18));
+        factory = new BundlerFactory(pool, nativeAdapter, swapWrapper, genericCallWrapper);
     }
 
     function test_create_landsAtPredictedAddress() public {
@@ -41,7 +43,9 @@ contract BundlerFactoryTest is Test {
     /// arguments, so anyone can reproduce it off-chain.
     function test_predict_isCreate2OverConstructorArgs() public view {
         bytes32 initCodeHash = keccak256(
-            abi.encodePacked(type(Bundler).creationCode, abi.encode(RELAYER, pool, nativeAdapter, swapWrapper))
+            abi.encodePacked(
+                type(Bundler).creationCode, abi.encode(RELAYER, pool, nativeAdapter, swapWrapper, genericCallWrapper)
+            )
         );
         address expected = vm.computeCreate2Address(bytes32(uint256(uint160(RELAYER))), initCodeHash, address(factory));
         assertEq(factory.predict(RELAYER), expected, "CREATE2 address");
@@ -56,6 +60,7 @@ contract BundlerFactoryTest is Test {
         assertEq(b.POOL(), pool, "pool");
         assertEq(b.NATIVE_ADAPTER(), nativeAdapter, "native adapter");
         assertEq(b.SWAP_WRAPPER(), swapWrapper, "swap wrapper");
+        assertEq(b.GENERIC_CALL_WRAPPER(), genericCallWrapper, "generic call wrapper");
     }
 
     /// The operator list is handed over only for the duration of `create`, and
@@ -123,29 +128,32 @@ contract BundlerFactoryTest is Test {
 
     function test_constructor_rejectsZeroPool() public {
         vm.expectRevert(BundlerFactory.ZeroAddress.selector);
-        new BundlerFactory(address(0), nativeAdapter, swapWrapper);
+        new BundlerFactory(address(0), nativeAdapter, swapWrapper, genericCallWrapper);
     }
 
     /// Adapters may be zero; any non-zero address, including the pool, must be a
     /// contract.
     function test_constructor_adapters() public {
-        BundlerFactory poolOnly = new BundlerFactory(pool, address(0), address(0));
+        BundlerFactory poolOnly = new BundlerFactory(pool, address(0), address(0), address(0));
         assertEq(poolOnly.NATIVE_ADAPTER(), address(0), "no native adapter");
         assertEq(poolOnly.SWAP_WRAPPER(), address(0), "no wrapper");
+        assertEq(poolOnly.GENERIC_CALL_WRAPPER(), address(0), "no generic wrapper");
 
         vm.expectRevert(abi.encodeWithSelector(BundlerFactory.NotAContract.selector, address(0xC0DE)));
-        new BundlerFactory(pool, address(0xC0DE), swapWrapper);
+        new BundlerFactory(pool, address(0xC0DE), swapWrapper, genericCallWrapper);
         vm.expectRevert(abi.encodeWithSelector(BundlerFactory.NotAContract.selector, address(0xC0DE)));
-        new BundlerFactory(pool, nativeAdapter, address(0xC0DE));
+        new BundlerFactory(pool, nativeAdapter, address(0xC0DE), genericCallWrapper);
         vm.expectRevert(abi.encodeWithSelector(BundlerFactory.NotAContract.selector, address(0xC0DE)));
-        new BundlerFactory(address(0xC0DE), nativeAdapter, swapWrapper);
+        new BundlerFactory(pool, nativeAdapter, swapWrapper, address(0xC0DE));
+        vm.expectRevert(abi.encodeWithSelector(BundlerFactory.NotAContract.selector, address(0xC0DE)));
+        new BundlerFactory(address(0xC0DE), nativeAdapter, swapWrapper, genericCallWrapper);
     }
 
     /// The Bundler reads its operators from its deployer, so it cannot be
     /// deployed from an account that does not provide them.
     function test_bundler_requiresADeployerWithOperators() public {
         vm.expectRevert();
-        new Bundler(RELAYER, pool, nativeAdapter, swapWrapper);
+        new Bundler(RELAYER, pool, nativeAdapter, swapWrapper, genericCallWrapper);
     }
 
     event BundlerCreated(address indexed owner, address indexed bundler);

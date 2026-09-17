@@ -12,6 +12,7 @@ import { Bundler } from "../../src/bundler/Bundler.sol";
 import { BundlerFactory } from "../../src/bundler/BundlerFactory.sol";
 import { OwnableInit } from "../../src/OwnableInit.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
+import { GenericCallWrapper } from "../../src/generic/GenericCallWrapper.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { MockWETH9 } from "../mocks/MockWETH9.sol";
 import { uniformBps } from "../utils/FeeArrays.sol";
@@ -31,7 +32,10 @@ contract BundlerDeployHarness is BaseBundlerDeploy {
         wrapper = new SwapWrapper(
             IMASPPool(address(core.masp)), core.nativeAdapter.PERMIT2(), address(this), address(0xfee)
         );
-        factory = _deployBundlerFactory(address(core.masp), address(core.nativeAdapter), address(wrapper));
+        GenericCallWrapper generic = new GenericCallWrapper(IMASPPool(address(core.masp)), core.nativeAdapter.PERMIT2());
+        factory = _deployBundlerFactory(
+            address(core.masp), address(core.nativeAdapter), address(wrapper), address(generic)
+        );
         bundler = _createBundler(factory, operator, owner);
     }
 
@@ -89,6 +93,8 @@ contract DeployBundlerTest is Test {
         assertEq(bundler.POOL(), address(core.masp), "bundler pool");
         assertEq(bundler.NATIVE_ADAPTER(), address(core.nativeAdapter), "bundler native adapter");
         assertEq(bundler.SWAP_WRAPPER(), address(wrapper), "bundler wrapper");
+        assertEq(bundler.GENERIC_CALL_WRAPPER(), factory.GENERIC_CALL_WRAPPER(), "bundler generic wrapper");
+        assertGt(factory.GENERIC_CALL_WRAPPER().code.length, 0, "generic wrapper deployed");
     }
 
     /// A named owner other than the deployer receives the Bundler, which keeps
@@ -129,6 +135,6 @@ contract DeployBundlerTest is Test {
         BaseDeploy.MaspCore memory core = core_.deployCore(_params());
         assertGt(address(core.masp).code.length, 0, "pool deployed");
         vm.expectRevert(abi.encodeWithSelector(BundlerFactory.NotAContract.selector, address(0xdead)));
-        new BundlerFactory(address(core.masp), address(core.nativeAdapter), address(0xdead));
+        new BundlerFactory(address(core.masp), address(core.nativeAdapter), address(0xdead), address(0));
     }
 }

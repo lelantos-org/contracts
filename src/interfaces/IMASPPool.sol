@@ -4,8 +4,8 @@ pragma solidity 0.8.36;
 import { PubInputs } from "../libs/PubInputs.sol";
 import { AuxValidation } from "../libs/AuxValidation.sol";
 
-/// The MASP surface the adapters call. `NativeAdapter` and `SwapWrapper`
-/// share this declaration.
+/// The MASP surface the adapters call. `NativeAdapter`, `SwapWrapper` and
+/// `GenericCallWrapper` share this declaration.
 ///
 /// Solidity does not check a hand-written interface against the contract it
 /// describes, and a mismatched signature is a wrong selector at runtime rather
@@ -64,4 +64,7 @@ interface IMASPPool {
     function escrowed(uint256 id) external view returns (bytes32);
 
     function asset(uint64 id) external view returns (AssetEntry memory);
+
+    /// True iff `id` carries a yield venue (`YieldIndex.isYieldAsset`).
+    function isYieldAsset(uint64 id) external view returns (bool);
 }

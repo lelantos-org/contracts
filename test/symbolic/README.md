@@ -104,6 +104,10 @@ reasoning does not — a proof that merely re-samples what
 | Only an allowlisted adapter, and never past the deadline | `SwapWrapper._validate` | any adapter, every timestamp | The adapter receives the unshielded funds; the deadline is proved in both directions, inclusive at the boundary | none | as above | 0.02s each |
 | Zero input, zero floor and same-token pairs refused | `SwapWrapper._validate` | any token address | `minOut` is the only slippage bound there is | none | as above | 0.02s each |
 | A well-formed request clears the whole guard block | `SwapWrapper._validate` | — | Non-vacuity anchor: all nine `_validate` rows are rejections | none | as above | 0.02s |
+| No address but the withdraw proof's `payer` may drive a generic execution | `GenericCallWrapper.execute` | any caller x any payer | The calls are fixed by the intent, but a lifted proof would still spend on someone else's schedule | `caller != payer` | pool stand-in only | 0.05s |
+| Recipient, relayer, output payer and refund payer must all be the wrapper | `GenericCallWrapper._validate` | any address in each role | Binds leg 1's funds and every escrow to the contract holding the allowance | differs from wrapper | as above | 0.03–0.19s |
+| Refund in the withdrawn token, no yield outputs, no two outputs sharing a token, neither receiver the wrapper | `GenericCallWrapper._validate` | any asset id and token | Every measured balance is a registry token, counted once | refund token differs | as above | 0.06–0.24s |
+| A well-formed generic request clears the whole guard block | `GenericCallWrapper._validate` | — | Non-vacuity anchor for the rows above | none | as above | 0.06s |
 
 Every spend-guard row proves a *rejection*. That is a cost decision, not a gap:
 a request that passes validation goes on to `PubInputs.compress`, which no

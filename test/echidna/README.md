@@ -1,11 +1,13 @@
 # Echidna suite
 
-Property fuzzing for MASP, run by [`just echidna`](../../justfile). Two targets:
+Property fuzzing for MASP and its peripherals, run by [`just echidna`](../../justfile). Three targets:
 
 - **`EchidnaMasp`** — the plain-asset state machine: deposit, flush, cancel,
   sweep, withdraw and transfer. 24 properties, 2 optimization targets.
 - **`EchidnaMaspYield`** — the indexed-asset (yield) accounting. 6 properties,
   2 optimization targets.
+- **`EchidnaGenericCall`** — `GenericCallWrapper` against a stub pool. 8
+  properties, 2 optimization targets. See [The generic call target](#the-generic-call-target).
 
 Separate contracts rather than one wider one: their setups share nothing (the
 yield target needs a venue, a vault, and two asset ids over one ERC-20) and a
@@ -142,6 +144,45 @@ only `test/fuzz/**` and `test/invariant/**`, so `YieldSolvency.invariant.t.sol`
 — an invariant suite by everything except its directory — had never run at the
 nightly depth. It does now.
 
+## The generic call target
+
+`EchidnaGenericCall` is also the handler for
+`test/invariant/GenericCallWrapper.invariant.t.sol`: one set of handlers and
+books, searched by both engines. It uses no cheatcodes. The target is the
+withdraw proof's `payer`, so it drives every execution itself, and it derives
+the next executor clone's address from the wrapper's CREATE nonce.
+
+Each handler builds one execution shape, predicts from the stub pool's fee
+arithmetic whether the calls land or refund and what every address receives,
+runs it, and books the prediction. `swap` covers the ten `SwapMode`s: five
+that land (`Honest`, `UnusedInput`, `DonationMidLeg`, `PrefundedExecutor`,
+`StaleApproval`) and five that refund (`Shortfall`, `FailingCall`, `Expired`,
+`DeniedTarget`, `HookDrain`). `split` escrows three outputs with
+the input token among them; `cancel`, `flush`, `donate` and `drainPast` act
+between executions; `tamper`, `stranger` and `oversized` make calls the wrapper
+must refuse.
+
+| Property | Holds that |
+| --- | --- |
+| `echidna_poolBalancesMatch` | The pool holds exactly the escrowed notes net of cancels, plus unshield fees. |
+| `echidna_surplusMatches` | `surplusTo` received exactly the cushions, unused input and donations. |
+| `echidna_refundsMatch` | `refundTo` received exactly what cancelled escrows held. |
+| `echidna_wrapperHoldsOnlyDonations` | The wrapper keeps nothing between executions but what was donated to it, and never spends that. |
+| `echidna_executorsEmpty` | Every clone is empty after its execution, and the drainer, holding approvals on old clones, got nothing. |
+| `echidna_escrowRecordsMatchPool` | Every pending escrow's record names `refundTo` and the amount the pool holds; a cancelled one is cleared. |
+| `echidna_outcomesAsPredicted` | Every execution landed or refunded as predicted, never reverted, and left a clone bound to the wrapper. |
+| `echidna_guardsHold` | No tampered intent, lifted proof, oversized note or cancel of a settled escrow landed. |
+
+| Optimization target | Maximises |
+| --- | --- |
+| `optimize_wrapperResidue` | Wrapper balance above what was donated. |
+| `optimize_surplusDrift` | `surplusTo` balance above the books. |
+
+The harness was checked against three mutations of the wrapper, each caught by
+the Foundry run: a shared executor instead of a fresh clone (a drain through a
+hook lands), surplus paid to `refundTo`, and a missing floor check.
+`EchidnaGenericCallReachability.t.sol` gates that every mode lands its path.
+
 ## Files
 
 | File | Role |
@@ -150,6 +191,8 @@ nightly depth. It does now.
 | `EchidnaMaspYield.sol` | Indexed-asset target: shield/settle/exit plus venue growth, loss, illiquidity and maintenance. |
 | `EchidnaMaspPayer.sol` | The fixture payer as a real contract — permissive ERC-1271, and able to originate its own calls. Used only by the plain target; the yield target uses `depositAuthorized` and is its own payer. |
 | `EchidnaMaspReachability.t.sol` | A `forge test` gate proving each handler actually lands. See below. |
+| `EchidnaGenericCall.sol` | `GenericCallWrapper` target, shared with the Foundry invariant suite. |
+| `EchidnaGenericCallReachability.t.sol` | The same gate for it: every swap mode, handler and property. |
 | `EchidnaMaspYieldReachability.t.sol` | The same for the yield target, including that the optimization targets see real inflow and outflow — a maximum of 0 over a history that never paid anything out is indistinguishable from exact accounting. |
 
 ## Where it diverges from the Foundry handlers

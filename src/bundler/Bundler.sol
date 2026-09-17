@@ -7,6 +7,7 @@ import { MASP } from "../MASP.sol";
 import { OwnableInit } from "../OwnableInit.sol";
 import { NativeAdapter } from "../native/NativeAdapter.sol";
 import { SwapWrapper } from "../swap/SwapWrapper.sol";
+import { GenericCallWrapper } from "../generic/GenericCallWrapper.sol";
 
 /// What a `Bundler` reads from its deployer during construction.
 interface IBundlerDeployer {
@@ -29,6 +30,7 @@ interface IBundlerDeployer {
 /// - `withdrawNative` still binds `pi.relayer` to the adapter
 ///   (`NativeAdapter.withdrawNative`);
 /// - swaps bind `pi_w.payer = this` (`SwapWrapper._validate`);
+/// - generic calls bind `pi_w.payer = this` (`GenericCallWrapper._validate`);
 /// - `flushBatch` is permissionless.
 ///
 /// Each relayer runs its own Bundler (`BundlerFactory`), so a proof bound to one
@@ -79,6 +81,8 @@ contract Bundler is OwnableInit, ReentrancyGuardTransient {
     address public immutable NATIVE_ADAPTER;
     /// `swap` only; zero on a chain without the wrapper.
     address public immutable SWAP_WRAPPER;
+    /// `execute` only; zero on a chain without the wrapper.
+    address public immutable GENERIC_CALL_WRAPPER;
 
     mapping(address => bool) public isOperator;
 
@@ -97,12 +101,13 @@ contract Bundler is OwnableInit, ReentrancyGuardTransient {
 
     /// Deployed by `BundlerFactory.create`, which supplies the operators through
     /// `pendingOperators` so they stay out of the address.
-    constructor(address owner_, address pool, address nativeAdapter, address swapWrapper) {
+    constructor(address owner_, address pool, address nativeAdapter, address swapWrapper, address genericCallWrapper) {
         if (pool == address(0)) revert ZeroAddress();
         _initOwner(owner_);
         POOL = pool;
         NATIVE_ADAPTER = nativeAdapter;
         SWAP_WRAPPER = swapWrapper;
+        GENERIC_CALL_WRAPPER = genericCallWrapper;
         address[] memory operators = IBundlerDeployer(msg.sender).pendingOperators();
         for (uint256 i; i < operators.length; ++i) {
             _setOperator(operators[i], true);
@@ -208,6 +213,7 @@ contract Bundler is OwnableInit, ReentrancyGuardTransient {
         }
         if (target == NATIVE_ADAPTER) return selector == NativeAdapter.withdrawNative.selector;
         if (target == SWAP_WRAPPER) return selector == SwapWrapper.swap.selector;
+        if (target == GENERIC_CALL_WRAPPER) return selector == GenericCallWrapper.execute.selector;
         return false;
     }
 

@@ -24,6 +24,8 @@ contract BundlerFactory is IBundlerDeployer {
     address public immutable NATIVE_ADAPTER;
     /// Zero on a chain without the wrapper.
     address public immutable SWAP_WRAPPER;
+    /// Zero on a chain without the generic call wrapper.
+    address public immutable GENERIC_CALL_WRAPPER;
 
     /// Transient slot of the operator list `create` hands its Bundler: the
     /// length, then one address per following slot.
@@ -35,14 +37,16 @@ contract BundlerFactory is IBundlerDeployer {
     error ZeroAddress();
     error NotAContract(address target);
 
-    constructor(address pool, address nativeAdapter, address swapWrapper) {
+    constructor(address pool, address nativeAdapter, address swapWrapper, address genericCallWrapper) {
         if (pool == address(0)) revert ZeroAddress();
         _requireCode(pool);
         _requireCode(nativeAdapter);
         _requireCode(swapWrapper);
+        _requireCode(genericCallWrapper);
         POOL = pool;
         NATIVE_ADAPTER = nativeAdapter;
         SWAP_WRAPPER = swapWrapper;
+        GENERIC_CALL_WRAPPER = genericCallWrapper;
     }
 
     /// Deploys the caller's Bundler. Reverts if the caller already has one.
@@ -66,7 +70,9 @@ contract BundlerFactory is IBundlerDeployer {
         assembly ("memory-safe") {
             tstore(slot, n)
         }
-        bundler = new Bundler{ salt: _salt(msg.sender) }(msg.sender, POOL, NATIVE_ADAPTER, SWAP_WRAPPER);
+        bundler = new Bundler{ salt: _salt(msg.sender) }(
+            msg.sender, POOL, NATIVE_ADAPTER, SWAP_WRAPPER, GENERIC_CALL_WRAPPER
+        );
         assembly ("memory-safe") {
             tstore(slot, 0)
         }
@@ -97,7 +103,9 @@ contract BundlerFactory is IBundlerDeployer {
             // No collision: the creation code is a compile-time constant, so the
             // boundary between it and the encoded arguments cannot shift.
             // aderyn-fp-next-line(abi-encode-packed-hash-collision)
-            abi.encodePacked(type(Bundler).creationCode, abi.encode(owner_, POOL, NATIVE_ADAPTER, SWAP_WRAPPER))
+            abi.encodePacked(
+                type(Bundler).creationCode, abi.encode(owner_, POOL, NATIVE_ADAPTER, SWAP_WRAPPER, GENERIC_CALL_WRAPPER)
+            )
         );
         return address(
             uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), _salt(owner_), initCodeHash))))
