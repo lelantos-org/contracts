@@ -21,6 +21,10 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 /// It holds no privilege anywhere: no Permit2 allowance to the pool and no
 /// escrow records. The wrapper holds both, which is why it never makes these
 /// calls itself.
+// Ether does leave: `_forwardCall` spends it as call value and `_sweepNative`
+// sends the whole balance to `nativeTo`, both through assembly `call`, which
+// the detector does not recognise as a withdrawal.
+// aderyn-fp-next-line(contract-locks-ether)
 contract CallExecutor {
     using SafeERC20 for IERC20;
 
