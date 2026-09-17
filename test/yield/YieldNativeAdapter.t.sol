@@ -14,8 +14,6 @@ import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { ERC4626Venue } from "../../src/yield/ERC4626Venue.sol";
 import { YieldIndex } from "../../src/yield/YieldIndex.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -28,6 +26,8 @@ import { SpendFixture } from "../utils/SpendFixture.sol";
 import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { FixtureLoader } from "../utils/FixtureLoader.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
 
 /// `NativeAdapter` against a yield asset, end to end.
 ///
@@ -97,31 +97,8 @@ contract YieldNativeAdapterTest is Test {
 
     // --- helpers ------------------------------------------------------------
 
-    function _aux1() internal pure returns (AuxValidation.Output memory a) {
-        a.clueRx = BabyJubJub.BASE8_X;
-        a.clueRy = BabyJubJub.BASE8_Y;
-        a.ephPubX = BabyJubJub.BASE8_X;
-        a.ephPubY = BabyJubJub.BASE8_Y;
-        a.ciphertext = hex"0001";
-    }
-
-    function _aux6() internal pure returns (AuxValidation.Output[6] memory aux) {
-        for (uint256 k; k < aux.length; ++k) {
-            aux[k] = _aux1();
-        }
-    }
-
-    function _emptyProof() internal pure returns (IMASPPool.Proof memory) {
-        return IMASPPool.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
-    }
-
     function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_WETH;
-        d.publicIn = publicIn;
-        d.payer = address(adapter);
-        d.recipient = RECIPIENT;
-        d.outCm = bytes32(uint256(0x1));
+        d = DepositFixture.request(ASSET_WETH, publicIn, address(adapter), RECIPIENT, bytes32(uint256(0x1)));
         d.feeCm = bytes32(uint256(0x2));
     }
 
@@ -136,7 +113,9 @@ contract YieldNativeAdapterTest is Test {
         uint256 value = _firstPull(publicIn);
         vm.deal(DEPOSITOR, value);
         vm.prank(DEPOSITOR);
-        id = adapter.depositNative{ value: value }(_request(publicIn), _aux1(), _aux1());
+        id = adapter.depositNative{ value: value }(
+            _request(publicIn), SpendFixture.validAuxOutput(), SpendFixture.validAuxOutput()
+        );
     }
 
     /// Deposits from `who`, overshooting the pull: the adapter returns the
@@ -145,7 +124,9 @@ contract YieldNativeAdapterTest is Test {
         uint256 value = uint256(publicIn) * SCALE * 2;
         vm.deal(who, value);
         vm.prank(who);
-        id = adapter.depositNative{ value: value }(_request(publicIn), _aux1(), _aux1());
+        id = adapter.depositNative{ value: value }(
+            _request(publicIn), SpendFixture.validAuxOutput(), SpendFixture.validAuxOutput()
+        );
         (, recorded) = adapter.escrows(id);
     }
 
@@ -325,7 +306,9 @@ contract YieldNativeAdapterTest is Test {
             SpendFixture.spendTree(bytes32(uint256(0xdead)), masp.committedCount(), uint8(masp.rootIndex()));
 
         uint256 before = DEPOSITOR.balance;
-        uint256 net = adapter.withdrawNative(_emptyProof(), pi, _emptyProof(), tpi, _aux6());
+        uint256 net = adapter.withdrawNative(
+            FixtureLoader.emptyPoolProof(), pi, FixtureLoader.emptyPoolProof(), tpi, SpendFixture.validAux()
+        );
 
         assertEq(DEPOSITOR.balance - before, net, "native forwarded to the proof's payer");
         // Worth strictly more than the same units at a flat rate, because the

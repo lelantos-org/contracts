@@ -11,7 +11,7 @@ import { NullifierSet } from "../../src/NullifierSet.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
-import { MASPHarness, deployHarness } from "./MASPHarness.sol";
+import { MASPHarness, deployHarness } from "../utils/MASPHarness.sol";
 
 /// Handler exposes a single bounded entrypoint that consumes random nullifiers
 /// and tracks ghost state for cross-checking against on-chain `spent`.

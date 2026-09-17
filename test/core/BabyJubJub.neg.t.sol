@@ -15,7 +15,7 @@ contract BabyJubJubNegTest is Test {
 
     /// BASE8 is a valid curve point; an error in the constant would otherwise
     /// pass unnoticed in tests that use it as a sentinel.
-    function testBase8IsOnCurve() public pure {
+    function test_base8IsOnCurve() public pure {
         assertTrue(BabyJubJub.isOnCurve(BabyJubJub.BASE8_X, BabyJubJub.BASE8_Y));
     }
 
@@ -24,13 +24,13 @@ contract BabyJubJubNegTest is Test {
     // -----------------------------------------------------------------------
 
     /// (0, P-1) satisfies the curve equation: a*0 + (P-1)^2 ≡ 1 (mod P).
-    function testOrderTwoPoint_isOnCurve() public pure {
+    function test_orderTwoPoint_isOnCurve() public pure {
         assertTrue(BabyJubJub.isOnCurve(0, P - 1));
     }
 
     /// 2*(0, P-1) = (0, 1), the identity, so [8]*(0, P-1) = (0, 1) and the
     /// point is low-order.
-    function testOrderTwoPoint_isLowOrder() public view {
+    function test_orderTwoPoint_isLowOrder() public view {
         assertTrue(BabyJubJub.isLowOrder(0, P - 1));
     }
 
@@ -39,7 +39,7 @@ contract BabyJubJubNegTest is Test {
     // low-order.
     // -----------------------------------------------------------------------
 
-    function testAllXZeroOnCurvePoints_areLowOrder() public view {
+    function test_allXZeroOnCurvePoints_areLowOrder() public view {
         // (0, 1): identity.
         assertTrue(BabyJubJub.isLowOrder(0, 1));
         // (0, P-1): order 2.
@@ -51,7 +51,7 @@ contract BabyJubJubNegTest is Test {
     // -----------------------------------------------------------------------
 
     /// An on-curve point that generates the prime-order subgroup is not low-order.
-    function testArbitraryOnCurvePoint_base8_notLowOrder() public view {
+    function test_arbitraryOnCurvePoint_base8_notLowOrder() public view {
         // Also covered in BabyJubJub.t.sol; repeated as a cross-file guard.
         assertFalse(BabyJubJub.isLowOrder(BabyJubJub.BASE8_X, BabyJubJub.BASE8_Y));
     }
@@ -64,7 +64,7 @@ contract BabyJubJubNegTest is Test {
 
     /// (0, 0) is rejected by `isOnCurve`, the gate callers apply before
     /// `isLowOrder`.
-    function testZeroZero_isNotOnCurve() public pure {
+    function test_zeroZero_isNotOnCurve() public pure {
         assertFalse(BabyJubJub.isOnCurve(0, 0));
     }
 
@@ -100,7 +100,7 @@ contract BabyJubJubNegTest is Test {
     uint256 internal constant MIXED2L_Y =
         6_583_047_121_802_969_561_025_880_096_295_961_778_067_318_139_601_536_671_455_007_094_277_257_986_924;
 
-    function testOrderFourPoints_areLowOrder() public pure {
+    function test_orderFourPoints_areLowOrder() public pure {
         assertTrue(BabyJubJub.isOnCurve(ORDER4_X, 0));
         assertTrue(BabyJubJub.isLowOrder(ORDER4_X, 0));
         // Negated x is the other order-4 point.
@@ -108,19 +108,19 @@ contract BabyJubJubNegTest is Test {
         assertTrue(BabyJubJub.isLowOrder(P - ORDER4_X, 0));
     }
 
-    function testOrderEightPoint_isLowOrder() public pure {
+    function test_orderEightPoint_isLowOrder() public pure {
         assertTrue(BabyJubJub.isOnCurve(ORDER8_X, ORDER8_Y));
         assertTrue(BabyJubJub.isLowOrder(ORDER8_X, ORDER8_Y));
         // (x, -y) has the same order.
         assertTrue(BabyJubJub.isLowOrder(ORDER8_X, P - ORDER8_Y));
     }
 
-    function testPrimeOrderPoint_notBase8_isNotLowOrder() public pure {
+    function test_primeOrderPoint_notBase8_isNotLowOrder() public pure {
         assertTrue(BabyJubJub.isOnCurve(PRIME3_X, PRIME3_Y));
         assertFalse(BabyJubJub.isLowOrder(PRIME3_X, PRIME3_Y));
     }
 
-    function testMixedOrderPoint_isNotLowOrder() public pure {
+    function test_mixedOrderPoint_isNotLowOrder() public pure {
         assertTrue(BabyJubJub.isOnCurve(MIXED2L_X, MIXED2L_Y));
         assertFalse(BabyJubJub.isLowOrder(MIXED2L_X, MIXED2L_Y));
     }

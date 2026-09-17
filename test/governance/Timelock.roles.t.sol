@@ -6,7 +6,6 @@ import { IAccessControl } from "@openzeppelin/contracts/access/IAccessControl.so
 import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
 
 import { MASP } from "../../src/MASP.sol";
-import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 
 import { GovTestBase } from "./GovTestBase.sol";
 
@@ -19,10 +18,6 @@ contract TimelockRolesTest is GovTestBase {
     /// Mirrors `GovernorTimelockControl._timelockSalt`, which is private.
     function _salt(bytes32 descriptionHash) internal view returns (bytes32) {
         return bytes20(address(governor)) ^ descriptionHash;
-    }
-
-    function _adminCall(bytes memory data) internal view returns (address[] memory, uint256[] memory, bytes[] memory) {
-        return _one(address(protocolAdmin), abi.encodeCall(ProtocolAdmin.execute, (address(masp), data)));
     }
 
     // ============== Role table ===============================================
@@ -64,7 +59,7 @@ contract TimelockRolesTest is GovTestBase {
     /// change that passes a vote.
     function test_guardianCanVetoAQueuedProposal() public {
         (address[] memory t, uint256[] memory v, bytes[] memory c) =
-            _adminCall(abi.encodeCall(MASP.setCancelDelay, (4_000)));
+            _adminCall(address(masp), abi.encodeCall(MASP.setCancelDelay, (4_000)));
         string memory desc = "vetoed proposal";
         bytes32 h = keccak256(bytes(desc));
 
@@ -116,13 +111,11 @@ contract TimelockRolesTest is GovTestBase {
     /// the Governor's bookkeeping.
     function test_directTimelockExecutionStillReportsExecuted() public {
         (address[] memory t, uint256[] memory v, bytes[] memory c) =
-            _adminCall(abi.encodeCall(MASP.setCancelDelay, (5_555)));
+            _adminCall(address(masp), abi.encodeCall(MASP.setCancelDelay, (5_555)));
         string memory desc = "executed directly on the timelock";
         bytes32 h = keccak256(bytes(desc));
 
-        uint256 id = _proposeAndSucceed(t, v, c, desc);
-        governor.queue(t, v, c, h);
-        vm.warp(governor.proposalEta(id) + 1);
+        uint256 id = _queueToEta(t, v, c, desc);
 
         // Any account may execute, including directly on the timelock.
         address randomer = makeAddr("randomer");

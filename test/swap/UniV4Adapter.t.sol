@@ -31,7 +31,7 @@ contract UniV4AdapterTest is Test {
     }
 
     /// `tokenIn < tokenOut`, so the swap runs zeroForOne.
-    function testSwapZeroForOne() public {
+    function test_swapZeroForOne() public {
         (address lo, address hi) = _sorted();
         _fund(lo, 1_000e18, 990e18);
         uint256 actualOut = adapter.swap(lo, hi, 1_000e18, 990e18, block.timestamp + 1, route);
@@ -43,7 +43,7 @@ contract UniV4AdapterTest is Test {
     /// The reverse direction produces the same sorted `PoolKey` with
     /// `zeroForOne = false`. The mock asserts the ordering, so an ordering error
     /// reverts in the mock rather than mispricing silently.
-    function testSwapOneForZero() public {
+    function test_swapOneForZero() public {
         (address lo, address hi) = _sorted();
         _fund(hi, 1_000e18, 980e18);
         uint256 actualOut = adapter.swap(hi, lo, 1_000e18, 980e18, block.timestamp + 1, route);
@@ -51,7 +51,7 @@ contract UniV4AdapterTest is Test {
         assertEq(MockERC20(lo).balanceOf(caller), 980e18);
     }
 
-    function testRevertsOnInsufficientOut() public {
+    function test_revert_insufficientOut() public {
         (address lo, address hi) = _sorted();
         _fund(lo, 1_000e18, 800e18);
         vm.expectRevert(bytes("MockUniversalRouter: too little received"));
@@ -60,7 +60,7 @@ contract UniV4AdapterTest is Test {
 
     /// `deadline` is forwarded to the router, unlike in `UniV3Adapter`, whose
     /// SwapRouter02 call takes no deadline.
-    function testRevertsOnExpiredDeadline() public {
+    function test_revert_expiredDeadline() public {
         (address lo, address hi) = _sorted();
         _fund(lo, 1_000e18, 990e18);
         vm.warp(1000);
@@ -70,33 +70,33 @@ contract UniV4AdapterTest is Test {
 
     /// Both amounts are narrowed to `uint128` by the router's calldata layout,
     /// so each is bounds-checked at its cast and reports the offending value.
-    function testRevertsOnAmountInAboveUint128() public {
+    function test_revert_amountInAboveUint128() public {
         (address lo, address hi) = _sorted();
         uint256 tooBig = uint256(type(uint128).max) + 1;
         vm.expectRevert(abi.encodeWithSelector(UniV4Adapter.AmountTooLarge.selector, tooBig));
         adapter.swap(lo, hi, tooBig, 1, block.timestamp + 1, route);
     }
 
-    function testRevertsOnMinOutAboveUint128() public {
+    function test_revert_minOutAboveUint128() public {
         (address lo, address hi) = _sorted();
         uint256 tooBig = uint256(type(uint128).max) + 1;
         vm.expectRevert(abi.encodeWithSelector(UniV4Adapter.AmountTooLarge.selector, tooBig));
         adapter.swap(lo, hi, 1_000e18, tooBig, block.timestamp + 1, route);
     }
 
-    function testConstructorRejectsZeroRouter() public {
+    function test_constructorRejectsZeroRouter() public {
         vm.expectRevert(UniV4Adapter.RouterZero.selector);
         new UniV4Adapter(address(0), address(uint160(1)));
     }
 
-    function testConstructorRejectsZeroWrapper() public {
+    function test_constructorRejectsZeroWrapper() public {
         vm.expectRevert(UniV4Adapter.WrapperZero.selector);
         new UniV4Adapter(address(router), address(0));
     }
 
     /// `swap` is pinned to the wrapper. Without that, any caller could route
     /// tokens donated to the adapter to themselves.
-    function testRevertsOnUnauthorizedCaller() public {
+    function test_revert_unauthorizedCaller() public {
         (address lo, address hi) = _sorted();
         _fund(lo, 1_000e18, 990e18);
         vm.prank(address(0xBAD));

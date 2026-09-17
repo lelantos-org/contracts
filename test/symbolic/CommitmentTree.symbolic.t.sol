@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 import { GuardAsserts } from "./GuardAsserts.sol";
 
-import { CommitmentTreeHarness } from "../fuzz/CommitmentTreeHarness.sol";
+import { CommitmentTreeHarness } from "../utils/CommitmentTreeHarness.sol";
 
 /// Symbolic proofs for the 64-entry root ring buffer.
 ///

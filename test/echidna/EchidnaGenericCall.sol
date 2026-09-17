@@ -13,6 +13,7 @@ import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockMASPSwap } from "../swap/mocks/MockMASPSwap.sol";
 import { GenericIntent } from "../generic/GenericIntent.sol";
 import { MockRouter, MockDrainer, MockDonor } from "../generic/mocks/MockCallTargets.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
 
 /// Echidna target for `GenericCallWrapper`, also driven by
 /// `test/invariant/GenericCallWrapper.invariant.t.sol`.
@@ -574,13 +575,7 @@ contract EchidnaGenericCall {
     }
 
     function _request(uint64 assetId, uint64 units) internal view returns (PubInputs.DepositRequest memory d) {
-        d.chainId = block.chainid;
-        d.publicAssetId = assetId;
-        d.publicIn = units;
-        d.payer = address(wrapper);
-        d.recipient = RECIPIENT;
-        d.outCm = bytes32(uint256(1));
-        d.feeCm = bytes32(uint256(0xfee));
+        return DepositFixture.request(assetId, units, address(wrapper), RECIPIENT, bytes32(uint256(1)));
     }
 
     function _call(address target, bytes memory data) internal pure returns (CallExecutor.Call memory) {

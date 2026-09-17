@@ -6,7 +6,7 @@ import { NullifierSet } from "../../src/NullifierSet.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
-import { MASPHarness, deployHarness } from "../invariant/MASPHarness.sol";
+import { MASPHarness, deployHarness } from "../utils/MASPHarness.sol";
 import { mockVerifierStack } from "../utils/PoolDeployer.sol";
 
 /// Property-based tests for the packed-bitmap nullifier set.

@@ -8,8 +8,8 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
-import { uniformBps } from "../utils/FeeArrays.sol";
-import { deployBehindProxy, poolInitCalldata } from "../utils/PoolDeployer.sol";
+import { uniformBps } from "./FeeArrays.sol";
+import { deployBehindProxy, poolInitCalldata } from "./PoolDeployer.sol";
 
 /// Test-only subclass exposing internal entrypoints so invariant handlers can
 /// drive state transitions without the SNARK pipeline. The `transfer` /

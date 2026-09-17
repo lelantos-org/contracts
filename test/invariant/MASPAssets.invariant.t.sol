@@ -11,7 +11,7 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
-import { MASPHarness, deployHarness } from "./MASPHarness.sol";
+import { MASPHarness, deployHarness } from "../utils/MASPHarness.sol";
 
 /// Handler drives `addAsset` + `setAssetDisabled` with fuzz-generated inputs.
 /// Tracks the registered id set as a ghost array so invariants can cross-check

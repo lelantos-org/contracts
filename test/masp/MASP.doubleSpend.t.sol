@@ -1,23 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
-
-import { MASP } from "../../src/MASP.sol";
 import { NullifierSet } from "../../src/NullifierSet.sol";
-import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
-import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
-import { deployPoolUniform, mockVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
+import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
+import { singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
-import { TestConstants } from "../utils/TestConstants.sol";
 
 /// Cross-transaction double-spend.
 ///
@@ -25,48 +18,26 @@ import { TestConstants } from "../utils/TestConstants.sol";
 /// nullifier-bitmap logic from circuit correctness. The first `withdraw` call
 /// succeeds and marks its nullifiers spent; a second call with the same
 /// nullifiers reverts with `DoubleSpend` inside `_consumeNullifier`.
-contract MASPDoubleSpendTest is Test {
-    uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
-    uint256 internal constant SCALE = TestConstants.SCALE;
+contract MASPDoubleSpendTest is MockPoolTestBase {
     uint16 internal constant FEE_BPS = 0; // zero fee simplifies balance math
 
-    address internal constant RELAYER = address(0xCA11);
     address internal constant PAYER = address(0xBEEF);
-    address internal constant RECIPIENT = TestConstants.RECIPIENT;
-
-    MockERC20 token;
-    IVerifier tubVerifier;
-    MockBatchVerifier batchVerifier;
-    MASP masp;
 
     function setUp() public {
         token = new MockERC20("M", "M", 18);
 
-        ISignatureTransfer permit2;
-        (tubVerifier, batchVerifier, permit2) = mockVerifierStack();
-
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
             singleAsset(IERC20(address(token)), ASSET_ID, SCALE);
 
-        masp = deployPoolUniform(
-            tubVerifier, batchVerifier, permit2, ids, tokens, scales, FEE_BPS, address(0xfee), address(this)
-        );
+        _deployMockPool(ids, tokens, scales, FEE_BPS, address(0xfee), address(this));
 
         // Funds the pool so the first withdraw can transfer.
         token.mint(address(masp), 100 * SCALE);
 
-        Stubs.acceptAllProofs(tubVerifier, batchVerifier);
+        Stubs.acceptAllProofs(tub, bv);
     }
 
     // --- helpers -----------------------------------------------------------
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        return SpendFixture.validAux();
-    }
-
-    function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return FixtureLoader.emptyProof();
-    }
 
     // Builds a withdraw pi / tpi pair that passes _validateRequest with the
     // supplied root state.
@@ -75,14 +46,9 @@ contract MASPDoubleSpendTest is Test {
         view
         returns (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi)
     {
-        pi.chainId = block.chainid;
+        pi = _transact(PAYER, RELAYER, 0x1111, 0x3333);
         pi.publicAssetId = ASSET_ID;
-        pi.publicIn = 0;
         pi.publicOut = 1; // 1 * SCALE tokens unshielded
-        pi.recipient = RECIPIENT;
-        pi.payer = PAYER;
-        pi.relayer = RELAYER;
-        SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
         pi.merkleRoot = merkleRoot;
         tpi = SpendFixture.spendTree(newRoot, startIndex, anchorIndex);
     }
@@ -97,7 +63,7 @@ contract MASPDoubleSpendTest is Test {
             _makeWithdraw(genesis, 0, 0, bytes32(uint256(0xABCD)));
 
         vm.prank(RELAYER);
-        masp.withdraw(_emptyProof(), pi1, _emptyProof(), tpi1, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi1, FixtureLoader.emptyProof(), tpi1, SpendFixture.validAux());
 
         // Nullifiers are in the spent bitmap; the root has advanced.
         assertTrue(masp.spent(pi1.nullifier[0]), "nf0 spent after first withdraw");
@@ -110,7 +76,7 @@ contract MASPDoubleSpendTest is Test {
 
         vm.prank(RELAYER);
         vm.expectRevert(NullifierSet.DoubleSpend.selector);
-        masp.withdraw(_emptyProof(), pi2, _emptyProof(), tpi2, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi2, FixtureLoader.emptyProof(), tpi2, SpendFixture.validAux());
     }
 
     /// A withdraw marks only its own nullifiers spent; an unrelated nullifier
@@ -124,7 +90,7 @@ contract MASPDoubleSpendTest is Test {
             _makeWithdraw(genesis, 0, 0, bytes32(uint256(0xABCD)));
 
         vm.prank(RELAYER);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
         assertTrue(masp.spent(pi.nullifier[0]));
         assertTrue(masp.spent(pi.nullifier[1]));
@@ -167,7 +133,7 @@ contract MASPDoubleSpendTest is Test {
         PubInputs.SpendTree memory tpi = SpendFixture.spendTree(bytes32(uint256(0xABCD)), 0);
 
         vm.prank(RELAYER);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
         // Updates the root context for the second call.
         bytes32 newRoot1 = tpi.newRoot;
@@ -178,6 +144,6 @@ contract MASPDoubleSpendTest is Test {
 
         vm.prank(RELAYER);
         vm.expectRevert(NullifierSet.DoubleSpend.selector);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 }

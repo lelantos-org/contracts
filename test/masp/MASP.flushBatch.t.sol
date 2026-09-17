@@ -9,7 +9,6 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
@@ -17,6 +16,8 @@ import { FixtureLoader } from "../utils/FixtureLoader.sol";
 import { deployPoolUniform, realVerifierStack, twoAssets } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
+import { FeeMath } from "../utils/FeeMath.sol";
 
 /// `flushBatch` contract-level coverage. SNARK verification is mocked via
 /// `vm.mockCall`, isolating the storage/event/sentinel logic from circuit-side
@@ -35,7 +36,7 @@ contract MASPFlushBatchTest is Test {
     MockERC20 tokenAlt;
     MASP masp;
 
-    address payer = address(0xface);
+    address payer = TestConstants.ESCROW_PAYER;
     address recipient = address(0xb0b);
 
     function setUp() public {
@@ -55,52 +56,30 @@ contract MASPFlushBatchTest is Test {
 
     // --- helpers -----------------------------------------------------------
 
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        return SpendFixture.validAux();
-    }
-
     function _request(uint64 publicIn, uint64 assetId, bytes32 cm)
         internal
         view
         returns (PubInputs.DepositRequest memory d)
     {
-        d.chainId = block.chainid;
-        d.publicAssetId = assetId;
-        d.publicIn = publicIn;
-        d.payer = payer;
-        d.recipient = recipient;
-        d.outCm = cm;
-        d.feeCm = bytes32(uint256(0xfee));
+        return DepositFixture.request(assetId, publicIn, payer, recipient, cm);
     }
 
     function _fund(MockERC20 t, uint64 publicIn) internal {
-        uint256 inAmt = uint256(publicIn) * SCALE;
-        uint256 fee = (inAmt * FEE_BPS) / 10_000;
-        t.mint(payer, inAmt + fee);
+        t.mint(payer, FeeMath.gross(publicIn, SCALE, FEE_BPS));
         vm.prank(payer);
         t.approve(address(permit2), type(uint256).max);
     }
 
     function _submit(uint64 publicIn, uint64 assetId, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
         PubInputs.DepositRequest memory d = _request(publicIn, assetId, cm);
-        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
-        return masp.deposit(d, sig, _aux()[0], _aux()[1]);
+        return masp.deposit(d, DepositFixture.sig(nonce), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     /// Digest meta for deposits submitted in the current block by `payer` at
     /// the deploy-time fee, matching every `_submit` in this suite.
-    function _meta(uint256 n) internal view returns (MASP.DepositMeta[] memory m) {
-        m = new MASP.DepositMeta[](n);
-        for (uint256 i = 0; i < n; i++) {
-            // forge-lint: disable-next-line(unsafe-typecast)
-            m[i] = MASP.DepositMeta({ payer: payer, submittedAt: uint32(block.number), fbps: FEE_BPS });
-        }
-    }
-
-    function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return FixtureLoader.emptyProof();
+    function _meta(uint256 n) internal view returns (MASP.DepositMeta[] memory) {
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return DepositFixture.metas(n, payer, uint32(block.number), FEE_BPS);
     }
 
     function _mockSnark(bool ok) internal {
@@ -173,7 +152,7 @@ contract MASPFlushBatchTest is Test {
         ids[0] = id;
 
         _mockSnark(true);
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
 
         // Root advanced.
         assertEq(masp.currentRoot(), tpi.newRoot, "root advanced");
@@ -213,7 +192,7 @@ contract MASPFlushBatchTest is Test {
         ids[1] = id1;
 
         _mockSnark(true);
-        masp.flushBatch(ids, _meta(2), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(2), FixtureLoader.emptyProof(), tpi);
 
         assertEq(masp.committedCount(), 4, "count += 4 (two leaves per deposit)");
         uint256 feePer = (uint256(100) * SCALE * FEE_BPS) / 10_000;
@@ -239,7 +218,7 @@ contract MASPFlushBatchTest is Test {
 
         _mockSnark(true);
         vm.expectRevert(MASP.BadBatchSize.selector);
-        masp.flushBatch(ids, _meta(n), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(n), FixtureLoader.emptyProof(), tpi);
     }
 
     // --- reverts -----------------------------------------------------------
@@ -249,7 +228,7 @@ contract MASPFlushBatchTest is Test {
         PubInputs.TreeUpdateBatch memory tpi = _tpi(0, cms);
         uint256[] memory ids = new uint256[](0);
         vm.expectRevert(MASP.BadBatchSize.selector);
-        masp.flushBatch(ids, _meta(0), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(0), FixtureLoader.emptyProof(), tpi);
     }
 
     function test_revert_BadBatchSize_overMax() public {
@@ -259,7 +238,7 @@ contract MASPFlushBatchTest is Test {
         // forge-lint: disable-next-line(unsafe-typecast)
         PubInputs.TreeUpdateBatch memory tpi = _tpi(n, cms);
         vm.expectRevert(MASP.BadBatchSize.selector);
-        masp.flushBatch(ids, _meta(n), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(n), FixtureLoader.emptyProof(), tpi);
     }
 
     function test_revert_BadBatchSize_metaLengthMismatch() public {
@@ -271,7 +250,7 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
         vm.expectRevert(MASP.BadBatchSize.selector);
-        masp.flushBatch(ids, _meta(2), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(2), FixtureLoader.emptyProof(), tpi);
     }
 
     function test_revert_BatchMisaligned_actualCountMismatch() public {
@@ -285,7 +264,7 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = 0;
         vm.expectRevert(MASP.BatchMisaligned.selector);
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
     }
 
     function test_revert_StaleOldRoot() public {
@@ -296,7 +275,7 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = 0;
         vm.expectRevert(MASP.StaleOldRoot.selector);
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
     }
 
     function test_revert_DepositNotPending_unknownId() public {
@@ -305,7 +284,7 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = 999;
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, 999));
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
     }
 
     function test_revert_DigestMismatch_cmTampered() public {
@@ -325,7 +304,7 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
     }
 
     function test_revert_DigestMismatch_metaTampered() public {
@@ -347,19 +326,19 @@ contract MASPFlushBatchTest is Test {
         MASP.DepositMeta[] memory m = _meta(1);
         m[0].fbps = FEE_BPS + 1;
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.flushBatch(ids, m, _emptyProof(), tpi);
+        masp.flushBatch(ids, m, FixtureLoader.emptyProof(), tpi);
 
         // Wrong payer in meta.
         m = _meta(1);
         m[0].payer = address(0xbad);
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.flushBatch(ids, m, _emptyProof(), tpi);
+        masp.flushBatch(ids, m, FixtureLoader.emptyProof(), tpi);
 
         // Wrong submittedAt in meta.
         m = _meta(1);
         m[0].submittedAt += 1;
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
-        masp.flushBatch(ids, m, _emptyProof(), tpi);
+        masp.flushBatch(ids, m, FixtureLoader.emptyProof(), tpi);
     }
 
     function test_happy_mixedAssetBatch() public {
@@ -393,7 +372,7 @@ contract MASPFlushBatchTest is Test {
         ids[1] = id1;
 
         _mockSnark(true);
-        masp.flushBatch(ids, _meta(2), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(2), FixtureLoader.emptyProof(), tpi);
 
         // Both tokens' fees accrued at flush.
         assertEq(masp.accruedFee(IERC20(address(token))), expectedFee, "token fee accrued");
@@ -418,7 +397,7 @@ contract MASPFlushBatchTest is Test {
         ids[0] = id;
         _mockSnark(false);
         vm.expectRevert(MASP.TreeUpdateRejected.selector);
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
     }
 
     function test_revert_replay_secondFlushReverts() public {
@@ -439,7 +418,7 @@ contract MASPFlushBatchTest is Test {
         ids[0] = id;
 
         _mockSnark(true);
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
 
         // A replay with a refreshed tpi (root and startIndex aligned to the
         // post-flush state) reaches the sentinel; without the refresh
@@ -447,7 +426,7 @@ contract MASPFlushBatchTest is Test {
         PubInputs.TreeUpdateBatch memory tpi2 = _tpi(1, cms);
         _fillLeafPI(tpi2, a, p);
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id));
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi2);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi2);
     }
 
     // --- relayer fee leaf ---------------------------------------------------
@@ -485,7 +464,7 @@ contract MASPFlushBatchTest is Test {
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
-        id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
+        id = masp.deposit(d, sig, SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
 
         tpi = _feeTpi();
         _mockSnark(true);
@@ -509,7 +488,7 @@ contract MASPFlushBatchTest is Test {
     function _flush(uint256 id, PubInputs.TreeUpdateBatch memory tpi) internal {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
     }
 
     function _expectFlushRevert(uint256 id, PubInputs.TreeUpdateBatch memory tpi, bytes memory err) internal {

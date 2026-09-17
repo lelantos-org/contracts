@@ -3,9 +3,6 @@ pragma solidity 0.8.36;
 
 import { IGovernor } from "@openzeppelin/contracts/governance/IGovernor.sol";
 
-import { MASP } from "../../src/MASP.sol";
-import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
-
 import { GovTestBase } from "./GovTestBase.sol";
 
 /// Quorum is a fraction of total supply, not of delegated supply, because
@@ -16,25 +13,9 @@ contract GovernorQuorumTest is GovTestBase {
     address internal small = makeAddr("small");
 
     function _fund(address who, uint256 amount) internal {
-        vm.prank(distributor);
-        gov.transfer(who, amount);
-        vm.prank(who);
-        gov.delegate(who);
+        _giveVotes(who, amount);
         // Weight only counts from a strictly earlier timepoint.
         vm.warp(T0 + 100);
-    }
-
-    function _proposeAndVote(address voter, uint8 support, string memory desc) internal returns (uint256 id) {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (9_000))))
-        );
-        vm.prank(voter);
-        id = governor.propose(t, v, c, desc);
-        vm.warp(governor.proposalSnapshot(id) + 1);
-        vm.prank(voter);
-        governor.castVote(id, support);
-        vm.warp(governor.proposalDeadline(id) + 1);
     }
 
     function test_quorumIsFractionOfTotalSupply() public view {
@@ -88,10 +69,7 @@ contract GovernorQuorumTest is GovTestBase {
     /// carry no votes. This makes the Governor flash-loan resistant.
     function test_weightAcquiredAfterSnapshotDoesNotCount() public {
         _fund(small, SUPPLY / 100);
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (9_000))))
-        );
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _cancelDelayPayload();
         vm.prank(small);
         uint256 id = governor.propose(t, v, c, "late whale");
 
@@ -99,10 +77,7 @@ contract GovernorQuorumTest is GovTestBase {
 
         // A large holder acquires tokens after the snapshot and self-delegates.
         address whale = makeAddr("whale");
-        vm.prank(distributor);
-        gov.transfer(whale, SUPPLY / 4);
-        vm.prank(whale);
-        gov.delegate(whale);
+        _giveVotes(whale, SUPPLY / 4);
 
         vm.prank(whale);
         governor.castVote(id, 1);
@@ -120,10 +95,7 @@ contract GovernorQuorumTest is GovTestBase {
         vm.prank(distributor);
         gov.transfer(borrower, SUPPLY / 4);
 
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (9_000))))
-        );
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _cancelDelayPayload();
 
         vm.startPrank(borrower);
         gov.delegate(borrower);

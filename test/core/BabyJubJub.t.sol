@@ -19,47 +19,47 @@ contract BabyJubJubTest is Test {
 
     /// Identity element of the twisted Edwards group: (0, 1).
     /// a*x^2 + y^2 = 1 + d*x^2*y^2 reduces to 0 + 1 = 1 + 0.
-    function testIdentityIsOnCurve() public pure {
+    function test_identityIsOnCurve() public pure {
         assertTrue(BabyJubJub.isOnCurve(0, 1));
     }
 
-    function testKnownGenIsOnCurve() public pure {
+    function test_knownGenIsOnCurve() public pure {
         assertTrue(BabyJubJub.isOnCurve(GEN_X, GEN_Y));
     }
 
-    function testNegYIsOnCurve() public pure {
+    function test_negYIsOnCurve() public pure {
         // (x, -y) is on curve iff (x, y) is — equation only uses y^2.
         assertTrue(BabyJubJub.isOnCurve(GEN_X, P - GEN_Y));
     }
 
-    function testNegXIsOnCurve() public pure {
+    function test_negXIsOnCurve() public pure {
         assertTrue(BabyJubJub.isOnCurve(P - GEN_X, GEN_Y));
     }
 
-    function testZeroZeroOffCurve() public pure {
+    function test_zeroZeroOffCurve() public pure {
         // 0 + 0 != 1 → off curve.
         assertFalse(BabyJubJub.isOnCurve(0, 0));
     }
 
-    function testOneOneOffCurve() public pure {
+    function test_oneOneOffCurve() public pure {
         // a + 1 != 1 + d → off curve.
         assertFalse(BabyJubJub.isOnCurve(1, 1));
     }
 
-    function testXEqualsPRejected() public pure {
+    function test_xEqualsPRejected() public pure {
         // x >= P guard.
         assertFalse(BabyJubJub.isOnCurve(P, GEN_Y));
     }
 
-    function testYEqualsPRejected() public pure {
+    function test_yEqualsPRejected() public pure {
         assertFalse(BabyJubJub.isOnCurve(GEN_X, P));
     }
 
-    function testXAbovePRejected() public pure {
+    function test_xAbovePRejected() public pure {
         assertFalse(BabyJubJub.isOnCurve(P + 1, GEN_Y));
     }
 
-    function testYAbovePRejected() public pure {
+    function test_yAbovePRejected() public pure {
         assertFalse(BabyJubJub.isOnCurve(GEN_X, P + 1));
     }
 
@@ -73,13 +73,13 @@ contract BabyJubJubTest is Test {
 
     /// Identity (0, 1) is the trivial low-order point (`[1]·O = O`). It is
     /// flagged so `AuxValidation` rejects placeholder clue and ephemeral points.
-    function testIdentityIsLowOrder() public view {
+    function test_identityIsLowOrder() public view {
         assertTrue(BabyJubJub.isLowOrder(0, 1));
     }
 
     /// The canonical `8·Base` generator of the prime-order subgroup is not
     /// low-order; indexers use it as a valid sentinel.
-    function testBase8IsNotLowOrder() public view {
+    function test_base8IsNotLowOrder() public view {
         assertFalse(BabyJubJub.isLowOrder(BabyJubJub.BASE8_X, BabyJubJub.BASE8_Y));
     }
 }

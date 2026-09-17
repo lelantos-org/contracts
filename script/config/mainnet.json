@@ -11,9 +11,11 @@
     20,
     20,
     20,
+    20,
     20
   ],
   "withdrawBps": [
+    20,
     20,
     20,
     20,
@@ -37,7 +39,8 @@
     7,
     8,
     9,
-    10
+    10,
+    16
   ],
   "tokens": [
     "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
@@ -49,7 +52,8 @@
     "0x8d0D000Ee44948FC98c9B98A4FA4921476f08B0d",
     "0x4c9EDD5852cd905f086C759E8383e09bff1E68B3",
     "0xdC035D45d973E3EC169d2276DDab16f1e407384F",
-    "0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c"
+    "0x1aBaEA1f7C830bD89Acc67eC4af516284b1bC33c",
+    "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
   ],
   "scales": [
     "10000000000",
@@ -61,7 +65,8 @@
     "10000000000",
     "10000000000",
     "10000000000",
-    "1"
+    "1",
+    "10000000000"
   ],
   "proxyAdmin": "0x5bd6FF58B6E4ad4bBe14dBA26F387Ea89C598323",
   "upgradeDelay": 2592000,

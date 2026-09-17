@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { CommitmentTreeHarness } from "../fuzz/CommitmentTreeHarness.sol";
+import { CommitmentTreeHarness } from "../utils/CommitmentTreeHarness.sol";
 
 import { CommitmentTreeSpec } from "./generated/CommitmentTreeSpec.sol";
 import { CommitmentTreeSpecReplay } from "./generated/CommitmentTreeSpecReplay.sol";
@@ -9,7 +9,7 @@ import { CommitmentTreeSpecReplay } from "./generated/CommitmentTreeSpecReplay.s
 /// Driver for [spec/commitment_tree.qnt](../../spec/commitment_tree.qnt).
 ///
 /// Uses the harness the fuzz suite drives
-/// ([test/fuzz/CommitmentTreeHarness.sol](../fuzz/CommitmentTreeHarness.sol)),
+/// ([test/utils/CommitmentTreeHarness.sol](../utils/CommitmentTreeHarness.sol)),
 /// so both suites exercise the same surface and differ in what chooses the
 /// calls: the fuzzer picks at random, while Quint picks from a checked model and
 /// every step's post-state is asserted.

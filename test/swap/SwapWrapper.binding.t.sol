@@ -35,37 +35,19 @@ contract SwapWrapperBindingTest is SwapTestBase {
         wrapper.prepareToken(IERC20(address(tokenC)));
     }
 
+    /// `_defaultSwapArgs` for a withdraw of `grossIn`, swapping all it nets and
+    /// driven by `SWAP_DRIVER`. The originating proof names only the wrapper; no
+    /// public input identifies the caller of `swap`.
     function _baseArgs(uint256 grossIn, uint256 minOut, uint64 depositIn)
         internal
         view
         returns (SwapWrapper.SwapArgs memory a)
     {
-        a.p_w = _emptyProof();
-        a.tp_w = _emptyProof();
-        // The originating proof names only the wrapper; no public input
-        // identifies the caller of `swap`.
-        a.pi_w.publicAssetId = ASSET_A;
-        a.pi_w.publicOut = uint64(grossIn / SCALE);
-        a.pi_w.recipient = address(wrapper);
-        a.pi_w.relayer = address(wrapper);
+        a = _defaultSwapArgs(_netOfFee(grossIn), minOut, uint64(grossIn / SCALE), depositIn);
         a.pi_w.payer = SWAP_DRIVER;
-        a.refundTo = SWAP_REFUND_TO;
-
-        a.deposit_d.chainId = block.chainid;
-        a.deposit_d.publicAssetId = ASSET_B;
-        a.deposit_d.publicIn = depositIn;
-        a.deposit_d.payer = address(wrapper);
-        a.deposit_d.recipient = VICTIM_NOTE;
-        a.deposit_d.outCm = bytes32(uint256(1));
-        a.refund_d = _refundRequest(a.pi_w.publicOut);
-
-        a.adapter = address(adapter);
-        a.route = abi.encode(uint24(500), uint160(0));
-        a.deadline = type(uint256).max;
-        a.tokenIn = address(tokenA);
-        a.tokenOut = address(tokenB);
-        a.amountIn = grossIn - (grossIn * FEE_BPS) / 10_000;
-        a.minOut = minOut;
+        // This suite's output note has always left the fee-note commitment
+        // unset; kept so the bound payloads its tests replay stay unchanged.
+        a.deposit_d.feeCm = bytes32(0);
     }
 
     /// Replaying the withdraw proof verbatim under a substituted `deposit_d`
@@ -253,7 +235,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
     /// the wrapper's real C while every bound and the leftover check read the
     /// script, and the attacker's note is minted from all of it. `tokenIn` is now
     /// bound to the withdraw proof's asset, so the swap reverts before leg 1.
-    function testRevertTokenInNotWithdrawAssetScriptedSweep() public {
+    function test_revert_tokenInNotWithdrawAssetScriptedSweep() public {
         uint256 donated = 5_000 * SCALE;
         tokenC.mint(address(wrapper), donated);
         tokenA.mint(address(pool), SCALE);
@@ -283,7 +265,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
     /// `tokenOut` must be the registry token of the output note's asset. Any
     /// other token would make `actualOut`, the pull bounds and the leftover
     /// check measure a balance the pool never moves.
-    function testRevertTokenOutNotDepositAsset() public {
+    function test_revert_tokenOutNotDepositAsset() public {
         SwapWrapper.SwapArgs memory a = _baseArgs(1_000 * SCALE, 990 * SCALE, 990);
         a.tokenOut = address(tokenC); // deposit_d stays in ASSET_B
 
@@ -295,7 +277,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
     /// The refund note must be denominated in `tokenIn`: the refund pull is
     /// bounded by what leg 1 delivered in that token, so a refund in another
     /// token would escrow a balance the wrapper holds for someone else.
-    function testRevertRefundAssetNotTokenIn() public {
+    function test_revert_refundAssetNotTokenIn() public {
         tokenC.mint(address(wrapper), 5_000 * SCALE);
 
         SwapWrapper.SwapArgs memory a = _baseArgs(1_000 * SCALE, 990 * SCALE, 990);
@@ -310,7 +292,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
 
     /// The refund binding compares tokens, not asset ids: a refund note under a
     /// second registry entry for `tokenIn` is accepted and the refund lands in it.
-    function testRefundAssetMayDifferInIdButShareTokenIn() public {
+    function test_refundAssetMayDifferInIdButShareTokenIn() public {
         uint64 assetA2 = 4;
         pool.registerAsset(assetA2, address(tokenA), SCALE);
 

@@ -9,13 +9,12 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { SpendFixture } from "../utils/SpendFixture.sol";
 
 /// `escrowed[id]` stores only a digest, so flush and cancel require the caller
 /// to resupply the full preimage. The documented source for that preimage is
@@ -36,7 +35,7 @@ contract MASPEscrowEventRoundtripTest is Test {
     MockERC20 internal token;
     MASP internal masp;
 
-    address internal payer = address(0xface);
+    address internal payer = TestConstants.ESCROW_PAYER;
     address internal recipient = address(0xb0b);
 
     /// Static head fields of `DepositEscrowed`, recovered from the log.
@@ -101,15 +100,6 @@ contract MASPEscrowEventRoundtripTest is Test {
         token.approve(address(permit2), type(uint256).max);
     }
 
-    /// A single aux payload, passed for both of the deposit's leaves.
-    function _aux() internal pure returns (AuxValidation.Output memory aux) {
-        aux.clueRx = BabyJubJub.BASE8_X;
-        aux.clueRy = BabyJubJub.BASE8_Y;
-        aux.ephPubX = BabyJubJub.BASE8_X;
-        aux.ephPubY = BabyJubJub.BASE8_Y;
-        aux.ciphertext = hex"0001";
-    }
-
     /// Submits a deposit and recovers the cancel preimage from the log alone.
     function _submitAndDecode(uint64 publicIn, uint256 nonce) internal returns (Decoded memory dec) {
         uint256 inAmt = uint256(publicIn) * SCALE;
@@ -132,7 +122,7 @@ contract MASPEscrowEventRoundtripTest is Test {
         });
 
         vm.recordLogs();
-        masp.deposit(d, sig, _aux(), _aux());
+        masp.deposit(d, sig, SpendFixture.validAuxOutput(), SpendFixture.validAuxOutput());
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         bytes32 sigHash = keccak256(

@@ -5,9 +5,8 @@ import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /// ERC-20 that re-enters a configured target on `transfer`.
 ///
-/// `ReentrantMockERC20` hooks `transferFrom`. `FeeBurner.buy` pays the lot out
-/// with `transfer` as the last interaction in the call, which is the point a
-/// hostile fee token re-enters from.
+/// `FeeBurner.buy` pays the lot out with `transfer` as the last interaction in
+/// the call, which is the point a hostile fee token re-enters from.
 contract ReentrantOnTransferERC20 is ERC20 {
     address public target;
     bytes public reenterCalldata;

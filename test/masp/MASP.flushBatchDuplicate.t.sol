@@ -1,79 +1,48 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
-
 import { MASP } from "../../src/MASP.sol";
-import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
-import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
-import { deployPoolUniform, mockVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
+import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
+import { singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
+import { FeeMath } from "../utils/FeeMath.sol";
 
 /// `flushBatch` edge cases not covered by `MASP.flushBatch.t.sol`:
 ///   - duplicate deposit id in the same `ids` array
 ///   - `cancelDeposit` called after the deposit was already flushed
-contract MASPFlushBatchDuplicateTest is Test {
-    uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
-    uint256 internal constant SCALE = TestConstants.SCALE;
+contract MASPFlushBatchDuplicateTest is MockPoolTestBase {
     uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
-    address internal constant TREASURY = TestConstants.TREASURY;
-    address internal constant OWNER = TestConstants.OWNER;
 
-    IVerifier tubVerifier;
-    MockBatchVerifier batchVerifier;
-    address permit2;
-    MockERC20 token;
-    MASP masp;
-
-    address payer = address(0xface);
+    address payer = TestConstants.ESCROW_PAYER;
     address recipient = address(0xb0b);
 
     function setUp() public {
         token = new MockERC20("M", "M", 18);
-        ISignatureTransfer p2;
-        (tubVerifier, batchVerifier, p2) = mockVerifierStack();
-        permit2 = address(p2);
 
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
             singleAsset(IERC20(address(token)), ASSET_ID, SCALE);
 
-        masp = deployPoolUniform(tubVerifier, batchVerifier, p2, ids, tokens, scales, FEE_BPS, TREASURY, OWNER);
+        _deployMockPool(ids, tokens, scales, FEE_BPS, TREASURY, OWNER);
 
         Stubs.installPermissiveERC1271(payer);
-        Stubs.acceptTreeUpdateProofs(tubVerifier, true);
+        Stubs.acceptTreeUpdateProofs(tub, true);
     }
 
     // --- helpers -----------------------------------------------------------
 
     /// Matches the zero `feeCvDep` the deposit builder leaves in place.
-    function _zeroCv() internal pure returns (uint256[2] memory cv) {
-        return cv;
-    }
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        return SpendFixture.validAux();
-    }
-
-    function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return FixtureLoader.emptyProof();
-    }
-
     /// Digest meta matching `_submit` (same payer, same block, deploy fee).
-    function _meta(uint256 n) internal view returns (MASP.DepositMeta[] memory m) {
-        m = new MASP.DepositMeta[](n);
-        for (uint256 i = 0; i < n; i++) {
-            // forge-lint: disable-next-line(unsafe-typecast)
-            m[i] = MASP.DepositMeta({ payer: payer, submittedAt: uint32(block.number), fbps: FEE_BPS });
-        }
+    function _meta(uint256 n) internal view returns (MASP.DepositMeta[] memory) {
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return DepositFixture.metas(n, payer, uint32(block.number), FEE_BPS);
     }
 
     uint256 private _nextNonce;
@@ -87,48 +56,22 @@ contract MASPFlushBatchDuplicateTest is Test {
     mapping(uint256 => _Pre) internal _pre;
 
     function _submit(uint64 publicIn, bytes32 cm) internal returns (uint256 id) {
-        uint256 inAmt = uint256(publicIn) * SCALE;
-        uint256 fee = (inAmt * FEE_BPS) / 10_000;
-        token.mint(payer, inAmt + fee);
+        token.mint(payer, FeeMath.gross(publicIn, SCALE, FEE_BPS));
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        PubInputs.DepositRequest memory d;
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = publicIn;
-        d.payer = payer;
-        d.recipient = recipient;
-        d.outCm = cm;
-        d.feeCm = bytes32(uint256(0xfee));
-
-        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
-        id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
+        PubInputs.DepositRequest memory d = DepositFixture.request(ASSET_ID, publicIn, payer, recipient, cm);
+        id = masp.deposit(d, DepositFixture.sig(_nextNonce++), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
         _pre[id] = _Pre({ publicIn: uint48(publicIn), cm: cm, cvDep: d.cvDep });
     }
 
     function _buildTpi(uint256[] memory depositIds) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
-        tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xfeedbeef));
-        tpi.startIndex = masp.committedCount();
-        tpi.actualCount = uint64(depositIds.length * PubInputs.LEAVES_PER_DEPOSIT);
+        tpi = DepositFixture.batch(
+            masp.currentRoot(), bytes32(uint256(0xfeedbeef)), masp.committedCount(), depositIds.length
+        );
         for (uint256 i = 0; i < depositIds.length; i++) {
             _Pre memory p = _pre[depositIds[i]];
-            uint256 slot = i * PubInputs.LEAVES_PER_DEPOSIT;
-            tpi.cms[slot] = p.cm;
-            tpi.cvDeps[slot] = p.cvDep;
-            tpi.leafAsset[slot] = ASSET_ID;
-            tpi.leafPublicIn[slot] = p.publicIn;
-            tpi.isDeposit[slot] = 1;
-            // The relayer's fee note: zero value as escrowed, and therefore
-            // asset 0; the circuit canonicalises the asset of a leaf whose
-            // Pedersen binding cannot see it (step 6a).
-            tpi.cms[slot + 1] = bytes32(uint256(0xfee));
-            tpi.leafAsset[slot + 1] = 0;
-            tpi.leafPublicIn[slot + 1] = 0;
-            tpi.isDeposit[slot + 1] = 1;
+            DepositFixture.setDepositLeaves(tpi, i, p.cm, p.cvDep, ASSET_ID, p.publicIn);
         }
     }
 
@@ -174,7 +117,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         ids[1] = 0; // duplicate
 
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, uint256(0)));
-        masp.flushBatch(ids, _meta(2), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(2), FixtureLoader.emptyProof(), tpi);
     }
 
     // --- tests: cancel after flush ----------------------------------------
@@ -185,24 +128,14 @@ contract MASPFlushBatchDuplicateTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
         PubInputs.TreeUpdateBatch memory tpi = _buildTpi(ids);
-        masp.flushBatch(ids, _meta(1), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
 
         // Flush deleted the escrow slot, so cancel reverts with DepositNotPending.
         vm.roll(block.number + masp.cancelDelay());
         _Pre memory p = _pre[id];
         uint256[2] memory zCv;
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id));
-        masp.cancelDeposit(
-            id,
-            p.publicIn,
-            p.cm,
-            zCv,
-            ASSET_ID,
-            FEE_BPS,
-            payer,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
-        );
+        masp.cancelDeposit(id, p.publicIn, p.cm, zCv, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote());
     }
 
     function test_revert_cancelAfterFlush_multipleDeposits() public {
@@ -213,7 +146,7 @@ contract MASPFlushBatchDuplicateTest is Test {
         ids[0] = id0;
         ids[1] = id1;
         PubInputs.TreeUpdateBatch memory tpi = _buildTpi(ids);
-        masp.flushBatch(ids, _meta(2), _emptyProof(), tpi);
+        masp.flushBatch(ids, _meta(2), FixtureLoader.emptyProof(), tpi);
 
         vm.roll(block.number + masp.cancelDelay());
 
@@ -221,28 +154,12 @@ contract MASPFlushBatchDuplicateTest is Test {
         uint256[2] memory zCv;
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id0));
         masp.cancelDeposit(
-            id0,
-            _pre[id0].publicIn,
-            _pre[id0].cm,
-            zCv,
-            ASSET_ID,
-            FEE_BPS,
-            payer,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id0, _pre[id0].publicIn, _pre[id0].cm, zCv, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote()
         );
 
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id1));
         masp.cancelDeposit(
-            id1,
-            _pre[id1].publicIn,
-            _pre[id1].cm,
-            zCv,
-            ASSET_ID,
-            FEE_BPS,
-            payer,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id1, _pre[id1].publicIn, _pre[id1].cm, zCv, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote()
         );
     }
 }

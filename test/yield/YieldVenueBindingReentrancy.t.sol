@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { YieldBase } from "./YieldBase.t.sol";
+import { YieldTestBase } from "../utils/YieldTestBase.sol";
 
 /// A venue that attempts a state change while `YieldOps.initAsset` is
 /// verifying its binding. `POOL()` is the first external call that path makes,
@@ -68,7 +68,7 @@ contract ReenteringVenue {
 /// afterwards and underflow a `totalNormalized` that was never credited.
 ///
 /// The assertion below fails if that change is made.
-contract YieldVenueBindingReentrancyTest is YieldBase {
+contract YieldVenueBindingReentrancyTest is YieldTestBase {
     uint64 internal constant NEW_ID = 77;
 
     function test_venueCannotMutateDuringBinding() public {

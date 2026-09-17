@@ -19,11 +19,12 @@ import { ERC4626Venue } from "../../src/yield/ERC4626Venue.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockERC4626 } from "../mocks/MockERC4626.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
-import { SpendFixture } from "../utils/SpendFixture.sol";
-import { FixtureLoader } from "../utils/FixtureLoader.sol";
-import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
-import { Stubs } from "../utils/Stubs.sol";
-import { TestConstants } from "../utils/TestConstants.sol";
+import { SpendFixture } from "./SpendFixture.sol";
+import { FixtureLoader } from "./FixtureLoader.sol";
+import { deployPoolUniform, singleAsset } from "./PoolDeployer.sol";
+import { Stubs } from "./Stubs.sol";
+import { TestConstants } from "./TestConstants.sol";
+import { DepositFixture } from "./DepositFixture.sol";
 
 /// Shared rig for the yield-index tests.
 ///
@@ -34,7 +35,7 @@ import { TestConstants } from "../utils/TestConstants.sol";
 ///
 /// Both Groth16 verifiers are mocked to accept, isolating the index arithmetic
 /// from circuit correctness, as in `MASP.doubleSpend.t.sol`.
-contract YieldBase is Test {
+abstract contract YieldTestBase is Test {
     uint64 internal constant PLAIN_ID = 1;
     uint64 internal constant YIELD_ID = 9;
     /// A second yield asset differing from `YIELD_ID` only in `scale`. The
@@ -52,7 +53,7 @@ contract YieldBase is Test {
     uint16 internal constant PERF_BPS = 1000; // 10% of yield
     uint256 internal constant RAY = 1e27;
 
-    address internal constant RELAYER = address(0xCA11);
+    address internal constant RELAYER = TestConstants.RELAYER;
     address internal constant SPEND_PAYER = address(0xBEEF);
     address internal constant RECIPIENT = TestConstants.RECIPIENT;
     address internal constant TREASURY = TestConstants.TREASURY;
@@ -128,13 +129,8 @@ contract YieldBase is Test {
         view
         returns (PubInputs.DepositRequest memory d)
     {
-        d.chainId = block.chainid;
-        d.publicAssetId = id;
-        d.publicIn = publicIn;
+        d = DepositFixture.request(id, publicIn, payer, RECIPIENT, bytes32(seed));
         d.feeIn = feeIn;
-        d.payer = payer;
-        d.recipient = RECIPIENT;
-        d.outCm = bytes32(seed);
         d.feeCm = bytes32(seed + 1);
     }
 
@@ -166,6 +162,11 @@ contract YieldBase is Test {
             SpendFixture.spendTree(bytes32(nfSeed + 0x2_0000), masp.committedCount(), uint8(masp.rootIndex()));
         vm.prank(RELAYER);
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
+    }
+
+    /// External so `vm.expectRevert` has a call boundary to catch.
+    function attemptWithdraw(uint64 id, uint64 publicOut, uint256 seed) external {
+        _withdraw(id, publicOut, seed);
     }
 
     /// Waits out the exit-term notice and commits what is queued for `id`, so a

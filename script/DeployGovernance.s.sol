@@ -4,6 +4,7 @@ pragma solidity 0.8.36;
 import { BaseGovernanceDeploy } from "./base/BaseGovernanceDeploy.s.sol";
 
 /// Governance-stack deploy against an already-deployed MASP and SwapWrapper.
+/// Ethereum mainnet only (chain id 1); reverts on any other chain.
 ///
 /// Deploys `LelantosToken`, `TimelockController`, `LelantosGovernor`,
 /// `FeeBurner` and `ProtocolAdmin`, wires the Timelock role table, and renounces
@@ -51,6 +52,9 @@ contract DeployGovernance is BaseGovernanceDeploy {
     string constant DEFAULT_CONFIG = "script/config/mainnet.gov.json";
 
     function run() external returns (address token, address timelock, address governor, address burner, address admin) {
+        // Governance lives on Ethereum mainnet only; the other chains' pools are
+        // not governed by it. A mainnet fork keeps chain id 1, so rehearsals pass.
+        require(block.chainid == 1, "governance is Ethereum mainnet only");
         string memory path = vm.envOr("GOV_CONFIG", DEFAULT_CONFIG);
         string memory j = vm.readFile(path);
 

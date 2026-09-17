@@ -6,7 +6,7 @@ import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 import { YieldIndex } from "../../src/yield/YieldIndex.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 
-import { YieldBase } from "./YieldBase.t.sol";
+import { YieldTestBase } from "../utils/YieldTestBase.sol";
 
 /// Property tests on the index arithmetic, driven through the real pool rather
 /// than a harness over the library's internals: the properties concern the
@@ -17,7 +17,7 @@ import { YieldBase } from "./YieldBase.t.sol";
 /// conversion is ceil on the way in and floor on the way out, so any sequence
 /// that returns more than it cost is a leak, and at these magnitudes a
 /// one-unit slip is worth `scale` base units.
-contract YieldArithmeticFuzzTest is YieldBase {
+contract YieldArithmeticFuzzTest is YieldTestBase {
     /// Wide enough to cross rounding boundaries, small enough that the pull
     /// stays inside `uint160` for the Permit2 allowance path.
     uint64 internal constant MIN_N = 1_000;

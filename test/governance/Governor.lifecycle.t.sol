@@ -9,7 +9,6 @@ import { FeeConfig } from "../../src/FeeConfig.sol";
 import { MASP } from "../../src/MASP.sol";
 import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
-import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 
 import { GovTestBase } from "./GovTestBase.sol";
 
@@ -77,10 +76,8 @@ contract GovernorLifecycleTest is GovTestBase {
     /// and `GovernorTimelockControl`, and an incorrect override desyncs the
     /// pipeline. The payload shortens the delay, which applies on execution.
     function test_proposalStateProgression() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (4_000))))
-        );
+        (address[] memory t, uint256[] memory v, bytes[] memory c) =
+            _adminCall(address(masp), abi.encodeCall(MASP.setCancelDelay, (4_000)));
         string memory desc = "state progression";
         bytes32 h = keccak256(bytes(desc));
 
@@ -121,10 +118,7 @@ contract GovernorLifecycleTest is GovTestBase {
     }
 
     function test_executeBeforeTimelockDelayReverts() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (9_000))))
-        );
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _cancelDelayPayload();
         string memory desc = "too early";
         bytes32 h = keccak256(bytes(desc));
 
@@ -137,16 +131,12 @@ contract GovernorLifecycleTest is GovTestBase {
     }
 
     function test_doubleExecuteReverts() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (9_500))))
-        );
+        (address[] memory t, uint256[] memory v, bytes[] memory c) =
+            _adminCall(address(masp), abi.encodeCall(MASP.setCancelDelay, (9_500)));
         string memory desc = "once only";
         bytes32 h = keccak256(bytes(desc));
 
-        uint256 id = _proposeAndSucceed(t, v, c, desc);
-        governor.queue(t, v, c, h);
-        vm.warp(governor.proposalEta(id) + 1);
+        _queueToEta(t, v, c, desc);
         governor.execute(t, v, c, h);
 
         vm.expectRevert();
@@ -158,14 +148,10 @@ contract GovernorLifecycleTest is GovTestBase {
     /// `renounceOwnership` leaves the pool without an owner, so it is unreachable
     /// even by a proposal that passes.
     function test_proposalCannotRenounceOwnership() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(Ownable.renounceOwnership, ())))
-        );
+        (address[] memory t, uint256[] memory v, bytes[] memory c) =
+            _adminCall(address(masp), abi.encodeCall(Ownable.renounceOwnership, ()));
         string memory desc = "renounce";
-        _proposeAndSucceed(t, v, c, desc);
-        governor.queue(t, v, c, keccak256(bytes(desc)));
-        vm.warp(governor.proposalEta(_id(t, v, c, desc)) + 1);
+        _queueToEta(t, v, c, desc);
 
         vm.expectRevert();
         governor.execute(t, v, c, keccak256(bytes(desc)));
@@ -176,25 +162,13 @@ contract GovernorLifecycleTest is GovTestBase {
     /// only `address(0)`, and a transfer to a burn address has the same effect.
     function test_proposalCannotTransferOwnershipToBurnAddress() public {
         address dead = address(0xdEaD);
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(Ownable.transferOwnership, (dead))))
-        );
+        (address[] memory t, uint256[] memory v, bytes[] memory c) =
+            _adminCall(address(masp), abi.encodeCall(Ownable.transferOwnership, (dead)));
         string memory desc = "transfer to dead";
-        _proposeAndSucceed(t, v, c, desc);
-        governor.queue(t, v, c, keccak256(bytes(desc)));
-        vm.warp(governor.proposalEta(_id(t, v, c, desc)) + 1);
+        _queueToEta(t, v, c, desc);
 
         vm.expectRevert();
         governor.execute(t, v, c, keccak256(bytes(desc)));
         assertEq(masp.owner(), address(protocolAdmin), "owner survived");
-    }
-
-    function _id(address[] memory t, uint256[] memory v, bytes[] memory c, string memory d)
-        private
-        view
-        returns (uint256)
-    {
-        return governor.hashProposal(t, v, c, keccak256(bytes(d)));
     }
 }

@@ -29,7 +29,7 @@ import { TestConstants } from "./TestConstants.sol";
 /// etched there (`Stubs.installPermissiveERC1271`). Suites install it
 /// themselves because which address gets the stub, and whether one is
 /// installed, is part of what a suite tests.
-contract MASPTestBase is Test {
+abstract contract MASPTestBase is Test {
     /// SCALE is chosen so `publicIn * SCALE * FEE_BPS / 10_000 != 0`: at the
     /// fixture's publicIn = 100 the fee is 2.5e9 wei, exercising fee accrual.
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
@@ -71,7 +71,7 @@ contract MASPTestBase is Test {
 
         // Default test addresses; subclasses override them with the payer and
         // relayer addresses a fixture's Transact public inputs bind.
-        payer = address(0xface);
+        payer = TestConstants.ESCROW_PAYER;
         relayer = address(0xcafe);
     }
 

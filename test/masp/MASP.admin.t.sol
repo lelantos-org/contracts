@@ -17,7 +17,7 @@ import { deployBehindProxy, newPoolImplementation, noAssets, poolInitCalldata } 
 
 /// Owner-gated fee and treasury setters, and initializer validation.
 contract MASPAdminTest is MASPTestBase {
-    function testSetAssetFeeOnlyOwner() public {
+    function test_setAssetFeeOnlyOwner() public {
         address attacker = address(0xa11ce);
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
@@ -26,7 +26,7 @@ contract MASPAdminTest is MASPTestBase {
 
     /// The deposit rate lands at once; the raised withdraw rate lands at the
     /// commit, once its notice has run.
-    function testSetAssetFeeUpdates() public {
+    function test_setAssetFeeUpdates() public {
         (, uint16 live) = masp.assetFees(ASSET_ID);
         assertLt(live, 60, "fixture: 60 must be a raise");
         vm.prank(OWNER);
@@ -41,27 +41,27 @@ contract MASPAdminTest is MASPTestBase {
         assertEq(wit, 60);
     }
 
-    function testSetTreasuryZeroReverts() public {
+    function test_setTreasuryZeroReverts() public {
         vm.prank(OWNER);
         vm.expectRevert(FeeConfig.ZeroTreasury.selector);
         masp.setTreasury(address(0));
     }
 
-    function testSetTreasuryUpdates() public {
+    function test_setTreasuryUpdates() public {
         address newTreasury = address(0xbeef);
         vm.prank(OWNER);
         masp.setTreasury(newTreasury);
         assertEq(masp.treasury(), newTreasury);
     }
 
-    function testSetTreasuryOnlyOwner() public {
+    function test_setTreasuryOnlyOwner() public {
         address attacker = address(0xa11ce);
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         masp.setTreasury(address(0xbeef));
     }
 
-    function testConstructorRejectsZeroTreasury() public {
+    function test_constructorRejectsZeroTreasury() public {
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = noAssets();
 
         // Deploys the implementation first; otherwise its CREATE would consume

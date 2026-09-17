@@ -6,10 +6,10 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
-import { YieldBase } from "./YieldBase.t.sol";
+import { YieldTestBase } from "../utils/YieldTestBase.sol";
 
 /// Plain vs indexed cost on the two hot paths. Prints rather than asserts.
-contract YieldGasTest is YieldBase {
+contract YieldGasTest is YieldTestBase {
     uint64 internal constant N = 1_000_000;
 
     function _depositGas(uint64 id, uint256 seed) internal returns (uint256 used) {

@@ -1,21 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
-
 import { MASP } from "../../src/MASP.sol";
-import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { SnarkCompression } from "../../src/SnarkCompression.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
-import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
-import { SpendFixture } from "../utils/SpendFixture.sol";
-import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
-import { Stubs } from "../utils/Stubs.sol";
+import { FeeMath } from "../utils/FeeMath.sol";
+import { EscrowHandlerBase, EscrowInvariantTestBase } from "./EscrowHandlerBase.sol";
 
 /// Whole-flow invariant for the MASP deposit / batch / cancel / sweep
 /// state machine. The per-slice invariants
@@ -31,7 +24,7 @@ import { Stubs } from "../utils/Stubs.sol";
 /// `MASPEscrowFeeInvariantTest.setUp`), since otherwise every `flushBatch`
 /// needs a real depth-10 proof. With the stub, flush reduces to the
 /// state-machine logic these cross-handler invariants cover.
-contract MaspFlowHandler is Test {
+contract MaspFlowHandler is EscrowHandlerBase {
     enum Status {
         Unknown,
         Pending,
@@ -39,26 +32,10 @@ contract MaspFlowHandler is Test {
         Cancelled
     }
 
-    MASP public masp;
-    address public permit2;
-    MockERC20 public token;
-    address public payer;
-
-    uint64 public constant ASSET_ID = 1;
-    uint256 public constant SCALE = 1e10;
-    uint16 public constant FEE_BPS = 25;
-
-    uint256[] public allIds;
     mapping(uint256 => Status) public status;
-    mapping(uint256 => uint256) public principalAt; // inAmt (asset-units * scale)
-    mapping(uint256 => uint256) public feeAt;
+    /// Submit block per id: the `submittedAt` the escrow digest binds, and the
+    /// origin of the cancel-delay check.
     mapping(uint256 => uint256) public submitBlock;
-    /// Off-chain preimage shadow. The 1-slot escrow stores only the digest, so
-    /// flush/cancel must resupply cm0/cm1/publicIn (plus payer/submittedAt/fbps,
-    /// tracked as `payer`/`submitBlock`/`FEE_BPS`), which the on-chain digest
-    /// check binds.
-    mapping(uint256 => uint48) public preimagePublicIn;
-    mapping(uint256 => bytes32) public preimageCm0;
 
     /// Sum of principals for ids still `Pending`.
     uint256 public ghostPendingPrincipal;
@@ -77,140 +54,64 @@ contract MaspFlowHandler is Test {
     /// Number of `cancelDeposit` calls that landed.
     uint256 public cancelCount;
 
-    uint256 internal _nonce;
-
-    constructor(MASP m, address p2, MockERC20 t, address payer_, bytes32 genesis) {
-        masp = m;
-        permit2 = p2;
-        token = t;
-        payer = payer_;
+    constructor(MASP m, address p2, MockERC20 t, address payer_, bytes32 genesis) EscrowHandlerBase(m, p2, t, payer_) {
         lastNewRoot = genesis;
-    }
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        return SpendFixture.validAux();
     }
 
     function submit(uint64 publicIn) external {
         publicIn = uint64(bound(publicIn, 1, 1_000));
 
         uint256 inAmt = uint256(publicIn) * SCALE;
-        uint256 fee = (inAmt * FEE_BPS) / 10_000;
+        uint256 fee = FeeMath.fee(inAmt, FEE_BPS);
         token.mint(payer, inAmt + fee);
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        PubInputs.DepositRequest memory d;
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = publicIn;
-        d.payer = payer;
-        d.recipient = address(0xb0b);
-        d.outCm = bytes32(uint256(0x1000 + _nonce));
-        d.feeCm = bytes32(uint256(0xfee));
-
-        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: _nonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
-
-        uint256 id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
-        allIds.push(id);
+        // The zero-value relayer note escrows as (0, `DepositFixture.FEE_CM`,
+        // [0, 0]); `flushOne` and `cancelOne` resupply it through the default
+        // `_feeLeaf`.
+        uint256 id = _escrow(_request(publicIn), 0, inAmt, fee);
         status[id] = Status.Pending;
-        principalAt[id] = inAmt;
-        feeAt[id] = fee;
         submitBlock[id] = block.number;
-        // forge-lint: disable-next-line(unsafe-typecast)
-        preimagePublicIn[id] = uint48(publicIn);
-        preimageCm0[id] = d.outCm;
         ghostPendingPrincipal += inAmt;
         ghostPendingFee += fee;
     }
 
-    function flushOne(uint256 idxSeed) external {
-        uint256 id = _firstWithStatus(idxSeed, Status.Pending);
-        if (status[id] != Status.Pending) return;
+    function idsLen() external view returns (uint256) {
+        return allIds.length;
+    }
 
-        PubInputs.TreeUpdateBatch memory tpi;
-        tpi.oldRoot = masp.currentRoot();
-        // The SNARK is mocked, so the new-root value is arbitrary; it only
-        // needs to be distinct per (id, block).
-        //
-        // Reduced mod R because `flushBatch` compresses the batch header
-        // through `SnarkCompression.evaluatePolyAt`, which rejects any
-        // coefficient >= R. An unreduced keccak exceeds the BN254 scalar field
-        // most of the time and would make flush revert for a reason unrelated
-        // to the state machine under test.
-        tpi.newRoot = bytes32(uint256(keccak256(abi.encode("flushed", id, block.number))) % SnarkCompression.R);
-        tpi.startIndex = masp.committedCount();
-        // A deposit occupies PubInputs.LEAVES_PER_DEPOSIT (= 2) adjacent
-        // leaves: its principal, then the note paying the flusher.
-        // `_validateBatchHeader` requires `actualCount == n * LEAVES_PER_DEPOSIT`
-        // and `_drainDeposit` rebuilds the escrow digest from leaf `p + 1`'s
-        // (publicIn, cm, cvDep) as the fee note. `submit` escrows that note as
-        // (0, 0xfee, [0, 0]) via `d.feeCm`, so both leaves are populated here;
-        // otherwise the call reverts `BatchMisaligned` before touching state.
-        tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
-        tpi.cms[0] = preimageCm0[id];
-        tpi.leafAsset[0] = ASSET_ID;
-        tpi.leafPublicIn[0] = uint64(preimagePublicIn[id]);
-        tpi.isDeposit[0] = 1;
-        tpi.cms[1] = bytes32(uint256(0xfee));
-        // Zero value, so asset 0: `tree_update_batch.circom` step 6a
-        // canonicalises the asset of a leaf whose Pedersen binding cannot see
-        // it, and `_drainDeposit` requires the match.
-        tpi.leafAsset[1] = 0;
-        tpi.leafPublicIn[1] = 0;
-        tpi.isDeposit[1] = 1;
+    function _isPending(uint256 id) internal view override returns (bool) {
+        return status[id] == Status.Pending;
+    }
 
-        uint256[] memory ids = new uint256[](1);
-        ids[0] = id;
-
-        MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
+    function _submittedAt(uint256 id) internal view override returns (uint32) {
         // forge-lint: disable-next-line(unsafe-typecast)
-        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: uint32(submitBlock[id]), fbps: FEE_BPS });
+        return uint32(submitBlock[id]);
+    }
 
-        MASP.Proof memory proof;
-        masp.flushBatch(ids, meta, proof, tpi);
+    /// Distinct per (id, block). Reduced mod R because `flushBatch` compresses
+    /// the batch header through `SnarkCompression.evaluatePolyAt`, which
+    /// rejects any coefficient >= R. An unreduced keccak exceeds the BN254
+    /// scalar field most of the time and would make flush revert for a reason
+    /// unrelated to the state machine under test.
+    function _newRoot(uint256 id) internal view override returns (bytes32) {
+        return bytes32(uint256(keccak256(abi.encode("flushed", id, block.number))) % SnarkCompression.R);
+    }
 
+    function _onFlushed(uint256 id, bytes32 newRoot) internal override {
         status[id] = Status.Flushed;
         ghostPendingPrincipal -= principalAt[id];
         ghostPendingFee -= feeAt[id];
         ghostShieldedPrincipal += principalAt[id];
-        lastNewRoot = tpi.newRoot;
+        lastNewRoot = newRoot;
         ghostInserted += uint64(PubInputs.LEAVES_PER_DEPOSIT);
         flushCount += 1;
     }
 
-    function cancelOne(uint256 idxSeed) external {
-        uint256 id = _firstWithStatus(idxSeed, Status.Pending);
-        if (status[id] != Status.Pending) return;
-
-        // Roll past the cancel delay so the on-chain guard permits the call;
-        // the timing relationship is asserted below.
-        vm.roll(block.number + masp.cancelDelay());
-
-        uint256[2] memory zCv;
-        // The payer is `vm.etch`ed with MockERC1271 so Permit2's ERC-1271
-        // check passes at submit. That gives it code, and MASP restricts
-        // cancel to the payer itself whenever `payer.code.length != 0` (a
-        // contract payer must observe its own refund). The prank satisfies
-        // that restriction; without it every cancel reverts `PayerNotSender`.
-        vm.prank(payer);
-        // forge-lint: disable-next-line(unsafe-typecast)
-        masp.cancelDeposit(
-            id,
-            preimagePublicIn[id],
-            preimageCm0[id],
-            zCv,
-            ASSET_ID,
-            FEE_BPS,
-            payer,
-            uint32(submitBlock[id]),
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: zCv })
-        );
-
+    function _onCancelled(uint256 id) internal override {
         // Cancel-delay check: at least cancelDelay blocks have passed since
-        // submit. Holds by construction via the roll above.
+        // submit. Holds by construction via the roll in `cancelOne`.
         require(block.number >= submitBlock[id] + masp.cancelDelay(), "cancel before delay");
 
         status[id] = Status.Cancelled;
@@ -218,68 +119,16 @@ contract MaspFlowHandler is Test {
         ghostPendingFee -= feeAt[id];
         cancelCount += 1;
     }
-
-    function sweep() external {
-        masp.sweep(IERC20(address(token)));
-    }
-
-    function advanceBlocks(uint16 n) external {
-        n = uint16(bound(n, 1, 200));
-        vm.roll(block.number + n);
-    }
-
-    function _firstWithStatus(uint256 seed, Status want) internal view returns (uint256) {
-        uint256 n = allIds.length;
-        if (n == 0) return type(uint256).max;
-        uint256 start = seed % n;
-        for (uint256 k = 0; k < n; k++) {
-            uint256 id = allIds[(start + k) % n];
-            if (status[id] == want) return id;
-        }
-        return allIds[start];
-    }
-
-    function idsLen() external view returns (uint256) {
-        return allIds.length;
-    }
 }
 
-contract MaspFlowInvariantTest is Test {
-    IVerifier tubVerifier;
-    IBatchVerifier batchVerifier;
-    address permit2;
-    MockERC20 token;
-    MASP masp;
+contract MaspFlowInvariantTest is EscrowInvariantTestBase {
     MaspFlowHandler handler;
 
-    address payer = address(0xface);
-
     function setUp() public {
-        ISignatureTransfer p2;
-        (tubVerifier, batchVerifier, p2) = realVerifierStack();
-        permit2 = address(p2);
-        token = new MockERC20("M", "M", 18);
-
-        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
-            singleAsset(IERC20(address(token)), 1, 1e10);
-
-        masp = deployPoolUniform(tubVerifier, batchVerifier, p2, ids, tokens, scales, 25, address(0xfee), address(this));
-
-        Stubs.installPermissiveERC1271(payer);
-
-        // Accept tree-update proofs: the only flushBatch dependency that needs a depth-10 proof.
-        Stubs.acceptTreeUpdateProofs(tubVerifier, true);
+        _setUpPool();
 
         handler = new MaspFlowHandler(masp, permit2, token, payer, masp.currentRoot());
-        targetContract(address(handler));
-
-        bytes4[] memory selectors = new bytes4[](5);
-        selectors[0] = handler.submit.selector;
-        selectors[1] = handler.flushOne.selector;
-        selectors[2] = handler.cancelOne.selector;
-        selectors[3] = handler.sweep.selector;
-        selectors[4] = handler.advanceBlocks.selector;
-        targetSelector(FuzzSelector({ addr: address(handler), selectors: selectors }));
+        _targetHandler(handler, handler.submit.selector);
     }
 
     /// Conservation: pool balance equals the pending principal + pending

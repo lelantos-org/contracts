@@ -187,7 +187,10 @@ hook lands), surplus paid to `refundTo`, and a missing floor check.
 
 | File | Role |
 | --- | --- |
-| `EchidnaMasp.sol` | Plain-asset target: handlers (honest, adversarial and withdraw), ghost bookkeeping, properties, optimization targets. |
+| `EchidnaMasp.sol` | Plain-asset target (the deployed contract): properties and optimization targets. Inherits the three modules below. |
+| `EchidnaMaspBase.sol` | Plain-asset target, abstract base: constants, ghost bookkeeping, constructor (pool and mock deployment), shared helpers. |
+| `EchidnaMaspHandlers.sol` | Plain-asset target, honest handlers: escrow, withdraw and transfer, root ring, guardian pause. |
+| `EchidnaMaspAdversarial.sol` | Plain-asset target, negative-space handlers: tampered digests, early cancel, double drain, stranger cancel. |
 | `EchidnaMaspYield.sol` | Indexed-asset target: shield/settle/exit plus venue growth, loss, illiquidity and maintenance. |
 | `EchidnaMaspPayer.sol` | The fixture payer as a real contract — permissive ERC-1271, and able to originate its own calls. Used only by the plain target; the yield target uses `depositAuthorized` and is its own payer. |
 | `EchidnaMaspReachability.t.sol` | A `forge test` gate proving each handler actually lands. See below. |
@@ -198,7 +201,7 @@ hook lands), surplus paid to `refundTo`, and a missing floor check.
 ## Where it diverges from the Foundry handlers
 
 Echidna runs on hevm, whose cheatcode set is smaller than Foundry's. Three
-things had to change, all noted at their sites in `EchidnaMasp.sol`:
+things had to change, all noted at their sites in `EchidnaMasp.sol` and its modules:
 
 - **Tree-update verifier.** The Foundry suites stub it with `vm.mockCall`; hevm
   has no `mockCall`, so this one uses `MockTreeUpdateVerifier`, a real contract.

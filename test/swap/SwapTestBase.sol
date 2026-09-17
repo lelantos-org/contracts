@@ -1,68 +1,49 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
-import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
-
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { SwapIntent } from "./SwapIntent.sol";
-import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 
-import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockSwapAdapter } from "./mocks/MockSwapAdapter.sol";
-import { MockMASPSwap } from "./mocks/MockMASPSwap.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { FixtureLoader } from "../utils/FixtureLoader.sol";
+import { WrapperTestBase } from "../utils/WrapperTestBase.sol";
 
 /// Deployment and payload scaffolding shared by the `SwapWrapper` suites.
 ///
-/// Deploys the pool, wrapper, adapter and Permit2 and provides the payload
-/// builders, so every suite tests the same deployment and a change to the
-/// wrapper's constructor or to `SwapArgs` is made in one place.
+/// `WrapperTestBase` deploys the stub pool, Permit2 and tokens A and B; this
+/// adds the wrapper and adapter and the payload builders, so every suite tests
+/// the same deployment and a change to the wrapper's constructor or to
+/// `SwapArgs` is made in one place.
 ///
 /// `_registerExtraAssets` is the extension point: the binding suite registers a
 /// third asset, the only structural difference between the setups.
-abstract contract SwapTestBase is Test {
-    uint64 internal constant ASSET_A = 1;
-    uint64 internal constant ASSET_B = 2;
-    uint256 internal constant SCALE = TestConstants.SCALE;
-    uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
+abstract contract SwapTestBase is WrapperTestBase {
     address internal constant OWNER = address(0xC0FFEE);
     address internal constant TREASURY = TestConstants.TREASURY;
     address internal constant SWAP_REFUND_TO = TestConstants.SWAP_REFUND_TO;
 
-    MockERC20 internal tokenA;
-    MockERC20 internal tokenB;
-    IAllowanceTransfer internal permit2;
-    MockMASPSwap internal pool;
     MockSwapAdapter internal adapter;
     SwapWrapper internal wrapper;
 
-    function setUp() public virtual {
-        permit2 = IAllowanceTransfer(new DeployPermit2().deployPermit2());
-        tokenA = new MockERC20("Token A", "TKA", 18);
-        tokenB = new MockERC20("Token B", "TKB", 18);
+    function setUp() public virtual override {
+        super.setUp();
+        _registerExtraAssets();
+    }
 
-        pool = new MockMASPSwap(permit2);
-        pool.registerAsset(ASSET_A, address(tokenA), SCALE);
-        pool.registerAsset(ASSET_B, address(tokenB), SCALE);
-        pool.setFeeBps(FEE_BPS);
-
+    /// B is armed for the output note, A because a refund escrows `tokenIn`
+    /// back; `WrapperTestBase` arms both once this returns.
+    function _deployWrapper() internal override {
         adapter = new MockSwapAdapter();
         wrapper = new SwapWrapper(pool, permit2, OWNER, TREASURY);
 
         vm.prank(OWNER);
         wrapper.setAdapterAllowed(address(adapter), true);
+    }
 
-        wrapper.prepareToken(IERC20(address(tokenB)));
-        // A refund escrows `tokenIn` back.
-        wrapper.prepareToken(IERC20(address(tokenA)));
-
-        _registerExtraAssets();
+    function _wrapperAddress() internal view override returns (address) {
+        return address(wrapper);
     }
 
     /// Override to register further assets before the suite's first test. Runs
@@ -78,18 +59,36 @@ abstract contract SwapTestBase is Test {
         return wrapper.swap(SwapIntent.bind(a));
     }
 
-    function _emptyProof() internal pure returns (IMASPPool.Proof memory) {
-        return IMASPPool.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
-    }
-
-    function _emptyTpi() internal pure returns (PubInputs.SpendTree memory tpi) {
-        tpi.newRoot = bytes32(0);
-    }
-
-    /// Default-zero `AuxValidation.Output`s; `ciphertext` defaults to empty.
-    /// The wrapper does not validate aux, so these suites do not populate it;
+    /// The well-formed payload every suite starts from: withdraw `piOut` units
+    /// of A into the wrapper, swap at least `amountIn` of it through the allowed
+    /// adapter for `minOut` of B, and escrow a `depositIn`-unit B note, with the
+    /// refund note sized to the withdraw. No deadline; the test contract drives.
+    /// Suites overwrite the fields their test is about.
+    ///
+    /// `tpi_w` and every aux payload stay zero, `ciphertext` empty: the wrapper
+    /// does not validate aux, so these suites do not populate it;
     /// `AuxValidation` is covered by the MASP tests.
-    function _emptyAux() internal pure returns (AuxValidation.Output[6] memory aux) { }
+    function _defaultSwapArgs(uint256 amountIn, uint256 minOut, uint64 piOut, uint64 depositIn)
+        internal
+        view
+        returns (SwapWrapper.SwapArgs memory a)
+    {
+        a.p_w = FixtureLoader.emptyPoolProof();
+        a.tp_w = FixtureLoader.emptyPoolProof();
+        a.pi_w = _piWithdraw(piOut, address(wrapper));
+        a.deposit_d = _request(depositIn, address(wrapper));
+        a.refund_d = _refundRequest(piOut);
+        a.adapter = address(adapter);
+        a.route = abi.encode(uint24(500), uint160(0));
+        a.deadline = type(uint256).max;
+        // Distinct from the driver, so a refund that follows `payer` fails the
+        // escrow-recovery tests.
+        a.refundTo = SWAP_REFUND_TO;
+        a.tokenIn = address(tokenA);
+        a.tokenOut = address(tokenB);
+        a.amountIn = amountIn;
+        a.minOut = minOut;
+    }
 
     function _piWithdraw(uint64 publicOut, address recipient) internal view returns (PubInputs.Transact memory pi) {
         pi.publicAssetId = ASSET_A;
@@ -101,21 +100,8 @@ abstract contract SwapTestBase is Test {
         pi.payer = address(this);
     }
 
-    /// The A note a swap withdrawing `publicOut` units refunds to: the largest
-    /// round deposit whose pull, fee included, fits what the withdraw nets.
-    function _refundRequest(uint64 publicOut) internal view returns (PubInputs.DepositRequest memory d) {
-        d = _request(uint64((uint256(publicOut) * (10_000 - 2 * uint256(FEE_BPS))) / 10_000), address(wrapper));
-        d.publicAssetId = ASSET_A;
-        d.outCm = bytes32(uint256(2));
-    }
-
-    function _request(uint64 publicIn, address payer) internal view returns (PubInputs.DepositRequest memory d) {
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_B;
-        d.publicIn = publicIn;
-        d.payer = payer;
-        d.recipient = address(0xBEEF);
-        d.outCm = bytes32(uint256(1));
-        d.feeCm = bytes32(uint256(0xfee));
+    /// The B output note of `publicIn` units, paid by `payer`.
+    function _request(uint64 publicIn, address payer) internal view returns (PubInputs.DepositRequest memory) {
+        return _noteRequest(ASSET_B, publicIn, payer);
     }
 }

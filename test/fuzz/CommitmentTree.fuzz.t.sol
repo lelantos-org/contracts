@@ -2,7 +2,7 @@
 pragma solidity 0.8.36;
 
 import { Test } from "forge-std/Test.sol";
-import { CommitmentTreeHarness } from "./CommitmentTreeHarness.sol";
+import { CommitmentTreeHarness } from "../utils/CommitmentTreeHarness.sol";
 
 /// Fuzzes the lazy-root ring buffer in isolation, independent of the SNARK.
 /// `_advanceRoot` is a state machine over (roots, rootIndex, committedCount), and

@@ -8,10 +8,8 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
-import { SpendFixture } from "../utils/SpendFixture.sol";
 import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
@@ -31,7 +29,7 @@ contract MASPFlushBatchSnarkTest is Test {
     MockERC20 token;
     MASP masp;
 
-    address payer = address(0xface);
+    address payer = TestConstants.ESCROW_PAYER;
     address recipient = address(0xb0b);
 
     function setUp() public {
@@ -45,10 +43,6 @@ contract MASPFlushBatchSnarkTest is Test {
         masp = deployPoolUniform(tub, bv, p2, ids, tokens, scales, FEE_BPS, TREASURY, OWNER);
 
         Stubs.installPermissiveERC1271(payer);
-    }
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        return SpendFixture.validAux();
     }
 
     function _loadFixture()

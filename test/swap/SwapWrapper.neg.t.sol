@@ -9,27 +9,14 @@ import { SwapTestBase } from "./SwapTestBase.sol";
 contract SwapWrapperNegTest is SwapTestBase {
     // --- helpers -----------------------------------------------------------
 
+    /// `_defaultSwapArgs` with an explicit deadline.
     function _args(uint256 amountIn, uint256 minOut, uint64 piOut, uint64 depositIn, uint256 deadline)
         internal
         view
         returns (SwapWrapper.SwapArgs memory a)
     {
-        a.p_w = _emptyProof();
-        a.tp_w = _emptyProof();
-        a.pi_w = _piWithdraw(piOut, address(wrapper));
-        a.tpi_w = _emptyTpi();
-        a.aux_w = _emptyAux();
-        a.deposit_d = _request(depositIn, address(wrapper));
-        a.aux_d = _emptyAux()[0];
-        a.refund_d = _refundRequest(piOut);
-        a.adapter = address(adapter);
-        a.route = abi.encode(uint24(500), uint160(0));
+        a = _defaultSwapArgs(amountIn, minOut, piOut, depositIn);
         a.deadline = deadline;
-        a.refundTo = SWAP_REFUND_TO;
-        a.tokenIn = address(tokenA);
-        a.tokenOut = address(tokenB);
-        a.amountIn = amountIn;
-        a.minOut = minOut;
     }
 
     // --- deadline ----------------------------------------------------------

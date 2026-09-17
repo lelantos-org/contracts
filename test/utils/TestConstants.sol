@@ -22,6 +22,12 @@ library TestConstants {
     uint16 internal constant FEE_BPS = 25;
 
     address internal constant TREASURY = address(0xfee);
+    /// The escrow payer of suites driving `deposit` through Permit2. It has no
+    /// private key; suites etch a permissive ERC-1271 stub at it
+    /// (`Stubs.installPermissiveERC1271`) so any signature bytes are accepted.
+    address internal constant ESCROW_PAYER = address(0xface);
+    /// The relayer spends are bound to.
+    address internal constant RELAYER = address(0xCA11);
     address internal constant OWNER = address(0x0117e7);
     address internal constant RECIPIENT = address(0xF00D);
     /// A swap's intent-bound `refundTo`, distinct from every driver.

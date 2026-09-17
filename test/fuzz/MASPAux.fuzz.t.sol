@@ -61,10 +61,6 @@ contract MASPAuxFuzzTest is Test {
         aux[0].ciphertext = c0;
     }
 
-    function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return FixtureLoader.emptyProof();
-    }
-
     /// Valid aux: length within [MIN_LEN, MAX_LEN] and the clueBits prefix's top
     /// two bits zero. Aux validation passes and the transaction reverts later
     /// on `UnknownAsset` (registry empty).
@@ -85,7 +81,7 @@ contract MASPAuxFuzzTest is Test {
 
         vm.prank(relayer);
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(0)));
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux(ct0, ct1));
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, _aux(ct0, ct1));
     }
 
     /// Length below MIN_LEN → CiphertextTooShort; above MAX_LEN → CiphertextTooLong.
@@ -110,7 +106,7 @@ contract MASPAuxFuzzTest is Test {
         vm.expectRevert(
             badLen < MIN_LEN ? AuxValidation.CiphertextTooShort.selector : AuxValidation.CiphertextTooLong.selector
         );
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux(ct0, ct1));
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, _aux(ct0, ct1));
     }
 
     /// Top two bits of the clueBits prefix non-zero → BadClueBits.
@@ -126,7 +122,7 @@ contract MASPAuxFuzzTest is Test {
 
         vm.prank(relayer);
         vm.expectRevert(AuxValidation.BadClueBits.selector);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux(ct0, ct1));
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, _aux(ct0, ct1));
     }
 
     function _truncate(bytes memory b, uint256 maxLen) internal pure returns (bytes memory) {

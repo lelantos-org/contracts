@@ -63,7 +63,14 @@ function poolInitCalldata(
 
 /// Puts an already-deployed implementation behind the standard test proxy.
 function deployBehindProxy(address impl, bytes memory initData) returns (address) {
-    return address(new DelayedUpgradeProxy(impl, initData, TEST_PROXY_ADMIN, TEST_UPGRADE_DELAY, TEST_MAX_PAUSE));
+    return deployBehindProxyAs(impl, initData, TEST_PROXY_ADMIN);
+}
+
+/// `deployBehindProxy` with `admin` as the proxy admin, for harnesses that must
+/// call the `onlyAdmin` surface (the guardian pause) and cannot impersonate
+/// `TEST_PROXY_ADMIN`, such as Echidna targets.
+function deployBehindProxyAs(address impl, bytes memory initData, address admin) returns (address) {
+    return address(new DelayedUpgradeProxy(impl, initData, admin, TEST_UPGRADE_DELAY, TEST_MAX_PAUSE));
 }
 
 /// Deploys an implementation behind a proxy and initializes it through the

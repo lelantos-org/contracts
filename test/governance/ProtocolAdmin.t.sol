@@ -212,14 +212,10 @@ contract ProtocolAdminTest is GovTestBase {
     /// Self-calls are rejected; they would let `execute` reach the role surface
     /// with `msg.sender == address(this)`.
     function test_executeRejectsSelfCall() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(protocolAdmin), abi.encodeCall(MASP.setCancelDelay, (1))))
-        );
+        (address[] memory t, uint256[] memory v, bytes[] memory c) =
+            _adminCall(address(protocolAdmin), abi.encodeCall(MASP.setCancelDelay, (1)));
         string memory d = "self call";
-        _proposeAndSucceed(t, v, c, d);
-        governor.queue(t, v, c, keccak256(bytes(d)));
-        vm.warp(governor.proposalEta(governor.hashProposal(t, v, c, keccak256(bytes(d)))) + 1);
+        _queueToEta(t, v, c, d);
         vm.expectRevert();
         governor.execute(t, v, c, keccak256(bytes(d)));
     }

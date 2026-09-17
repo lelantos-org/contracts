@@ -10,13 +10,14 @@ import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.so
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
+import { FeeMath } from "../utils/FeeMath.sol";
 
 contract MASPCancelDepositTest is Test {
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
@@ -28,7 +29,7 @@ contract MASPCancelDepositTest is Test {
     MockERC20 token;
     MASP masp;
 
-    address payer = address(0xface);
+    address payer = TestConstants.ESCROW_PAYER;
     address recipient = address(0xb0b);
     address bystander = address(0xdead);
     /// EOA payer with no code, so the permissionless cancel path applies.
@@ -54,10 +55,6 @@ contract MASPCancelDepositTest is Test {
         return cv;
     }
 
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        return SpendFixture.validAux();
-    }
-
     uint256 private _nextNonce;
 
     struct _Preimage {
@@ -72,25 +69,16 @@ contract MASPCancelDepositTest is Test {
 
     function _submit(uint64 publicIn) internal returns (uint256 id, uint256 inAmt, uint256 fee) {
         inAmt = uint256(publicIn) * SCALE;
-        fee = (inAmt * FEE_BPS) / 10_000;
+        fee = FeeMath.fee(inAmt, FEE_BPS);
         token.mint(payer, inAmt + fee);
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        PubInputs.DepositRequest memory d;
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = publicIn;
-        d.payer = payer;
-        d.recipient = recipient;
-        d.outCm = bytes32(uint256(0x111 + _nextNonce));
-        d.feeCm = bytes32(uint256(0xfee));
+        PubInputs.DepositRequest memory d =
+            DepositFixture.request(ASSET_ID, publicIn, payer, recipient, bytes32(uint256(0x111 + _nextNonce)));
+        MASP.Permit2Sig memory sig = DepositFixture.sig(_nextNonce++);
 
-        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: _nextNonce++, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
-
-        id = masp.deposit(d, sig, _aux()[0], _aux()[1]);
+        id = masp.deposit(d, sig, SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
         _pre[id] = _Preimage({
             publicIn: uint48(publicIn), fbps: FEE_BPS, cm: d.outCm, cvDep: d.cvDep, submittedAt: uint32(block.number)
         });
@@ -101,22 +89,16 @@ contract MASPCancelDepositTest is Test {
     /// stub, which MASP classifies as a contract payer.
     function _submitEoa(uint64 publicIn) internal returns (uint256 id, uint256 inAmt, uint256 fee) {
         inAmt = uint256(publicIn) * SCALE;
-        fee = (inAmt * FEE_BPS) / 10_000;
+        fee = FeeMath.fee(inAmt, FEE_BPS);
         token.mint(eoaPayer, inAmt + fee);
 
         vm.startPrank(eoaPayer);
         token.approve(address(permit2), type(uint256).max);
         IAllowanceTransfer(permit2).approve(address(token), address(masp), type(uint160).max, type(uint48).max);
 
-        PubInputs.DepositRequest memory d;
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = publicIn;
-        d.payer = eoaPayer;
-        d.recipient = recipient;
-        d.outCm = bytes32(uint256(0x222 + _nextNonce++));
-        d.feeCm = bytes32(uint256(0xfee));
-        id = masp.depositAuthorized(d, _aux()[0], _aux()[1]);
+        PubInputs.DepositRequest memory d =
+            DepositFixture.request(ASSET_ID, publicIn, eoaPayer, recipient, bytes32(uint256(0x222 + _nextNonce++)));
+        id = masp.depositAuthorized(d, SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
         vm.stopPrank();
 
         _pre[id] = _Preimage({
@@ -128,15 +110,7 @@ contract MASPCancelDepositTest is Test {
         _Preimage memory p = _pre[id];
         vm.prank(caller);
         masp.cancelDeposit(
-            id,
-            p.publicIn,
-            p.cm,
-            p.cvDep,
-            ASSET_ID,
-            p.fbps,
-            eoaPayer,
-            p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps, eoaPayer, p.submittedAt, DepositFixture.feeNote()
         );
     }
 
@@ -146,15 +120,7 @@ contract MASPCancelDepositTest is Test {
         _Preimage memory p = _pre[id];
         vm.prank(payer);
         masp.cancelDeposit(
-            id,
-            p.publicIn,
-            p.cm,
-            p.cvDep,
-            ASSET_ID,
-            p.fbps,
-            payer,
-            p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps, payer, p.submittedAt, DepositFixture.feeNote()
         );
     }
 
@@ -206,15 +172,7 @@ contract MASPCancelDepositTest is Test {
         vm.prank(bystander);
         vm.expectRevert(MASP.PayerNotSender.selector);
         masp.cancelDeposit(
-            id,
-            p.publicIn,
-            p.cm,
-            p.cvDep,
-            ASSET_ID,
-            p.fbps,
-            payer,
-            p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps, payer, p.submittedAt, DepositFixture.feeNote()
         );
     }
 
@@ -276,15 +234,7 @@ contract MASPCancelDepositTest is Test {
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
         masp.cancelDeposit(
-            id,
-            p.publicIn,
-            p.cm,
-            p.cvDep,
-            ASSET_ID,
-            p.fbps,
-            bystander,
-            p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps, bystander, p.submittedAt, DepositFixture.feeNote()
         );
     }
 
@@ -295,15 +245,7 @@ contract MASPCancelDepositTest is Test {
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
         masp.cancelDeposit(
-            id,
-            p.publicIn,
-            p.cm,
-            p.cvDep,
-            ASSET_ID,
-            p.fbps,
-            payer,
-            p.submittedAt - 1,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps, payer, p.submittedAt - 1, DepositFixture.feeNote()
         );
     }
 
@@ -313,15 +255,7 @@ contract MASPCancelDepositTest is Test {
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
         masp.cancelDeposit(
-            id,
-            p.publicIn,
-            p.cm,
-            p.cvDep,
-            ASSET_ID,
-            p.fbps + 1,
-            payer,
-            p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id, p.publicIn, p.cm, p.cvDep, ASSET_ID, p.fbps + 1, payer, p.submittedAt, DepositFixture.feeNote()
         );
     }
 
@@ -331,15 +265,7 @@ contract MASPCancelDepositTest is Test {
         _Preimage memory p = _pre[id];
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
         masp.cancelDeposit(
-            id,
-            p.publicIn,
-            p.cm,
-            p.cvDep,
-            ASSET_ID + 1,
-            p.fbps,
-            payer,
-            p.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: _zeroCv() })
+            id, p.publicIn, p.cm, p.cvDep, ASSET_ID + 1, p.fbps, payer, p.submittedAt, DepositFixture.feeNote()
         );
     }
 

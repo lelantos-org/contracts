@@ -18,6 +18,8 @@ import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { FixtureLoader } from "./FixtureLoader.sol";
 import { SpendFixture } from "./SpendFixture.sol";
+import { DepositFixture } from "./DepositFixture.sol";
+import { FeeMath } from "./FeeMath.sol";
 import { deployPoolUniform, singleAsset } from "./PoolDeployer.sol";
 import { Stubs } from "./Stubs.sol";
 import { TestConstants } from "./TestConstants.sol";
@@ -40,7 +42,7 @@ abstract contract EscrowFlowBase is Test {
 
     /// The relayer fee note every deposit here carries. It has zero value, but
     /// its leaf is still inserted, so a deposit always occupies two leaves.
-    bytes32 internal constant FEE_CM = bytes32(uint256(0xfee));
+    bytes32 internal constant FEE_CM = DepositFixture.FEE_CM;
 
     TreeUpdateBatchGroth16Verifier internal tubVerifier;
     BatchedGroth16Verifier internal batchVerifier;
@@ -54,7 +56,7 @@ abstract contract EscrowFlowBase is Test {
     /// Fixture payer, carrying a permissive ERC-1271 stub so Permit2 accepts any
     /// signature bytes. This makes it a contract payer, so only it may cancel its
     /// own escrows.
-    address internal payer = address(0xface);
+    address internal payer = TestConstants.ESCROW_PAYER;
     address internal recipient = address(0xb0b);
 
     function setUp() public virtual {
@@ -101,27 +103,15 @@ abstract contract EscrowFlowBase is Test {
     /// `_depositCall` so a test can place `vm.expectRevert` immediately before
     /// the pool call, which a mint or prank in between would consume.
     function _fundPayer(uint64 publicIn) internal {
-        uint256 inAmt = uint256(publicIn) * SCALE;
-        token.mint(payer, inAmt + (inAmt * FEE_BPS) / 10_000);
+        token.mint(payer, FeeMath.gross(publicIn, SCALE, FEE_BPS));
         vm.prank(payer);
         token.approve(permit2, type(uint256).max);
     }
 
     function _depositCall(uint64 publicIn, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
-        PubInputs.DepositRequest memory d;
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = publicIn;
-        d.payer = payer;
-        d.recipient = recipient;
-        d.outCm = cm;
-        d.feeCm = FEE_CM;
-
+        PubInputs.DepositRequest memory d = DepositFixture.request(ASSET_ID, publicIn, payer, recipient, cm);
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
-        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: nonce, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
-        return masp.deposit(d, sig, aux[0], aux[1]);
+        return masp.deposit(d, DepositFixture.sig(nonce), aux[0], aux[1]);
     }
 
     /// Funds the payer and escrows a deposit in one step.
@@ -134,39 +124,21 @@ abstract contract EscrowFlowBase is Test {
     /// treasury's fee. A deposit occupies two adjacent leaves (principal and the
     /// note paying the flusher), so the tree advances by two.
     function _flush(uint256 id, uint64 publicIn, bytes32 cm) internal {
-        PubInputs.TreeUpdateBatch memory tpi;
-        tpi.oldRoot = masp.currentRoot();
-        // Must stay inside the BN254 scalar field: `PubInputs.compress` rejects
-        // an out-of-field coefficient.
-        tpi.newRoot = bytes32(uint256(0xfeedbeef));
-        tpi.startIndex = masp.committedCount();
-        tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
-        tpi.cms[0] = cm;
-        tpi.cms[1] = FEE_CM;
-        tpi.leafAsset[0] = ASSET_ID;
-        tpi.leafPublicIn[0] = publicIn;
-        tpi.isDeposit[0] = 1;
-        // Zero value, so asset 0: the circuit canonicalises the asset of a
-        // leaf whose Pedersen binding cannot see it (step 6a), and
-        // `_drainDeposit` requires the match.
-        tpi.leafAsset[1] = 0;
-        tpi.leafPublicIn[1] = 0;
-        tpi.isDeposit[1] = 1;
-
-        MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: uint32(block.number), fbps: FEE_BPS });
-        uint256[] memory ids = new uint256[](1);
-        ids[0] = id;
+        // The new root must stay inside the BN254 scalar field:
+        // `PubInputs.compress` rejects an out-of-field coefficient.
+        PubInputs.TreeUpdateBatch memory tpi =
+            DepositFixture.batch(masp.currentRoot(), bytes32(uint256(0xfeedbeef)), masp.committedCount(), 1);
+        DepositFixture.setDepositLeaves(tpi, 0, cm, ASSET_ID, publicIn);
+        MASP.DepositMeta[] memory meta = DepositFixture.metas(1, payer, uint32(block.number), FEE_BPS);
 
         Stubs.acceptTreeUpdateProofs(IVerifier(address(tubVerifier)), true);
-        masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
+        masp.flushBatch(DepositFixture.ids(id), meta, FixtureLoader.emptyProof(), tpi);
         vm.clearMockedCalls();
     }
 
     /// Deposits then flushes. Returns the treasury fee accrued by the flush.
     function _depositAndFlush(uint64 publicIn, bytes32 cm) internal returns (uint256 fee) {
-        uint256 inAmt = uint256(publicIn) * SCALE;
-        fee = (inAmt * FEE_BPS) / 10_000;
+        fee = FeeMath.fee(uint256(publicIn) * SCALE, FEE_BPS);
         _flush(_deposit(publicIn, cm, 0), publicIn, cm);
     }
 }

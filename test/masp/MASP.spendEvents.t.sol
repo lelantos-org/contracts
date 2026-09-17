@@ -1,21 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test, Vm } from "forge-std/Test.sol";
+import { Vm } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
-
-import { MASP } from "../../src/MASP.sol";
-import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
-import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
-import { deployPoolUniform, mockVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
+import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
+import { singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
@@ -23,19 +17,10 @@ import { TestConstants } from "../utils/TestConstants.sol";
 /// points rather than the shared note-emit helper, so these tests fix which
 /// paths emit it and with which arguments. Both verifiers are mocked to
 /// accept.
-contract MASPSpendEventsTest is Test {
-    uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
-    uint256 internal constant SCALE = TestConstants.SCALE;
+contract MASPSpendEventsTest is MockPoolTestBase {
     uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
 
-    address internal constant RELAYER = address(0xCA11);
     address internal constant PAYER = address(0xBEEF);
-    address internal constant RECIPIENT = TestConstants.RECIPIENT;
-
-    MockERC20 token;
-    IVerifier tubVerifier;
-    MockBatchVerifier batchVerifier;
-    MASP masp;
 
     event AssetMoved(
         uint64 indexed assetId,
@@ -58,32 +43,14 @@ contract MASPSpendEventsTest is Test {
 
     function setUp() public {
         token = new MockERC20("M", "M", 18);
-        ISignatureTransfer permit2;
-        (tubVerifier, batchVerifier, permit2) = mockVerifierStack();
 
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
             singleAsset(IERC20(address(token)), ASSET_ID, SCALE);
 
-        masp = deployPoolUniform(
-            tubVerifier, batchVerifier, permit2, ids, tokens, scales, FEE_BPS, address(0xfee), address(this)
-        );
+        _deployMockPool(ids, tokens, scales, FEE_BPS, address(0xfee), address(this));
 
         token.mint(address(masp), 100 * SCALE);
-        Stubs.acceptAllProofs(tubVerifier, batchVerifier);
-    }
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        for (uint256 j = 0; j < aux.length; j++) {
-            aux[j].clueRx = BabyJubJub.BASE8_X;
-            aux[j].clueRy = BabyJubJub.BASE8_Y;
-            aux[j].ephPubX = BabyJubJub.BASE8_X;
-            aux[j].ephPubY = BabyJubJub.BASE8_Y;
-            aux[j].ciphertext = hex"0001";
-        }
-    }
-
-    function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return FixtureLoader.emptyProof();
+        Stubs.acceptAllProofs(tub, bv);
     }
 
     function _spend(uint64 publicOut)
@@ -91,15 +58,9 @@ contract MASPSpendEventsTest is Test {
         view
         returns (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi)
     {
-        bytes32 genesis = masp.currentRoot();
-        pi.chainId = block.chainid;
+        pi = _transact(PAYER, RELAYER, 0x1111, 0x3333);
         pi.publicAssetId = ASSET_ID;
         pi.publicOut = publicOut;
-        pi.recipient = RECIPIENT;
-        pi.payer = PAYER;
-        pi.relayer = RELAYER;
-        SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
-        pi.merkleRoot = genesis;
 
         tpi = SpendFixture.spendTree(bytes32(uint256(0xABCD)), 0);
     }
@@ -116,7 +77,7 @@ contract MASPSpendEventsTest is Test {
         emit AssetMoved(ASSET_ID, IERC20(address(token)), 0, gross, 0, 7);
 
         vm.prank(RELAYER);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
         // The recipient receives gross minus fee; the fee accrues to the pool.
         uint256 fee = (gross * FEE_BPS) / 10_000;
@@ -131,7 +92,7 @@ contract MASPSpendEventsTest is Test {
 
         vm.recordLogs();
         vm.prank(RELAYER);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         // The signature must match the event's declaration: a mismatched topic
@@ -153,7 +114,7 @@ contract MASPSpendEventsTest is Test {
 
         vm.recordLogs();
         vm.prank(RELAYER);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 notePayloadSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
@@ -184,7 +145,7 @@ contract MASPSpendEventsTest is Test {
 
         vm.recordLogs();
         vm.prank(RELAYER);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         bytes32 nfSig = keccak256("NullifierConsumed(bytes32)");

@@ -15,7 +15,7 @@ import { MASPTestBase } from "../utils/MASPTestBase.sol";
 /// destructive `setAssets`, so the owner cannot strand funds by removing an
 /// asset the pool still holds notes for.
 contract MASPAssetsTest is MASPTestBase {
-    function testAddAssetRegistersEntry() public {
+    function test_addAssetRegistersEntry() public {
         MockERC20 newTok = new MockERC20("New", "NEW", 18);
 
         vm.prank(OWNER);
@@ -27,7 +27,7 @@ contract MASPAssetsTest is MASPTestBase {
         assertFalse(a.disabled);
     }
 
-    function testAddAssetOnlyOwner() public {
+    function test_addAssetOnlyOwner() public {
         MockERC20 newTok = new MockERC20("New", "NEW", 18);
         address attacker = address(0xa11ce);
         vm.prank(attacker);
@@ -35,27 +35,27 @@ contract MASPAssetsTest is MASPTestBase {
         masp.addAsset(2, IERC20(address(newTok)), 1, 0, 0);
     }
 
-    function testAddAssetRevertsDuplicate() public {
+    function test_addAssetRevertsDuplicate() public {
         MockERC20 newTok = new MockERC20("New", "NEW", 18);
         vm.prank(OWNER);
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.DuplicateAsset.selector, ASSET_ID));
         masp.addAsset(ASSET_ID, IERC20(address(newTok)), 1, 0, 0);
     }
 
-    function testAddAssetRevertsZeroToken() public {
+    function test_addAssetRevertsZeroToken() public {
         vm.prank(OWNER);
         vm.expectRevert(AssetRegistry.ZeroToken.selector);
         masp.addAsset(3, IERC20(address(0)), 1, 0, 0);
     }
 
-    function testAddAssetRevertsZeroScale() public {
+    function test_addAssetRevertsZeroScale() public {
         MockERC20 newTok = new MockERC20("X", "X", 18);
         vm.prank(OWNER);
         vm.expectRevert(AssetRegistry.ZeroScale.selector);
         masp.addAsset(3, IERC20(address(newTok)), 0, 0, 0);
     }
 
-    function testAddAssetEmitsRegistered() public {
+    function test_addAssetEmitsRegistered() public {
         MockERC20 newTok = new MockERC20("New", "NEW", 18);
         vm.expectEmit(true, true, false, true, address(masp));
         emit AssetRegistry.AssetRegistered(7, IERC20(address(newTok)), 42);
@@ -63,20 +63,20 @@ contract MASPAssetsTest is MASPTestBase {
         masp.addAsset(7, IERC20(address(newTok)), 42, 0, 0);
     }
 
-    function testSetAssetDisabledOnlyOwner() public {
+    function test_setAssetDisabledOnlyOwner() public {
         address attacker = address(0xa11ce);
         vm.prank(attacker);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", attacker));
         masp.setAssetDisabled(ASSET_ID, true);
     }
 
-    function testSetAssetDisabledRevertsUnknown() public {
+    function test_setAssetDisabledRevertsUnknown() public {
         vm.prank(OWNER);
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(99)));
         masp.setAssetDisabled(99, true);
     }
 
-    function testSetAssetDisabledTogglesFlag() public {
+    function test_setAssetDisabledTogglesFlag() public {
         vm.expectEmit(true, false, false, true, address(masp));
         emit AssetRegistry.AssetDisabledSet(ASSET_ID, true);
         vm.prank(OWNER);
@@ -91,7 +91,7 @@ contract MASPAssetsTest is MASPTestBase {
         assertFalse(a.disabled);
     }
 
-    function testDisabledAssetBlocksSubmit() public {
+    function test_disabledAssetBlocksSubmit() public {
         vm.prank(OWNER);
         masp.setAssetDisabled(ASSET_ID, true);
 
@@ -113,7 +113,7 @@ contract MASPAssetsTest is MASPTestBase {
         masp.deposit(d, sig, aux[0], aux[1]);
     }
 
-    function testUnknownAssetSubmitReverts() public {
+    function test_unknownAssetSubmitReverts() public {
         PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = 99;

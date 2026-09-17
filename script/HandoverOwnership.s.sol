@@ -28,6 +28,8 @@ contract HandoverOwnership is Script {
     string constant DEFAULT_CONFIG = "script/config/mainnet.gov.json";
 
     function run() external {
+        // Governance exists on Ethereum mainnet only; see `DeployGovernance.s.sol`.
+        require(block.chainid == 1, "governance is Ethereum mainnet only");
         string memory j = vm.readFile(vm.envOr("GOV_CONFIG", DEFAULT_CONFIG));
         MASP masp = MASP(vm.parseJsonAddress(j, ".masp"));
         SwapWrapper wrapper = SwapWrapper(payable(vm.parseJsonAddress(j, ".swapWrapper")));

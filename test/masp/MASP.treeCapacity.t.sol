@@ -1,23 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import { MASP } from "../../src/MASP.sol";
-import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
 import { MASPSpendHarness, deploySpendHarness } from "../utils/MASPSpendHarness.sol";
-import { mockVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
-import { TestConstants } from "../utils/TestConstants.sol";
+import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
+import { singleAsset } from "../utils/PoolDeployer.sol";
 
 /// The commitment tree's hard capacity (audit finding #3).
 ///
@@ -34,35 +29,27 @@ import { TestConstants } from "../utils/TestConstants.sol";
 /// the boundary. The spend verifier is a `MockBatchVerifier`, which rejects
 /// until told otherwise, so a spend that clears the capacity check fails next on
 /// `ProofRejected`.
-contract MASPTreeCapacityTest is Test {
+contract MASPTreeCapacityTest is MockPoolTestBase {
     uint256 internal constant MAX_LEAVES = 4_194_304; // CommitmentTree.MAX_LEAVES
-    uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
-    uint256 internal constant SCALE = TestConstants.SCALE;
     uint64 internal constant PUBLIC_IN = 100;
 
-    address internal constant RELAYER = address(0xCA11);
     address internal constant SPEND_PAYER = address(0xBEEF);
-    address internal constant RECIPIENT = TestConstants.RECIPIENT;
     /// Codeless, so its escrow may be cancelled by anyone.
     address internal constant PAYER = address(0xEA0A);
     address internal constant BYSTANDER = address(0xdead);
     bytes32 internal constant FEE_CM = bytes32(uint256(0xfee));
 
-    MASPSpendHarness masp;
-    MockBatchVerifier batchVerifier;
-    MockERC20 token;
-    address permit2;
+    /// `masp` as its harness type, for `seedRoot`.
+    MASPSpendHarness harness;
 
     function setUp() public {
-        IVerifier tub;
-        ISignatureTransfer p2;
-        (tub, batchVerifier, p2) = mockVerifierStack();
-        permit2 = address(p2);
+        _deployMockStack();
         token = new MockERC20("M", "M", 18);
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
             singleAsset(IERC20(address(token)), ASSET_ID, SCALE);
 
-        masp = deploySpendHarness(tub, batchVerifier, p2, ids, tokens, scales, address(0xfee), address(this));
+        harness = deploySpendHarness(tub, bv, permit2, ids, tokens, scales, address(0xfee), address(this));
+        masp = harness;
     }
 
     // --- helpers -----------------------------------------------------------
@@ -73,7 +60,7 @@ contract MASPTreeCapacityTest is Test {
         uint64 inserted = uint64(MAX_LEAVES - remaining - masp.committedCount());
         // A small integer rather than a hash: the root enters the spend's
         // compressed inputs, which reject anything at or above the field modulus.
-        masp.seedRoot(bytes32(uint256(0xf111ed) + remaining), inserted);
+        harness.seedRoot(bytes32(uint256(0xf111ed) + remaining), inserted);
         assertEq(MAX_LEAVES - masp.committedCount(), remaining, "seeded capacity");
     }
 
@@ -84,29 +71,16 @@ contract MASPTreeCapacityTest is Test {
         view
         returns (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi)
     {
-        pi.chainId = block.chainid;
+        pi = _transact(SPEND_PAYER, RELAYER, seed, seed + 0x100);
         pi.publicAssetId = ASSET_ID;
         pi.publicOut = publicOut;
-        pi.recipient = RECIPIENT;
-        pi.payer = SPEND_PAYER;
-        pi.relayer = RELAYER;
-        SpendFixture.fillOutputs(pi, seed, seed + 0x100);
-        pi.merkleRoot = masp.currentRoot();
         tpi = SpendFixture.spendTree(bytes32(seed + 0x200), masp.committedCount(), uint8(masp.rootIndex()));
     }
 
     function _transfer(uint256 seed) internal {
         (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(0, seed);
         vm.prank(RELAYER);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
-    }
-
-    function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return FixtureLoader.emptyProof();
-    }
-
-    function _validAux() internal pure returns (AuxValidation.Output[6] memory) {
-        return SpendFixture.validAux();
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
     /// Escrows one zero-fee deposit from the codeless `PAYER` through the
@@ -114,8 +88,8 @@ contract MASPTreeCapacityTest is Test {
     function _deposit() internal returns (uint256 id, uint32 submittedAt) {
         token.mint(PAYER, uint256(PUBLIC_IN) * SCALE);
         vm.startPrank(PAYER);
-        token.approve(permit2, type(uint256).max);
-        IAllowanceTransfer(permit2).approve(address(token), address(masp), type(uint160).max, type(uint48).max);
+        token.approve(address(permit2), type(uint256).max);
+        IAllowanceTransfer(address(permit2)).approve(address(token), address(masp), type(uint160).max, type(uint48).max);
 
         PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
@@ -125,7 +99,7 @@ contract MASPTreeCapacityTest is Test {
         d.recipient = RECIPIENT;
         d.outCm = bytes32(uint256(0x111));
         d.feeCm = FEE_CM;
-        id = masp.depositAuthorized(d, _validAux()[0], _validAux()[1]);
+        id = masp.depositAuthorized(d, SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
         vm.stopPrank();
         // forge-lint: disable-next-line(unsafe-typecast)
         submittedAt = uint32(block.number);
@@ -158,7 +132,7 @@ contract MASPTreeCapacityTest is Test {
 
         vm.prank(RELAYER);
         vm.expectRevert(MASP.TreeFull.selector);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
     /// Exactly six free leaves pass the capacity check: the rejecting verifier
@@ -170,16 +144,16 @@ contract MASPTreeCapacityTest is Test {
 
         vm.prank(RELAYER);
         vm.expectRevert(MASP.ProofRejected.selector);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
-        batchVerifier.setResult(true);
+        bv.setResult(true);
         _transfer(1);
         assertEq(masp.committedCount(), MAX_LEAVES, "tree exactly full");
 
         (pi, tpi) = _spend(0, 0x1000);
         vm.prank(RELAYER);
         vm.expectRevert(MASP.TreeFull.selector);
-        masp.transfer(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
     /// An unshield also appends six leaves, so a nearly full tree blocks exits
@@ -190,7 +164,7 @@ contract MASPTreeCapacityTest is Test {
 
         vm.prank(RELAYER);
         vm.expectRevert(MASP.TreeFull.selector);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _validAux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
     // --- escrow --------------------------------------------------------------
@@ -203,7 +177,7 @@ contract MASPTreeCapacityTest is Test {
         (uint256[] memory ids, MASP.DepositMeta[] memory meta, PubInputs.TreeUpdateBatch memory tpi) = _flushOneArgs(id);
 
         vm.expectRevert(MASP.TreeFull.selector);
-        masp.flushBatch(ids, meta, _emptyProof(), tpi);
+        masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
 
         assertTrue(masp.escrowed(id) != bytes32(0), "escrow still pending");
     }
@@ -216,7 +190,7 @@ contract MASPTreeCapacityTest is Test {
         (uint256[] memory ids, MASP.DepositMeta[] memory meta, PubInputs.TreeUpdateBatch memory tpi) = _flushOneArgs(id);
 
         vm.expectRevert(MASP.BadDepositMode.selector);
-        masp.flushBatch(ids, meta, _emptyProof(), tpi);
+        masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
     }
 
     /// A full tree strands no escrow: `cancelDeposit` appends no leaf, so it

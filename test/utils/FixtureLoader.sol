@@ -4,6 +4,7 @@ pragma solidity 0.8.36;
 import { Vm } from "forge-std/Vm.sol";
 
 import { MASP } from "../../src/MASP.sol";
+import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { SpendFixture } from "./SpendFixture.sol";
@@ -112,5 +113,11 @@ library FixtureLoader {
 
     function emptyProof() internal pure returns (MASP.Proof memory) {
         return MASP.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
+    }
+
+    /// `emptyProof` as the `IMASPPool` type the satellites (adapters,
+    /// wrappers, Bundler) take.
+    function emptyPoolProof() internal pure returns (IMASPPool.Proof memory) {
+        return IMASPPool.Proof({ a: [uint256(0), 0], b: [[uint256(0), 0], [uint256(0), 0]], c: [uint256(0), 0] });
     }
 }

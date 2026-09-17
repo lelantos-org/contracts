@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
@@ -12,7 +11,6 @@ import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
@@ -21,11 +19,13 @@ import { BatchedGroth16Verifier } from "../../src/verifiers/BatchedGroth16Verifi
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
 import { uniformBps } from "../utils/FeeArrays.sol";
+import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
 import {
     deployBehindProxy,
     deployPoolUniform,
     newPoolImplementation,
-    poolInitCalldata
+    poolInitCalldata,
+    singleAsset
 } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
@@ -33,50 +33,34 @@ import { TestConstants } from "../utils/TestConstants.sol";
 /// Guards with no direct assertion elsewhere in the suite: constructor
 /// dependency checks, registry bounds, spend-path magnitude bounds, batch
 /// mode, and the small-subgroup rejection in `AuxValidation`.
-contract MASPGuardCoverageTest is Test {
-    uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
-    uint256 internal constant SCALE = TestConstants.SCALE;
+contract MASPGuardCoverageTest is MockPoolTestBase {
     uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
-    address internal constant TREASURY = TestConstants.TREASURY;
-    address internal constant RELAYER = address(0xCA11);
     address internal constant PAYER = address(0xBEEF);
-    address internal constant RECIPIENT = TestConstants.RECIPIENT;
 
-    MockERC20 internal token;
-    IVerifier internal tub;
-    MockBatchVerifier internal bv;
     /// Real contracts, used only by the constructor probe tests.
     Groth16Verifier internal realVerifier;
     BatchedGroth16Verifier internal realBatchVerifier;
-    address internal permit2;
-    MASP internal masp;
 
+    /// Builds the mock stack inline rather than through `_deployMockPool`, so
+    /// the real verifiers keep their place in the deployment order ahead of
+    /// Permit2.
     function setUp() public {
         token = new MockERC20("T", "T", 18);
         tub = IVerifier(address(new MockERC20("tub", "tub", 18)));
         bv = new MockBatchVerifier();
         realVerifier = new Groth16Verifier();
         realBatchVerifier = new BatchedGroth16Verifier();
-        permit2 = new DeployPermit2().deployPermit2();
-        masp = _deploy(tub, bv, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+        permit2 = ISignatureTransfer(new DeployPermit2().deployPermit2());
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = _registry();
+        masp = _deploy(tub, bv, permit2, ids, tokens, scales);
         Stubs.acceptAllProofs(tub, bv);
     }
 
     // --- helpers -----------------------------------------------------------
 
-    function _ids() internal pure returns (uint64[] memory a) {
-        a = new uint64[](1);
-        a[0] = ASSET_ID;
-    }
-
-    function _tokens() internal view returns (IERC20[] memory a) {
-        a = new IERC20[](1);
-        a[0] = IERC20(address(token));
-    }
-
-    function _scales() internal pure returns (uint256[] memory a) {
-        a = new uint256[](1);
-        a[0] = SCALE;
+    /// The pool's registry: `token` alone at the fixture id and scale.
+    function _registry() internal view returns (uint64[] memory, IERC20[] memory, uint256[] memory) {
+        return singleAsset(IERC20(address(token)), ASSET_ID, SCALE);
     }
 
     function _deploy(
@@ -119,35 +103,17 @@ contract MASPGuardCoverageTest is Test {
         deployBehindProxy(address(impl), initData);
     }
 
-    function _emptyProof() internal pure returns (MASP.Proof memory) {
-        return FixtureLoader.emptyProof();
-    }
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        for (uint256 j = 0; j < aux.length; j++) {
-            aux[j].clueRx = BabyJubJub.BASE8_X;
-            aux[j].clueRy = BabyJubJub.BASE8_Y;
-            aux[j].ephPubX = BabyJubJub.BASE8_X;
-            aux[j].ephPubY = BabyJubJub.BASE8_Y;
-            aux[j].ciphertext = hex"0001";
-        }
+    /// `_expectDeployRevert` over the suite's own registry, for the probes whose
+    /// subject is a dependency rather than the registry.
+    function _expectDeployRevert(bytes4 err, IVerifier tub_, IBatchVerifier bv_, ISignatureTransfer p2) internal {
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = _registry();
+        _expectDeployRevert(err, tub_, bv_, p2, ids, tokens, scales);
     }
 
     function _pi() internal view returns (PubInputs.Transact memory pi) {
-        pi.chainId = block.chainid;
+        pi = _transact(PAYER, RELAYER, 0x1111, 0x3333);
         pi.publicAssetId = ASSET_ID;
         pi.publicOut = 1;
-        pi.recipient = RECIPIENT;
-        pi.payer = PAYER;
-        pi.relayer = RELAYER;
-        SpendFixture.fillOutputs(pi, 0x1111, 0x3333);
-        pi.merkleRoot = masp.currentRoot();
-    }
-
-    /// Anchored at `pi.merkleRoot`'s slot; an unknown root gets slot 0.
-    function _tpi(PubInputs.Transact memory pi) internal view returns (PubInputs.SpendTree memory) {
-        (, uint256 anchorIndex) = masp.rootIndexOf(pi.merkleRoot);
-        return SpendFixture.spendTree(bytes32(uint256(0xdead)), masp.committedCount(), uint8(anchorIndex));
     }
 
     // --- batched spend verification ----------------------------------------
@@ -157,7 +123,7 @@ contract MASPGuardCoverageTest is Test {
     /// and a missing call would still satisfy every mocked test in the suite.
     function test_spendRoutesThroughBatchVerifierOnly() public {
         PubInputs.Transact memory pi = _pi();
-        PubInputs.SpendTree memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _spendTree(pi);
 
         // Funds the pool so the call can pay out and complete.
         token.mint(address(masp), 1e18);
@@ -168,7 +134,7 @@ contract MASPGuardCoverageTest is Test {
         vm.expectCall(address(tub), abi.encodeWithSelector(IVerifier.verifyProof.selector), 0);
 
         vm.prank(RELAYER);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
     /// `verifyBatch` returns false rather than reverting, so `_verifyProofs`
@@ -176,98 +142,63 @@ contract MASPGuardCoverageTest is Test {
     /// by tests that mock verification to `true`.
     function test_revert_ProofRejected_whenBatchReturnsFalse() public {
         PubInputs.Transact memory pi = _pi();
-        PubInputs.SpendTree memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _spendTree(pi);
 
         bv.setResult(false);
         vm.prank(RELAYER);
         vm.expectRevert(MASP.ProofRejected.selector);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
     // --- constructor dependency checks -------------------------------------
 
     function test_revert_ZeroVerifier_treeUpdate() public {
-        _expectDeployRevert(
-            MASP.ZeroVerifier.selector,
-            IVerifier(address(0)),
-            bv,
-            ISignatureTransfer(permit2),
-            _ids(),
-            _tokens(),
-            _scales()
-        );
+        _expectDeployRevert(MASP.ZeroVerifier.selector, IVerifier(address(0)), bv, permit2);
     }
 
     /// The check is `code.length == 0`, so an EOA-shaped address is rejected
     /// even though it is non-zero.
     function test_revert_ZeroVerifier_codelessAddress() public {
-        _expectDeployRevert(
-            MASP.ZeroVerifier.selector,
-            IVerifier(address(0xdeadbeef)),
-            bv,
-            ISignatureTransfer(permit2),
-            _ids(),
-            _tokens(),
-            _scales()
-        );
+        _expectDeployRevert(MASP.ZeroVerifier.selector, IVerifier(address(0xdeadbeef)), bv, permit2);
     }
 
     function test_revert_ZeroVerifier_batch() public {
-        _expectDeployRevert(
-            MASP.ZeroVerifier.selector,
-            tub,
-            IBatchVerifier(address(0)),
-            ISignatureTransfer(permit2),
-            _ids(),
-            _tokens(),
-            _scales()
-        );
+        _expectDeployRevert(MASP.ZeroVerifier.selector, tub, IBatchVerifier(address(0)), permit2);
     }
 
     /// The constructor probes the spend slot rather than trusting the address.
     /// A contract with code but no `verifyBatch` reverts into the probe's
     /// `catch`; a single-proof `Groth16Verifier` is the likely misconfiguration.
     function test_revert_BadSpendVerifier_wrongInterface() public {
-        _expectDeployRevert(
-            MASP.BadSpendVerifier.selector,
-            tub,
-            IBatchVerifier(address(realVerifier)),
-            ISignatureTransfer(permit2),
-            _ids(),
-            _tokens(),
-            _scales()
-        );
+        _expectDeployRevert(MASP.BadSpendVerifier.selector, tub, IBatchVerifier(address(realVerifier)), permit2);
     }
 
     /// The real batch verifier passes the probe. Without this, the test above
     /// would also pass against a probe that rejected every address.
     function test_realSpendVerifierPassesProbe() public {
-        MASP deployed = _deploy(tub, realBatchVerifier, ISignatureTransfer(permit2), _ids(), _tokens(), _scales());
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = _registry();
+        MASP deployed = _deploy(tub, realBatchVerifier, permit2, ids, tokens, scales);
         assertEq(address(deployed.SPEND_VERIFIER()), address(realBatchVerifier), "batch verifier wired");
     }
 
     function test_revert_ZeroPermit2() public {
-        _expectDeployRevert(
-            MASP.ZeroPermit2.selector, tub, bv, ISignatureTransfer(address(0)), _ids(), _tokens(), _scales()
-        );
+        _expectDeployRevert(MASP.ZeroPermit2.selector, tub, bv, ISignatureTransfer(address(0)));
     }
 
     // --- registry bounds ---------------------------------------------------
 
     function test_revert_LengthMismatch_tokens() public {
+        (uint64[] memory ids,, uint256[] memory scales) = _registry();
         IERC20[] memory tokens = new IERC20[](2);
         tokens[0] = IERC20(address(token));
         tokens[1] = IERC20(address(token));
-        _expectDeployRevert(
-            AssetRegistry.LengthMismatch.selector, tub, bv, ISignatureTransfer(permit2), _ids(), tokens, _scales()
-        );
+        _expectDeployRevert(AssetRegistry.LengthMismatch.selector, tub, bv, permit2, ids, tokens, scales);
     }
 
     function test_revert_LengthMismatch_scales() public {
+        (uint64[] memory ids, IERC20[] memory tokens,) = _registry();
         uint256[] memory scales = new uint256[](2);
-        _expectDeployRevert(
-            AssetRegistry.LengthMismatch.selector, tub, bv, ISignatureTransfer(permit2), _ids(), _tokens(), scales
-        );
+        _expectDeployRevert(AssetRegistry.LengthMismatch.selector, tub, bv, permit2, ids, tokens, scales);
     }
 
     function test_revert_ScaleTooLarge() public {
@@ -285,10 +216,10 @@ contract MASPGuardCoverageTest is Test {
     function test_revert_PublicOutTooLarge() public {
         PubInputs.Transact memory pi = _pi();
         pi.publicOut = uint64(type(uint48).max) + 1;
-        PubInputs.SpendTree memory tpi = _tpi(pi);
+        PubInputs.SpendTree memory tpi = _spendTree(pi);
         vm.prank(RELAYER);
         vm.expectRevert(MASP.PublicOutTooLarge.selector);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
     /// `flushBatch` slots must be deposits; a spend-mode slot is rejected
@@ -314,13 +245,12 @@ contract MASPGuardCoverageTest is Test {
         _seedDeposit();
 
         vm.expectRevert(MASP.BadDepositMode.selector);
-        masp.flushBatch(ids, meta, _emptyProof(), tpi);
+        masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
     }
 
     function _seedDeposit() internal {
         token.mint(address(this), 1_000 * SCALE);
         token.approve(address(permit2), type(uint256).max);
-        ISignatureTransfer(permit2); // no-op; silences an unused warning
         PubInputs.DepositRequest memory d;
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
@@ -331,19 +261,20 @@ contract MASPGuardCoverageTest is Test {
         d.feeCm = bytes32(uint256(0xfee));
         // The AllowanceTransfer path needs no signature.
         _approvePermit2ToMasp();
-        masp.depositAuthorized(d, _aux()[0], _aux()[1]);
+        masp.depositAuthorized(d, SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     function _approvePermit2ToMasp() internal {
-        (bool ok,) = permit2.call(
-            abi.encodeWithSignature(
-                "approve(address,address,uint160,uint48)",
-                address(token),
-                address(masp),
-                type(uint160).max,
-                type(uint48).max
-            )
-        );
+        (bool ok,) = address(permit2)
+            .call(
+                abi.encodeWithSignature(
+                    "approve(address,address,uint160,uint48)",
+                    address(token),
+                    address(masp),
+                    type(uint160).max,
+                    type(uint48).max
+                )
+            );
         require(ok, "permit2 approve");
     }
 
@@ -355,20 +286,20 @@ contract MASPGuardCoverageTest is Test {
     /// revert wiring in the spend path.
     function test_revert_LowOrderPoint_clue() public {
         PubInputs.Transact memory pi = _pi();
-        PubInputs.SpendTree memory tpi = _tpi(pi);
-        AuxValidation.Output[6] memory aux = _aux();
+        PubInputs.SpendTree memory tpi = _spendTree(pi);
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         // Identity (0, 1) is on-curve and order 1.
         aux[0].clueRx = 0;
         aux[0].clueRy = 1;
         vm.prank(RELAYER);
         vm.expectRevert(AuxValidation.LowOrderPoint.selector);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, aux);
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);
     }
 
     function test_revert_LowOrderPoint_ephemeral() public {
         PubInputs.Transact memory pi = _pi();
-        PubInputs.SpendTree memory tpi = _tpi(pi);
-        AuxValidation.Output[6] memory aux = _aux();
+        PubInputs.SpendTree memory tpi = _spendTree(pi);
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         aux[1].ephPubX = 0;
         aux[1].ephPubY = 1;
         aux[2].ephPubX = 0;
@@ -377,7 +308,7 @@ contract MASPGuardCoverageTest is Test {
         aux[3].ephPubY = 1;
         vm.prank(RELAYER);
         vm.expectRevert(AuxValidation.LowOrderPoint.selector);
-        masp.withdraw(_emptyProof(), pi, _emptyProof(), tpi, aux);
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);
     }
 
     // --- off-chain dry-run helpers -----------------------------------------

@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test, Vm } from "forge-std/Test.sol";
+import { Vm } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
-import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { GenericCallWrapper } from "../../src/generic/GenericCallWrapper.sol";
 import { CallExecutor } from "../../src/generic/CallExecutor.sol";
@@ -13,58 +10,53 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { MockWETH9 } from "../mocks/MockWETH9.sol";
-import { MockMASPSwap } from "../swap/mocks/MockMASPSwap.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { FeeMath } from "../utils/FeeMath.sol";
+import { WrapperTestBase } from "../utils/WrapperTestBase.sol";
 import { MockRouter } from "./mocks/MockCallTargets.sol";
 import { GenericIntent } from "./GenericIntent.sol";
 
 /// Deployment and payload scaffolding shared by the `GenericCallWrapper` suites.
 ///
+/// `WrapperTestBase` deploys the stub pool, Permit2 and tokens A and B; this
+/// adds C, WETH, the wrapper and a router, all four assets armed.
+///
 /// Every execution withdraws `WITHDRAW_UNITS` of asset A. The stub pool pushes
 /// that net of its fee (`_received`) and pulls `publicIn * SCALE` plus fee for
 /// each deposit (`_pull`).
-abstract contract GenericCallTestBase is Test {
-    uint64 internal constant ASSET_A = 1;
-    uint64 internal constant ASSET_B = 2;
+abstract contract GenericCallTestBase is WrapperTestBase {
     uint64 internal constant ASSET_C = 3;
     uint64 internal constant ASSET_W = 4;
-    uint256 internal constant SCALE = TestConstants.SCALE;
-    uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
     uint64 internal constant WITHDRAW_UNITS = 1_000;
     address internal constant REFUND_TO = TestConstants.SWAP_REFUND_TO;
     address internal constant SURPLUS_TO = address(0x5A5A);
-    address internal constant NOTE_RECIPIENT = address(0xBEEF);
 
-    MockERC20 internal tokenA;
-    MockERC20 internal tokenB;
     MockERC20 internal tokenC;
     MockWETH9 internal weth;
-    IAllowanceTransfer internal permit2;
-    MockMASPSwap internal pool;
     GenericCallWrapper internal wrapper;
     MockRouter internal router;
 
-    function setUp() public virtual {
-        permit2 = IAllowanceTransfer(new DeployPermit2().deployPermit2());
-        tokenA = new MockERC20("Token A", "TKA", 18);
-        tokenB = new MockERC20("Token B", "TKB", 18);
+    function _deployExtraTokens() internal override {
         tokenC = new MockERC20("Token C", "TKC", 18);
         weth = new MockWETH9();
+    }
 
-        pool = new MockMASPSwap(permit2);
-        pool.registerAsset(ASSET_A, address(tokenA), SCALE);
-        pool.registerAsset(ASSET_B, address(tokenB), SCALE);
-        pool.registerAsset(ASSET_C, address(tokenC), SCALE);
-        pool.registerAsset(ASSET_W, address(weth), SCALE);
-        pool.setFeeBps(FEE_BPS);
+    function _assets() internal view override returns (uint64[] memory ids, address[] memory tokens) {
+        ids = new uint64[](4);
+        tokens = new address[](4);
+        (ids[0], tokens[0]) = (ASSET_A, address(tokenA));
+        (ids[1], tokens[1]) = (ASSET_B, address(tokenB));
+        (ids[2], tokens[2]) = (ASSET_C, address(tokenC));
+        (ids[3], tokens[3]) = (ASSET_W, address(weth));
+    }
 
+    function _deployWrapper() internal override {
         wrapper = new GenericCallWrapper(pool, permit2);
         router = new MockRouter();
+    }
 
-        wrapper.prepareToken(IERC20(address(tokenA)));
-        wrapper.prepareToken(IERC20(address(tokenB)));
-        wrapper.prepareToken(IERC20(address(tokenC)));
-        wrapper.prepareToken(IERC20(address(weth)));
+    function _wrapperAddress() internal view override returns (address) {
+        return address(wrapper);
     }
 
     // =====================================================================
@@ -77,19 +69,18 @@ abstract contract GenericCallTestBase is Test {
 
     /// What the stub withdraw delivers: gross net of the unshield fee.
     function _received() internal pure returns (uint256) {
-        return _gross() - (_gross() * FEE_BPS) / 10_000;
+        return _netOfFee(_gross());
     }
 
     /// What the stub pool pulls for a deposit of `publicIn` units.
     function _pull(uint64 publicIn) internal pure returns (uint256) {
-        uint256 inAmt = uint256(publicIn) * SCALE;
-        return inAmt + (inAmt * FEE_BPS) / 10_000;
+        return FeeMath.gross(publicIn, SCALE, FEE_BPS);
     }
 
-    /// The largest refund note whose pull fits what the withdraw nets.
+    /// The largest refund note whose pull fits what the withdraw nets: the
+    /// `publicIn` of `_base`'s `refund_d`.
     function _refundUnits() internal pure returns (uint64) {
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return uint64((uint256(WITHDRAW_UNITS) * (10_000 - 2 * uint256(FEE_BPS))) / 10_000);
+        return _netOfTwoFees(WITHDRAW_UNITS);
     }
 
     // =====================================================================
@@ -108,8 +99,7 @@ abstract contract GenericCallTestBase is Test {
         a.pi_w.relayer = address(wrapper);
         // The test contract drives every execution.
         a.pi_w.payer = address(this);
-        a.refund_d = _request(ASSET_A, _refundUnits());
-        a.refund_d.outCm = bytes32(uint256(2));
+        a.refund_d = _refundRequest(WITHDRAW_UNITS);
         a.calls = new CallExecutor.Call[](0);
         a.outputs = new GenericCallWrapper.Output[](0);
     }
@@ -125,14 +115,9 @@ abstract contract GenericCallTestBase is Test {
         a.outputs = _oneOutput(_output(ASSET_B, publicIn));
     }
 
-    function _request(uint64 assetId, uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
-        d.chainId = block.chainid;
-        d.publicAssetId = assetId;
-        d.publicIn = publicIn;
-        d.payer = address(wrapper);
-        d.recipient = NOTE_RECIPIENT;
-        d.outCm = bytes32(uint256(1));
-        d.feeCm = bytes32(uint256(0xfee));
+    /// An output note of `publicIn` units of `assetId`, paid by the wrapper.
+    function _request(uint64 assetId, uint64 publicIn) internal view returns (PubInputs.DepositRequest memory) {
+        return _noteRequest(assetId, publicIn, address(wrapper));
     }
 
     /// An output note of `publicIn` units, floored at their unscaled value.

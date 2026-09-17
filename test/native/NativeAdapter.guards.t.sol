@@ -11,10 +11,10 @@ import { MaspEscrowSatellite } from "../../src/MaspEscrowSatellite.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
-import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MockWETH9 } from "../mocks/MockWETH9.sol";
 import { MockNativePool } from "../mocks/MockNativePool.sol";
+import { SpendFixture } from "../utils/SpendFixture.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
 
 /// `NativeAdapter` guards that a well-behaved MASP cannot trigger: a deposit that
 /// pulls nothing, and a cancel that delivers other than it reports. Both would mis-credit an
@@ -39,22 +39,8 @@ contract NativeAdapterGuardsTest is Test {
             new NativeAdapter(IMASPPool(address(pool)), IWrappedNative(address(weth)), IAllowanceTransfer(permit2));
     }
 
-    function _aux() internal pure returns (AuxValidation.Output memory a) {
-        a.clueRx = BabyJubJub.BASE8_X;
-        a.clueRy = BabyJubJub.BASE8_Y;
-        a.ephPubX = BabyJubJub.BASE8_X;
-        a.ephPubY = BabyJubJub.BASE8_Y;
-        a.ciphertext = hex"0001";
-    }
-
     function _request() internal view returns (PubInputs.DepositRequest memory d) {
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_WETH;
-        d.publicIn = 1;
-        d.payer = address(adapter);
-        d.recipient = address(0xF00D);
-        d.outCm = bytes32(uint256(0x1));
-        d.feeCm = bytes32(uint256(0xfee));
+        return DepositFixture.request(ASSET_WETH, 1, address(adapter), address(0xF00D), bytes32(uint256(0x1)));
     }
 
     /// Deposits `AMOUNT`, with the pool pulling all of it.
@@ -62,7 +48,9 @@ contract NativeAdapterGuardsTest is Test {
         pool.setPullAmount(uint160(AMOUNT));
         vm.deal(DEPOSITOR, AMOUNT);
         vm.prank(DEPOSITOR);
-        id = adapter.depositNative{ value: AMOUNT }(_request(), _aux(), _aux());
+        id = adapter.depositNative{ value: AMOUNT }(
+            _request(), SpendFixture.validAuxOutput(), SpendFixture.validAuxOutput()
+        );
     }
 
     // --- constructor -------------------------------------------------------
@@ -98,7 +86,7 @@ contract NativeAdapterGuardsTest is Test {
         vm.deal(DEPOSITOR, AMOUNT);
         vm.prank(DEPOSITOR);
         vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.PullBelowMin.selector, uint256(0), uint256(1)));
-        adapter.depositNative{ value: AMOUNT }(_request(), _aux(), _aux());
+        adapter.depositNative{ value: AMOUNT }(_request(), SpendFixture.validAuxOutput(), SpendFixture.validAuxOutput());
     }
 
     /// The pool's Permit2 allowance covers the adapter's whole balance, not
@@ -116,7 +104,7 @@ contract NativeAdapterGuardsTest is Test {
         vm.deal(DEPOSITOR, AMOUNT);
         vm.prank(DEPOSITOR);
         vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.PullExceedsMax.selector, AMOUNT + parked, AMOUNT));
-        adapter.depositNative{ value: AMOUNT }(_request(), _aux(), _aux());
+        adapter.depositNative{ value: AMOUNT }(_request(), SpendFixture.validAuxOutput(), SpendFixture.validAuxOutput());
 
         assertEq(weth.balanceOf(address(adapter)), parked, "parked coin untouched");
     }
@@ -130,7 +118,9 @@ contract NativeAdapterGuardsTest is Test {
         vm.deal(DEPOSITOR, tooLarge);
         vm.prank(DEPOSITOR);
         vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.EscrowAmountTooLarge.selector, tooLarge));
-        adapter.depositNative{ value: tooLarge }(_request(), _aux(), _aux());
+        adapter.depositNative{ value: tooLarge }(
+            _request(), SpendFixture.validAuxOutput(), SpendFixture.validAuxOutput()
+        );
     }
 
     /// The largest pull the record can hold is accepted, and reads back intact.
@@ -139,7 +129,9 @@ contract NativeAdapterGuardsTest is Test {
         pool.setPullAmount(uint160(atMax));
         vm.deal(DEPOSITOR, atMax);
         vm.prank(DEPOSITOR);
-        uint256 id = adapter.depositNative{ value: atMax }(_request(), _aux(), _aux());
+        uint256 id = adapter.depositNative{ value: atMax }(
+            _request(), SpendFixture.validAuxOutput(), SpendFixture.validAuxOutput()
+        );
 
         (address refundTo, uint256 amount) = adapter.escrows(id);
         assertEq(refundTo, DEPOSITOR, "funder recorded");

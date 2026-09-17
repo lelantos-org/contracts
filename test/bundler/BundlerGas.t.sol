@@ -5,7 +5,7 @@ import { Vm } from "forge-std/Test.sol";
 
 import { Bundler } from "../../src/bundler/Bundler.sol";
 
-import { BundlerTest } from "./Bundler.t.sol";
+import { BundlerTestBase } from "./BundlerTestBase.sol";
 
 /// Gas per bundle item and per bundle in steady state: the root ring is full, so
 /// every advance overwrites a slot, and the fee accumulators are non-zero.
@@ -20,7 +20,7 @@ import { BundlerTest } from "./Bundler.t.sol";
 ///
 /// Logs `execGas` (`vm.lastCallGas`, before refund), the refund, and the
 /// calldata's own gas at 16/4 per non-zero/zero byte.
-contract BundlerGasTest is BundlerTest {
+contract BundlerGasTest is BundlerTestBase {
     /// Enough advances to fill the ring, and one withdraw per fee token.
     function _steadyState() internal {
         for (uint256 i; i < 64; ++i) {

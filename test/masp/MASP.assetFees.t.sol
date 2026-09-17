@@ -1,24 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-import { Test } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
 
 import { MASP } from "../../src/MASP.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
-import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { ExitTerms } from "../../src/libs/ExitTerms.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
-import { MockBatchVerifier } from "../mocks/MockBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
-import { deployPoolUniform, mockVerifierStack, twoAssets } from "../utils/PoolDeployer.sol";
+import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
+import { twoAssets } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
-import { TestConstants } from "../utils/TestConstants.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
 
 /// Per-asset deposit and withdraw rates. There is no pool-wide rate and no
 /// inheritance: every asset stores its own pair, and a stored `0` means 0.
@@ -28,39 +23,25 @@ import { TestConstants } from "../utils/TestConstants.sol";
 ///
 /// A fee change reaches exactly the ids named in the call. No setter can
 /// re-rate an asset the owner did not name.
-contract MASPAssetFeesTest is Test {
-    uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
+contract MASPAssetFeesTest is MockPoolTestBase {
     uint64 internal constant OTHER_ID = 2;
-    uint256 internal constant SCALE = TestConstants.SCALE;
     uint16 internal constant GENESIS_BPS = 25;
     uint16 internal constant MAX_BPS = 2_000;
 
-    address internal constant OWNER = TestConstants.OWNER;
-    address internal constant TREASURY = TestConstants.TREASURY;
-    address internal constant RELAYER = address(0xCA11);
     address internal constant PAYER = address(0xBEEF);
-    address internal constant RECIPIENT = TestConstants.RECIPIENT;
 
-    MockERC20 internal token;
     MockERC20 internal other;
-    IVerifier internal tubVerifier;
-    MockBatchVerifier internal batchVerifier;
-    address internal permit2;
-    MASP internal masp;
 
     function setUp() public {
         token = new MockERC20("M", "M", 18);
         other = new MockERC20("N", "N", 18);
-        ISignatureTransfer p2;
-        (tubVerifier, batchVerifier, p2) = mockVerifierStack();
-        permit2 = address(p2);
 
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
             twoAssets(IERC20(address(token)), ASSET_ID, IERC20(address(other)), OTHER_ID, SCALE);
 
-        masp = deployPoolUniform(tubVerifier, batchVerifier, p2, ids, tokens, scales, GENESIS_BPS, TREASURY, OWNER);
+        _deployMockPool(ids, tokens, scales, GENESIS_BPS, TREASURY, OWNER);
 
-        Stubs.acceptAllProofs(tubVerifier, batchVerifier);
+        Stubs.acceptAllProofs(tub, bv);
         // The subject here is the amount pulled, not the signature.
         Stubs.installPermissiveERC1271(PAYER);
     }
@@ -82,53 +63,33 @@ contract MASPAssetFeesTest is Test {
         masp.commitExitTerms(id);
     }
 
-    function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = publicIn;
-        d.payer = PAYER;
-        d.recipient = RECIPIENT;
-        d.outCm = bytes32(uint256(0xdead));
-        d.feeCm = bytes32(uint256(0xfee));
+    function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory) {
+        return DepositFixture.request(ASSET_ID, publicIn, PAYER, RECIPIENT, bytes32(uint256(0xdead)));
     }
 
     function _sig(uint256 maxTotal) internal pure returns (MASP.Permit2Sig memory) {
-        return
-            MASP.Permit2Sig({
-                nonce: 0, deadline: type(uint256).max, maxTotal: maxTotal, maxFee: 0, signature: hex"00"
-            });
+        return DepositFixture.sig(0, maxTotal, 0);
     }
 
     function _fundPayer(uint256 amount) internal {
         token.mint(PAYER, amount);
         vm.prank(PAYER);
-        token.approve(permit2, type(uint256).max);
-    }
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory) {
-        return SpendFixture.validAux();
+        token.approve(address(permit2), type(uint256).max);
     }
 
     /// `publicOut = 1`, i.e. `SCALE` base units gross. Repeatable: nullifiers,
     /// commitments and the tree position follow the leaves already committed.
     function _withdraw() internal {
-        bytes32 root = masp.currentRoot();
         uint64 cc = masp.committedCount();
-        PubInputs.Transact memory pi;
-        pi.chainId = block.chainid;
+        PubInputs.Transact memory pi =
+            _transact(PAYER, RELAYER, 0x1111 + uint256(cc) * 0x100, 0x3333 + uint256(cc) * 0x100);
         pi.publicAssetId = ASSET_ID;
-        pi.publicIn = 0;
         pi.publicOut = 1;
-        pi.recipient = RECIPIENT;
-        pi.payer = PAYER;
-        pi.relayer = RELAYER;
-        SpendFixture.fillOutputs(pi, 0x1111 + uint256(cc) * 0x100, 0x3333 + uint256(cc) * 0x100);
-        pi.merkleRoot = root;
         PubInputs.SpendTree memory tpi =
             SpendFixture.spendTree(bytes32(uint256(0xABCD) + cc), cc, uint8(masp.rootIndex()));
 
         vm.prank(RELAYER);
-        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, _aux());
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
     // --- resolution --------------------------------------------------------
@@ -264,7 +225,7 @@ contract MASPAssetFeesTest is Test {
         _fundPayer(expected);
 
         uint256 before = token.balanceOf(address(masp));
-        masp.deposit(_request(publicIn), _sig(expected), _aux()[0], _aux()[1]);
+        masp.deposit(_request(publicIn), _sig(expected), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
 
         assertEq(token.balanceOf(address(masp)) - before, expected, "pulled at the asset rate");
     }
@@ -277,7 +238,7 @@ contract MASPAssetFeesTest is Test {
         _fundPayer(inAmt);
 
         uint256 before = token.balanceOf(address(masp));
-        masp.deposit(_request(publicIn), _sig(inAmt), _aux()[0], _aux()[1]);
+        masp.deposit(_request(publicIn), _sig(inAmt), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
 
         assertEq(token.balanceOf(address(masp)) - before, inAmt, "no fee on top");
     }
@@ -296,7 +257,7 @@ contract MASPAssetFeesTest is Test {
         _setFee(ASSET_ID, 1_000, 0);
 
         vm.expectRevert(); // Permit2 InvalidAmount: requested > permitted
-        masp.deposit(_request(publicIn), _sig(signedTotal), _aux()[0], _aux()[1]);
+        masp.deposit(_request(publicIn), _sig(signedTotal), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     /// The escrow digest folds in the rate at submit, so a change afterwards
@@ -309,7 +270,7 @@ contract MASPAssetFeesTest is Test {
         _fundPayer(total);
 
         PubInputs.DepositRequest memory d = _request(publicIn);
-        uint256 id = masp.deposit(d, _sig(total), _aux()[0], _aux()[1]);
+        uint256 id = masp.deposit(d, _sig(total), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
         uint32 submittedAt = uint32(block.number);
 
         // Re-rates the asset while the deposit is in escrow.

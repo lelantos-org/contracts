@@ -34,9 +34,7 @@ contract ProtocolAdminMigrateTest is GovTestBase {
     function _migrateExpectingRevert(address target, string memory desc) internal {
         (address[] memory t, uint256[] memory v, bytes[] memory c) =
             _one(address(protocolAdmin), abi.encodeCall(ProtocolAdmin.migrateAdmin, (target)));
-        _proposeAndSucceed(t, v, c, desc);
-        governor.queue(t, v, c, keccak256(bytes(desc)));
-        vm.warp(governor.proposalEta(governor.hashProposal(t, v, c, keccak256(bytes(desc)))) + 1);
+        _queueToEta(t, v, c, desc);
         vm.expectRevert();
         governor.execute(t, v, c, keccak256(bytes(desc)));
     }

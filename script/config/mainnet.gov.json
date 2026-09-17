@@ -11,7 +11,7 @@
   "quorumNumerator": 3,
   "guardian": "0x0000000000000000000000000000000000000000",
   "masp": "0x2fC0681F6631eebaCA9720F5c4b1353B18466467",
-  "swapWrapper": "0xc7b4a8af898872dd80440bda265d91d944823118",
+  "swapWrapper": "0xC7B4a8aF898872dd80440BDA265d91D944823118",
   "burnBps": 10000,
   "secondaryTreasury": "0x0000000000000000000000000000000000000000",
   "auctionHalfLife": 3600,

@@ -25,6 +25,7 @@ TEST_YIELD_SCRIPT := "script/DeployTestYield.s.sol:DeployTestYield"
 YIELD_SCRIPT := "script/DeployYield.s.sol:DeployYield"
 GOV_SCRIPT := "script/DeployGovernance.s.sol:DeployGovernance"
 HANDOVER_SCRIPT := "script/HandoverOwnership.s.sol:HandoverOwnership"
+BUNDLER_SCRIPT := "script/DeployBundler.s.sol:DeployBundler"
 
 # Anvil dev defaults: account #0 key; chain matches foundry.toml.
 
@@ -111,16 +112,15 @@ test-match pattern:
 
 # Nightly fuzz and invariant sweep. Uses [profile.fuzz] in foundry.toml
 # (fuzz runs = 10k, invariant runs = 1024 / depth = 256).
+#
+# Selected by file suffix rather than directory, so a `*.fuzz.t.sol` or
+# `*.invariant.t.sol` suite placed next to its subject (test/yield/,
+# test/burn/) runs here without a recipe change.
 [doc('Heavy nightly fuzz + invariant sweep')]
 [group('test')]
 test-fuzz:
-    FOUNDRY_PROFILE=fuzz forge test -vvv --match-path "test/fuzz/**"
-    FOUNDRY_PROFILE=fuzz forge test -vvv --match-path "test/invariant/**"
-    # test/yield/ holds YieldSolvency.invariant.t.sol, the invariant suite for
-    # the indexed-asset accounting (including solvency against rounding leaks
-    # and refunds priced off a stale index). The globs above do not match it,
-    # so it is run here at the fuzz profile's depth.
-    FOUNDRY_PROFILE=fuzz forge test -vvv --match-path "test/yield/**"
+    FOUNDRY_PROFILE=fuzz forge test -vvv --match-path "test/**/*.fuzz.t.sol"
+    FOUNDRY_PROFILE=fuzz forge test -vvv --match-path "test/**/*.invariant.t.sol"
 
 # Echidna. Same subject as test/invariant/ with a different engine: Echidna
 # keeps a corpus on disk between runs, so nightly jobs build on previous runs
@@ -511,6 +511,22 @@ deploy-swap *args:
 [group('deploy')]
 dry-run-swap *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ SWAP_SCRIPT }} -vvv {{ args }}
+
+# GenericCallWrapper, BundlerFactory and the relayer's Bundler against an
+# already-deployed MASP, NativeAdapter and SwapWrapper, for chains whose swap
+# stack predates them. Reads $BUNDLER_CONFIG (default
+# script/config/mainnet.bundler.json); requires $BUNDLER_OPERATOR and
+# $BUNDLER_OWNER. Log BUNDLER= is the relayer's BUNDLER_ADDRESS.
+[doc('Deploy GenericCallWrapper + BundlerFactory + relayer Bundler (broadcasts)')]
+[group('deploy')]
+deploy-bundler *args:
+    FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ BUNDLER_SCRIPT }} --broadcast -vvv {{ args }}
+
+# Simulation only (no broadcast). Same args as `deploy-bundler`.
+[doc('Simulate the bundler deploy without broadcasting')]
+[group('deploy')]
+dry-run-bundler *args:
+    FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ BUNDLER_SCRIPT }} -vvv {{ args }}
 
 # Mainnet yield deploy (one ERC4626Venue per configured asset, then the owner
 # registration binding each to a new asset id). Reads $YIELD_CONFIG

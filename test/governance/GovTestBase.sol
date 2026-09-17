@@ -6,6 +6,7 @@ import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
 import { DelayedUpgradeProxy } from "../../src/DelayedUpgradeProxy.sol";
+import { MASP } from "../../src/MASP.sol";
 import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { LelantosToken } from "../../src/governance/LelantosToken.sol";
@@ -13,6 +14,7 @@ import { LelantosGovernor } from "../../src/governance/LelantosGovernor.sol";
 import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 import { FeeBurner } from "../../src/burn/FeeBurner.sol";
 
+import { GovConstants } from "../utils/GovConstants.sol";
 import { MASPTestBase } from "../utils/MASPTestBase.sol";
 import { TEST_PROXY_ADMIN } from "../utils/PoolDeployer.sol";
 
@@ -20,12 +22,18 @@ import { TEST_PROXY_ADMIN } from "../utils/PoolDeployer.sol";
 /// ownership and the pool's proxy admin handed over, so lifecycle tests
 /// exercise the production `onlyOwner` and `onlyAdmin` boundaries.
 ///
+/// Deliberately not built on `BaseGovernanceDeploy._deployGovernanceStack`: that
+/// path requires the `SwapWrapper` to exist before the burner, so the wrapper
+/// could not take the burner as its treasury, and it can only run inside a
+/// separate `Script` harness, which would become the deployer instead of this
+/// contract. `test/deploy/DeployGovernance.t.sol` covers the script itself.
+///
 /// Every warp targets an absolute timestamp read back from the Governor
 /// (`proposalSnapshot`, `proposalDeadline`, `proposalEta`). Under `via_ir` the
 /// optimizer may cache `block.timestamp` within a call, which `vm.warp`
 /// invalidates, so `vm.warp(block.timestamp + n)` is unreliable in a test body.
 abstract contract GovTestBase is MASPTestBase {
-    uint256 internal constant SUPPLY = 1_000_000_000e18;
+    uint256 internal constant SUPPLY = GovConstants.SUPPLY;
     uint48 internal constant VOTING_DELAY = 2 days;
     uint32 internal constant VOTING_PERIOD = 7 days;
     uint32 internal constant QUORUM_VOTE_CUTOFF = 1 days;
@@ -33,10 +41,15 @@ abstract contract GovTestBase is MASPTestBase {
     uint256 internal constant QUORUM_NUMERATOR = 3;
     uint256 internal constant TIMELOCK_DELAY = 3 days;
 
-    uint32 internal constant HALF_LIFE = 1 hours;
-    uint8 internal constant MAX_HALVINGS = 12;
-    uint16 internal constant RESTART_MULT_BPS = 20_000;
-    uint16 internal constant BURN_BPS = 10_000;
+    uint32 internal constant HALF_LIFE = GovConstants.HALF_LIFE;
+    uint8 internal constant MAX_HALVINGS = GovConstants.MAX_HALVINGS;
+    uint16 internal constant RESTART_MULT_BPS = GovConstants.RESTART_MULT_BPS;
+    uint16 internal constant BURN_BPS = GovConstants.BURN_BPS;
+
+    /// `GovernorCountingSimple` vote types.
+    uint8 internal constant AGAINST = 0;
+    uint8 internal constant FOR = 1;
+    uint8 internal constant ABSTAIN = 2;
 
     /// Genesis timestamp at deploy; the base for absolute warps.
     uint256 internal constant T0 = 1_000_000;
@@ -136,7 +149,19 @@ abstract contract GovTestBase is MASPTestBase {
         return DelayedUpgradeProxy(payable(address(masp)));
     }
 
-    // ============== Proposal helpers =========================================
+    // ============== Voting weight ===========================================
+
+    /// Transfers `amount` from the distributor to `who`, who self-delegates. The
+    /// weight counts only from a strictly later timepoint, so callers warp before
+    /// a snapshot that must include it.
+    function _giveVotes(address who, uint256 amount) internal {
+        vm.prank(distributor);
+        gov.transfer(who, amount);
+        vm.prank(who);
+        gov.delegate(who);
+    }
+
+    // ============== Proposal payloads ========================================
 
     function _one(address target, bytes memory data)
         internal
@@ -150,10 +175,27 @@ abstract contract GovTestBase is MASPTestBase {
         calldatas[0] = data;
     }
 
+    /// A single `ProtocolAdmin.execute(target, data)` call, the shape of every
+    /// proposal that reaches an owned contract.
+    function _adminCall(address target, bytes memory data)
+        internal
+        view
+        returns (address[] memory, uint256[] memory, bytes[] memory)
+    {
+        return _one(address(protocolAdmin), abi.encodeCall(ProtocolAdmin.execute, (target, data)));
+    }
+
+    /// A proposal whose content is irrelevant, for tests about voting and timing
+    /// rather than the payload.
+    function _cancelDelayPayload() internal view returns (address[] memory, uint256[] memory, bytes[] memory) {
+        return _adminCall(address(masp), abi.encodeCall(MASP.setCancelDelay, (9_000)));
+    }
+
+    // ============== Proposal pipeline ========================================
+
     /// Calls `ProtocolAdmin.execute(target, data)` through the full pipeline.
     function _passAdminCall(address target, bytes memory data, string memory description) internal returns (uint256) {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) =
-            _one(address(protocolAdmin), abi.encodeCall(ProtocolAdmin.execute, (target, data)));
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _adminCall(target, data);
         return _passProposal(t, v, c, description);
     }
 
@@ -164,10 +206,22 @@ abstract contract GovTestBase is MASPTestBase {
         bytes[] memory calldatas,
         string memory description
     ) internal returns (uint256 id) {
+        id = _queueToEta(targets, values, calldatas, description);
+        governor.execute(targets, values, calldatas, keccak256(bytes(description)));
+    }
+
+    /// Proposes, votes, queues and warps one second past the eta, leaving
+    /// `execute` to the caller so it can expect a revert or execute by another
+    /// path.
+    function _queueToEta(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas,
+        string memory description
+    ) internal returns (uint256 id) {
         id = _proposeAndSucceed(targets, values, calldatas, description);
         governor.queue(targets, values, calldatas, keccak256(bytes(description)));
         vm.warp(governor.proposalEta(id) + 1);
-        governor.execute(targets, values, calldatas, keccak256(bytes(description)));
     }
 
     /// Proposes and votes through to `Succeeded`, stopping before `queue`.
@@ -184,6 +238,25 @@ abstract contract GovTestBase is MASPTestBase {
         governor.castVote(id, 1);
         vm.prank(voter2);
         governor.castVote(id, 1);
+        vm.warp(governor.proposalDeadline(id) + 1);
+    }
+
+    /// `voter1` proposes `_cancelDelayPayload`, leaving the proposal `Pending`.
+    function _proposeCancelDelay(string memory description) internal returns (uint256 id) {
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _cancelDelayPayload();
+        vm.prank(voter1);
+        id = governor.propose(t, v, c, description);
+    }
+
+    /// `voter` proposes `_cancelDelayPayload` and alone casts `support` on it,
+    /// then the voting period ends, so the outcome rests on that one vote.
+    function _proposeAndVote(address voter, uint8 support, string memory description) internal returns (uint256 id) {
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _cancelDelayPayload();
+        vm.prank(voter);
+        id = governor.propose(t, v, c, description);
+        vm.warp(governor.proposalSnapshot(id) + 1);
+        vm.prank(voter);
+        governor.castVote(id, support);
         vm.warp(governor.proposalDeadline(id) + 1);
     }
 }

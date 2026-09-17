@@ -28,7 +28,7 @@ contract UniV3AdapterTest is Test {
         router.setNextOut(routerOut);
     }
 
-    function testSingleHopRoute() public {
+    function test_singleHopRoute() public {
         _fund(1_000e18, 990e18);
         bytes memory route = abi.encode(uint24(500), uint160(0));
         uint256 actualOut =
@@ -38,7 +38,7 @@ contract UniV3AdapterTest is Test {
         assertEq(tokenIn.allowance(address(adapter), address(router)), 0, "approval reset");
     }
 
-    function testMultiHopRoute() public {
+    function test_multiHopRoute() public {
         _fund(1_000e18, 980e18);
         // path: tokenIn | fee0 | mid | fee1 | tokenOut
         bytes memory route =
@@ -50,19 +50,19 @@ contract UniV3AdapterTest is Test {
         assertEq(tokenIn.allowance(address(adapter), address(router)), 0);
     }
 
-    function testRevertsOnInsufficientOut() public {
+    function test_revert_insufficientOut() public {
         _fund(1_000e18, 800e18); // router returns 800
         bytes memory route = abi.encode(uint24(500), uint160(0));
         vm.expectRevert(bytes("MockSwapRouter02: too little received"));
         adapter.swap(address(tokenIn), address(tokenOut), 1_000e18, 990e18, type(uint256).max, route);
     }
 
-    function testConstructorRejectsZeroRouter() public {
+    function test_constructorRejectsZeroRouter() public {
         vm.expectRevert(UniV3Adapter.RouterZero.selector);
         new UniV3Adapter(address(0), address(uint160(1)));
     }
 
-    function testConstructorRejectsZeroWrapper() public {
+    function test_constructorRejectsZeroWrapper() public {
         vm.expectRevert(UniV3Adapter.WrapperZero.selector);
         new UniV3Adapter(address(router), address(0));
     }
@@ -70,7 +70,7 @@ contract UniV3AdapterTest is Test {
     /// A single-hop fill stopped early by `sqrtPriceLimitX96` pulls part of the
     /// input. The remainder would be stranded on the adapter, so the swap
     /// reverts even though the output clears `minOut`.
-    function testRevertsOnPartialFillSingleHop() public {
+    function test_revert_partialFillSingleHop() public {
         _fund(1_000e18, 990e18);
         router.setConsumeBps(5_000);
         bytes memory route = abi.encode(uint24(500), uint160(1));
@@ -79,7 +79,7 @@ contract UniV3AdapterTest is Test {
     }
 
     /// As above, for a multi-hop path that runs out of liquidity.
-    function testRevertsOnPartialFillMultiHop() public {
+    function test_revert_partialFillMultiHop() public {
         _fund(1_000e18, 980e18);
         router.setConsumeBps(9_999);
         bytes memory route = _path(address(tokenIn), address(tokenOut));
@@ -89,7 +89,7 @@ contract UniV3AdapterTest is Test {
 
     /// A multi-hop path must start at `tokenIn`, or the router would spend a
     /// token the adapter never measures.
-    function testRevertsOnPathFirstTokenMismatch() public {
+    function test_revert_pathFirstTokenMismatch() public {
         _fund(1_000e18, 980e18);
         bytes memory route = _path(address(tokenOut), address(tokenOut));
         vm.expectRevert(UniV3Adapter.BadPath.selector);
@@ -98,7 +98,7 @@ contract UniV3AdapterTest is Test {
 
     /// A multi-hop path must end at `tokenOut`, or the output would arrive in a
     /// token the balance delta never reads.
-    function testRevertsOnPathLastTokenMismatch() public {
+    function test_revert_pathLastTokenMismatch() public {
         _fund(1_000e18, 980e18);
         bytes memory route = _path(address(tokenIn), address(0xBADBABE));
         vm.expectRevert(UniV3Adapter.BadPath.selector);
@@ -108,7 +108,7 @@ contract UniV3AdapterTest is Test {
     /// A path must be `token || [fee || token] * hops` with at least one hop.
     /// Every other length but the 64-byte single-hop encoding is rejected, even
     /// when both ends name the right tokens.
-    function testRevertsOnMalformedPathLength() public {
+    function test_revert_malformedPathLength() public {
         _fund(1_000e18, 980e18);
         bytes[4] memory routes = [
             abi.encodePacked(address(tokenIn)),
@@ -129,7 +129,7 @@ contract UniV3AdapterTest is Test {
 
     /// `swap` is pinned to the wrapper. Without that, any caller could route
     /// tokens donated to the adapter to themselves.
-    function testRevertsOnUnauthorizedCaller() public {
+    function test_revert_unauthorizedCaller() public {
         _fund(1_000e18, 990e18);
         bytes memory route = abi.encode(uint24(500), uint160(0));
         vm.prank(address(0xBAD));

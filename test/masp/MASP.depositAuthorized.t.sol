@@ -16,6 +16,8 @@ import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
+import { FeeMath } from "../utils/FeeMath.sol";
 
 /// `depositAuthorized`: Permit2 AllowanceTransfer-based deposit.
 /// Tests call `IAllowanceTransfer.approve` from the payer to set the allowance
@@ -54,23 +56,11 @@ contract MASPDepositAuthorizedTest is Test {
         view
         returns (PubInputs.DepositRequest memory d)
     {
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = publicIn;
-        d.payer = payerAddr;
-        d.recipient = recipient;
-        d.outCm = keccak256(abi.encode(salt, "cm0"));
-        d.feeCm = bytes32(uint256(0xfee));
-    }
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        return SpendFixture.validAux();
+        return DepositFixture.request(ASSET_ID, publicIn, payerAddr, recipient, keccak256(abi.encode(salt, "cm0")));
     }
 
     function _total(uint64 publicIn) internal pure returns (uint256) {
-        uint256 inAmt = uint256(publicIn) * SCALE;
-        uint256 fee = (inAmt * FEE_BPS) / 10_000;
-        return inAmt + fee;
+        return FeeMath.gross(publicIn, SCALE, FEE_BPS);
     }
 
     function _setupAllowance(uint160 cap, uint48 expiration) internal {
@@ -78,7 +68,7 @@ contract MASPDepositAuthorizedTest is Test {
         IAllowanceTransfer(address(permit2)).approve(address(token), address(masp), cap, expiration);
     }
 
-    function testHappyPathPullsViaAllowance() public {
+    function test_happyPathPullsViaAllowance() public {
         uint64 amt = 100;
         uint256 total = _total(amt);
         token.mint(payer, total * 5);
@@ -87,7 +77,7 @@ contract MASPDepositAuthorizedTest is Test {
         uint256 poolBefore = token.balanceOf(address(masp));
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[6] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
 
         vm.prank(payer);
         uint256 id = masp.depositAuthorized(d, aux[0], aux[1]);
@@ -98,13 +88,13 @@ contract MASPDepositAuthorizedTest is Test {
         assertEq(remaining, uint160(total * 5) - uint160(total), "allowance decremented");
     }
 
-    function testRepeatDepositsConsumeSameAllowance() public {
+    function test_repeatDepositsConsumeSameAllowance() public {
         uint64 amt = 50;
         uint256 total = _total(amt);
         token.mint(payer, total * 4);
         _setupAllowance(uint160(total * 3), uint48(block.timestamp + 1 days));
 
-        AuxValidation.Output[6] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         for (uint256 i; i < 3; i++) {
             PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(i + 1));
             vm.prank(payer);
@@ -117,7 +107,7 @@ contract MASPDepositAuthorizedTest is Test {
         masp.depositAuthorized(d4, aux[0], aux[1]);
     }
 
-    function testRevertsOnExpiredAllowance() public {
+    function test_revert_expiredAllowance() public {
         uint64 amt = 100;
         uint256 total = _total(amt);
         token.mint(payer, total);
@@ -127,21 +117,21 @@ contract MASPDepositAuthorizedTest is Test {
         vm.warp(uint256(exp) + 1);
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[6] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(exp)));
         masp.depositAuthorized(d, aux[0], aux[1]);
     }
 
-    function testRevertsOnSenderNotPayer() public {
+    function test_revert_senderNotPayer() public {
         uint64 amt = 100;
         uint256 total = _total(amt);
         token.mint(payer, total);
         _setupAllowance(uint160(total), uint48(block.timestamp + 1 days));
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[6] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
 
         address other = address(0xdead);
         vm.prank(other);
@@ -149,13 +139,13 @@ contract MASPDepositAuthorizedTest is Test {
         masp.depositAuthorized(d, aux[0], aux[1]);
     }
 
-    function testRevertsOnNoAllowance() public {
+    function test_revert_noAllowance() public {
         uint64 amt = 100;
         token.mint(payer, _total(amt));
         // No allowance set up.
 
         PubInputs.DepositRequest memory d = _request(amt, payer, bytes32(uint256(1)));
-        AuxValidation.Output[6] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
 
         vm.prank(payer);
         vm.expectRevert(abi.encodeWithSelector(IAllowanceTransfer.AllowanceExpired.selector, uint256(0)));

@@ -63,14 +63,14 @@ contract UniV4AdapterForkTest is Test {
     /// exactly what it transferred, a 1 wei donation would over-settle the
     /// PoolManager debt and leave an unclaimed credit, reverting every swap for
     /// that token.
-    function testForkSwapSurvivesRouterDonation() public {
+    function test_forkSwapSurvivesRouterDonation() public {
         deal(WETH, UNIVERSAL_ROUTER, IERC20(WETH).balanceOf(UNIVERSAL_ROUTER) + 1 wei);
         _swapOneWeth();
     }
 
     /// Quote through the real lens, swap through the real router, and require
     /// the executed output to land within 1% of the quote.
-    function testForkSwapMatchesQuote() public {
+    function test_forkSwapMatchesQuote() public {
         _swapOneWeth();
     }
 

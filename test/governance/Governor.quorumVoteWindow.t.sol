@@ -3,12 +3,9 @@ pragma solidity 0.8.36;
 
 import { IGovernor } from "@openzeppelin/contracts/governance/IGovernor.sol";
 import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
-import { GovernorSettings } from "@openzeppelin/contracts/governance/extensions/GovernorSettings.sol";
 import { Vm } from "forge-std/Vm.sol";
 
-import { MASP } from "../../src/MASP.sol";
 import { LelantosGovernor } from "../../src/governance/LelantosGovernor.sol";
-import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 
 import { GovTestBase } from "./GovTestBase.sol";
 
@@ -18,36 +15,6 @@ import { GovTestBase } from "./GovTestBase.sol";
 /// or Abstain vote could tip a proposal past the For/Against comparison or past
 /// quorum with no time left to answer it.
 contract GovernorQuorumVoteWindowTest is GovTestBase {
-    uint8 internal constant AGAINST = 0;
-    uint8 internal constant FOR = 1;
-    uint8 internal constant ABSTAIN = 2;
-
-    function _adminPayload() internal view returns (address[] memory t, uint256[] memory v, bytes[] memory c) {
-        (t, v, c) = _one(
-            address(protocolAdmin),
-            abi.encodeCall(ProtocolAdmin.execute, (address(masp), abi.encodeCall(MASP.setCancelDelay, (9_000))))
-        );
-    }
-
-    function _propose(string memory desc) internal returns (uint256 id) {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _adminPayload();
-        vm.prank(voter1);
-        id = governor.propose(t, v, c, desc);
-    }
-
-    /// Proposes, queues and warps to the eta of a call on the Governor itself,
-    /// leaving `execute` to the caller so it can expect a revert.
-    function _queueSelfCall(bytes memory data, string memory desc)
-        internal
-        returns (address[] memory t, uint256[] memory v, bytes[] memory c, bytes32 h)
-    {
-        (t, v, c) = _one(address(governor), data);
-        h = keccak256(bytes(desc));
-        uint256 id = _proposeAndSucceed(t, v, c, desc);
-        governor.queue(t, v, c, h);
-        vm.warp(governor.proposalEta(id) + 1);
-    }
-
     function _quorumVotingClosed(uint256 id) internal view returns (bytes memory) {
         return abi.encodeWithSelector(
             LelantosGovernor.QuorumVotingClosed.selector, id, governor.proposalQuorumVoteDeadline(id)
@@ -57,10 +24,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     /// A delegated signer holding 10% of supply, for the `castVoteBySig` tests.
     function _fundSigner() internal returns (address signer, uint256 key) {
         (signer, key) = makeAddrAndKey("signer");
-        vm.prank(distributor);
-        gov.transfer(signer, SUPPLY / 10);
-        vm.prank(signer);
-        gov.delegate(signer);
+        _giveVotes(signer, SUPPLY / 10);
     }
 
     function _ballotDigest(uint256 id, uint8 support, address voter) internal view returns (bytes32) {
@@ -90,7 +54,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     }
 
     function test_quorumVoteDeadlineIsDeadlineMinusCutoff() public {
-        uint256 id = _propose("deadline");
+        uint256 id = _proposeCancelDelay("deadline");
         assertEq(governor.proposalQuorumVoteDeadline(id), governor.proposalDeadline(id) - QUORUM_VOTE_CUTOFF);
         assertGt(governor.proposalQuorumVoteDeadline(id), governor.proposalSnapshot(id), "no quorum vote window");
     }
@@ -127,7 +91,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     /// `ProposalQuorumVoteDeadline` follows `ProposalCreated` directly, in the
     /// same transaction, so an indexer can attach it to the proposal.
     function test_proposalQuorumVoteDeadlineEmittedRightAfterProposalCreated() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _adminPayload();
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _cancelDelayPayload();
         string memory desc = "events";
         uint256 id = governor.hashProposal(t, v, c, keccak256(bytes(desc)));
         uint256 expected = T0 + 1 + VOTING_DELAY + VOTING_PERIOD - QUORUM_VOTE_CUTOFF;
@@ -155,7 +119,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     // ============== Vote timing ==============================================
 
     function test_forAcceptedExactlyAtQuorumVoteDeadline() public {
-        uint256 id = _propose("for at deadline");
+        uint256 id = _proposeCancelDelay("for at deadline");
         vm.warp(governor.proposalQuorumVoteDeadline(id));
         vm.prank(voter2);
         governor.castVote(id, FOR);
@@ -164,7 +128,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     }
 
     function test_abstainAcceptedExactlyAtQuorumVoteDeadline() public {
-        uint256 id = _propose("abstain at deadline");
+        uint256 id = _proposeCancelDelay("abstain at deadline");
         vm.warp(governor.proposalQuorumVoteDeadline(id));
         vm.prank(voter2);
         governor.castVote(id, ABSTAIN);
@@ -173,7 +137,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     }
 
     function test_forRejectedOneSecondAfterQuorumVoteDeadline() public {
-        uint256 id = _propose("for late");
+        uint256 id = _proposeCancelDelay("for late");
         vm.warp(governor.proposalQuorumVoteDeadline(id) + 1);
         bytes memory closed = _quorumVotingClosed(id);
         vm.prank(voter2);
@@ -182,7 +146,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     }
 
     function test_abstainRejectedOneSecondAfterQuorumVoteDeadline() public {
-        uint256 id = _propose("abstain late");
+        uint256 id = _proposeCancelDelay("abstain late");
         vm.warp(governor.proposalQuorumVoteDeadline(id) + 1);
         bytes memory closed = _quorumVotingClosed(id);
         vm.prank(voter2);
@@ -191,7 +155,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     }
 
     function test_forWithParamsRejectedAfterQuorumVoteDeadline() public {
-        uint256 id = _propose("params late");
+        uint256 id = _proposeCancelDelay("params late");
         vm.warp(governor.proposalQuorumVoteDeadline(id) + 1);
         bytes memory closed = _quorumVotingClosed(id);
         vm.prank(voter2);
@@ -200,7 +164,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     }
 
     function test_againstAcceptedAfterQuorumVoteDeadlineUntilProposalDeadline() public {
-        uint256 id = _propose("against late");
+        uint256 id = _proposeCancelDelay("against late");
         vm.warp(governor.proposalQuorumVoteDeadline(id) + 1);
         vm.prank(voter2);
         governor.castVote(id, AGAINST);
@@ -214,7 +178,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     }
 
     function test_againstRejectedAfterProposalDeadline() public {
-        uint256 id = _propose("against too late");
+        uint256 id = _proposeCancelDelay("against too late");
         vm.warp(governor.proposalDeadline(id) + 1);
         vm.prank(voter2);
         vm.expectPartialRevert(IGovernor.GovernorUnexpectedProposalState.selector);
@@ -224,7 +188,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     /// A late Against can still defeat a proposal whose For votes were all in
     /// before the cutoff, which is the point of the window.
     function test_lateAgainstDefeatsEarlierFor() public {
-        uint256 id = _propose("late answer");
+        uint256 id = _proposeCancelDelay("late answer");
         vm.warp(governor.proposalSnapshot(id) + 1);
         vm.prank(voter1);
         governor.castVote(id, FOR);
@@ -244,7 +208,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
     /// `castVoteBySig` reaches the same `_castVote` overload as `castVote`.
     function test_castVoteBySigObeysQuorumVoteWindow() public {
         (address signer, uint256 key) = _fundSigner();
-        uint256 id = _propose("by sig");
+        uint256 id = _proposeCancelDelay("by sig");
 
         vm.warp(governor.proposalQuorumVoteDeadline(id) + 1);
         bytes memory forSig = _signBallot(key, id, FOR, signer);
@@ -262,119 +226,12 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
 
     function test_castVoteBySigForAcceptedAtQuorumVoteDeadline() public {
         (address signer, uint256 key) = _fundSigner();
-        uint256 id = _propose("by sig on time");
+        uint256 id = _proposeCancelDelay("by sig on time");
 
         vm.warp(governor.proposalQuorumVoteDeadline(id));
         governor.castVoteBySig(id, FOR, signer, _signBallot(key, id, FOR, signer));
         (, uint256 forVotes,) = governor.proposalVotes(id);
         assertEq(forVotes, SUPPLY / 10);
-    }
-
-    // ============== Governance-set cutoff ====================================
-
-    function test_setQuorumVoteCutoffByNonGovernanceReverts() public {
-        vm.prank(voter1);
-        vm.expectRevert(abi.encodeWithSelector(IGovernor.GovernorOnlyExecutor.selector, voter1));
-        governor.setQuorumVoteCutoff(2 days);
-    }
-
-    /// Even the Timelock cannot call it outside a proposal execution: the
-    /// Governor only accepts calls it has queued for itself.
-    function test_setQuorumVoteCutoffByTimelockOutsideExecutionReverts() public {
-        vm.prank(address(timelock));
-        vm.expectRevert();
-        governor.setQuorumVoteCutoff(2 days);
-    }
-
-    function test_setQuorumVoteCutoffByProposal() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c, bytes32 h) =
-            _queueSelfCall(abi.encodeCall(LelantosGovernor.setQuorumVoteCutoff, (2 days)), "cutoff 2d");
-
-        vm.expectEmit(address(governor));
-        emit LelantosGovernor.QuorumVoteCutoffSet(QUORUM_VOTE_CUTOFF, 2 days);
-        governor.execute(t, v, c, h);
-        assertEq(governor.quorumVoteCutoff(), 2 days);
-    }
-
-    function test_setQuorumVoteCutoffAtVotingPeriodReverts() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c, bytes32 h) =
-            _queueSelfCall(abi.encodeCall(LelantosGovernor.setQuorumVoteCutoff, (VOTING_PERIOD)), "cutoff = period");
-        vm.expectRevert(
-            abi.encodeWithSelector(LelantosGovernor.InvalidQuorumVoteCutoff.selector, VOTING_PERIOD, VOTING_PERIOD)
-        );
-        governor.execute(t, v, c, h);
-    }
-
-    function test_setQuorumVoteCutoffAboveVotingPeriodReverts() public {
-        uint32 cutoff = VOTING_PERIOD + 1;
-        (address[] memory t, uint256[] memory v, bytes[] memory c, bytes32 h) =
-            _queueSelfCall(abi.encodeCall(LelantosGovernor.setQuorumVoteCutoff, (cutoff)), "cutoff > period");
-        vm.expectRevert(
-            abi.encodeWithSelector(LelantosGovernor.InvalidQuorumVoteCutoff.selector, cutoff, VOTING_PERIOD)
-        );
-        governor.execute(t, v, c, h);
-    }
-
-    function test_setVotingPeriodAtCutoffReverts() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c, bytes32 h) =
-            _queueSelfCall(abi.encodeCall(GovernorSettings.setVotingPeriod, (QUORUM_VOTE_CUTOFF)), "period = cutoff");
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                LelantosGovernor.InvalidQuorumVoteCutoff.selector, QUORUM_VOTE_CUTOFF, QUORUM_VOTE_CUTOFF
-            )
-        );
-        governor.execute(t, v, c, h);
-    }
-
-    function test_setVotingPeriodBelowCutoffReverts() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c, bytes32 h) =
-            _queueSelfCall(abi.encodeCall(GovernorSettings.setVotingPeriod, (1 hours)), "period < cutoff");
-        vm.expectRevert(
-            abi.encodeWithSelector(LelantosGovernor.InvalidQuorumVoteCutoff.selector, QUORUM_VOTE_CUTOFF, 1 hours)
-        );
-        governor.execute(t, v, c, h);
-    }
-
-    function test_setVotingPeriodAboveCutoffSucceeds() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c, bytes32 h) = _queueSelfCall(
-            abi.encodeCall(GovernorSettings.setVotingPeriod, (QUORUM_VOTE_CUTOFF + 1)), "period > cutoff"
-        );
-        governor.execute(t, v, c, h);
-        assertEq(governor.votingPeriod(), QUORUM_VOTE_CUTOFF + 1);
-    }
-
-    /// The quorum vote deadline is fixed at propose time: a cutoff change
-    /// executed while a proposal is active moves only proposals created
-    /// afterwards.
-    function test_cutoffChangeDoesNotMoveActiveProposalQuorumVoteDeadline() public {
-        uint32 newCutoff = 3 days;
-        (address[] memory t, uint256[] memory v, bytes[] memory c) =
-            _one(address(governor), abi.encodeCall(LelantosGovernor.setQuorumVoteCutoff, (newCutoff)));
-        string memory desc = "cutoff 3d";
-        uint256 changeId = _proposeAndSucceed(t, v, c, desc);
-        governor.queue(t, v, c, keccak256(bytes(desc)));
-
-        // Created before the change lands; its voting window spans the execute.
-        uint256 active = _propose("already active");
-        uint256 before = governor.proposalQuorumVoteDeadline(active);
-        assertEq(before, governor.proposalDeadline(active) - QUORUM_VOTE_CUTOFF);
-
-        vm.warp(governor.proposalEta(changeId) + 1);
-        governor.execute(t, v, c, keccak256(bytes(desc)));
-        assertEq(governor.quorumVoteCutoff(), newCutoff);
-        assertEq(uint8(governor.state(active)), uint8(IGovernor.ProposalState.Active), "not active at change");
-
-        assertEq(governor.proposalQuorumVoteDeadline(active), before, "active proposal deadline moved");
-
-        // For is still accepted up to the original deadline, which the new,
-        // longer cutoff would already have closed.
-        vm.warp(before);
-        assertGt(before, governor.proposalDeadline(active) - newCutoff);
-        vm.prank(voter2);
-        governor.castVote(active, FOR);
-
-        uint256 later = _propose("after change");
-        assertEq(governor.proposalQuorumVoteDeadline(later), governor.proposalDeadline(later) - newCutoff);
     }
 
     // ============== Fuzz =====================================================
@@ -391,7 +248,7 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
         );
         assertEq(g.quorumVoteCutoff(), cutoff);
 
-        (address[] memory t, uint256[] memory v, bytes[] memory c) = _adminPayload();
+        (address[] memory t, uint256[] memory v, bytes[] memory c) = _cancelDelayPayload();
         vm.prank(voter1);
         uint256 id = g.propose(t, v, c, "fuzz");
 

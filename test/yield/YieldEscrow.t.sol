@@ -9,10 +9,10 @@ import { YieldOps } from "../../src/yield/YieldOps.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
 
-import { YieldBase } from "./YieldBase.t.sol";
+import { YieldTestBase } from "../utils/YieldTestBase.sol";
 
 /// The escrow half of the index: what flush and cancel do to the books.
-contract YieldEscrowTest is YieldBase {
+contract YieldEscrowTest is YieldTestBase {
     uint64 internal constant N = 1_000_000;
 
     function _feeNote(uint256 seed) internal pure returns (PubInputs.FeeNote memory) {

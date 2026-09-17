@@ -7,6 +7,7 @@ import { LelantosToken } from "../../src/governance/LelantosToken.sol";
 import { FeeBurner } from "../../src/burn/FeeBurner.sol";
 
 import { EscrowFlowBase } from "../utils/EscrowFlowBase.sol";
+import { GovConstants } from "../utils/GovConstants.sol";
 
 /// A pool whose `treasury` is the burner, so fees arrive through the production
 /// accrual and sweep paths rather than a mint.
@@ -15,10 +16,10 @@ import { EscrowFlowBase } from "../utils/EscrowFlowBase.sol";
 /// Governance access to these setters is covered by
 /// `test/governance/Governor.lifecycle.t.sol`.
 abstract contract FeeBurnerTestBase is EscrowFlowBase {
-    uint256 internal constant GOV_SUPPLY = 1_000_000_000e18;
-    uint32 internal constant HALF_LIFE = 1 hours;
-    uint8 internal constant MAX_HALVINGS = 12;
-    uint16 internal constant RESTART_MULT_BPS = 20_000;
+    uint256 internal constant GOV_SUPPLY = GovConstants.SUPPLY;
+    uint32 internal constant HALF_LIFE = GovConstants.HALF_LIFE;
+    uint8 internal constant MAX_HALVINGS = GovConstants.MAX_HALVINGS;
+    uint16 internal constant RESTART_MULT_BPS = GovConstants.RESTART_MULT_BPS;
 
     /// 1 fee-token base unit costs 2 GOV wei, i.e. a 1:2 ratio at 18 decimals.
     uint256 internal constant SEED_PRICE = 2e18;
@@ -38,7 +39,9 @@ abstract contract FeeBurnerTestBase is EscrowFlowBase {
     function setUp() public virtual override {
         // The burner is deployed before the pool, since it is the pool's treasury.
         gov = new LelantosToken("Lelantos", "LNT", GOV_SUPPLY, govHolder);
-        burner = new FeeBurner(gov, timelockOwner, HALF_LIFE, MAX_HALVINGS, RESTART_MULT_BPS, 10_000, address(0));
+        burner = new FeeBurner(
+            gov, timelockOwner, HALF_LIFE, MAX_HALVINGS, RESTART_MULT_BPS, GovConstants.BURN_BPS, address(0)
+        );
         treasury = address(burner);
 
         super.setUp();

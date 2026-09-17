@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 import { StdInvariant } from "forge-std/StdInvariant.sol";
 
-import { CommitmentTreeHarness } from "../fuzz/CommitmentTreeHarness.sol";
+import { CommitmentTreeHarness } from "../utils/CommitmentTreeHarness.sol";
 
 /// Handler narrows the fuzzer's call surface to a single bounded entrypoint
 /// (`advance`, wrapping `advanceRoot`) and tracks ghost state for the

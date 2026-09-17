@@ -102,4 +102,14 @@ library SpendFixture {
     function validAux() internal pure returns (AuxValidation.Output[SPEND_OUTPUTS] memory) {
         return uniformAux(hex"0001");
     }
+
+    /// One `validAux` payload, for the single-leaf arguments of the deposit
+    /// path (`deposit`, `depositAuthorized` and the adapters wrapping them).
+    function validAuxOutput() internal pure returns (AuxValidation.Output memory aux) {
+        aux.clueRx = BabyJubJub.BASE8_X;
+        aux.clueRy = BabyJubJub.BASE8_Y;
+        aux.ephPubX = BabyJubJub.BASE8_X;
+        aux.ephPubY = BabyJubJub.BASE8_Y;
+        aux.ciphertext = hex"0001";
+    }
 }

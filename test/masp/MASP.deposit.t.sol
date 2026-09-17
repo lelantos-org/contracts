@@ -19,6 +19,8 @@ import { SpendFixture } from "../utils/SpendFixture.sol";
 import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
+import { FeeMath } from "../utils/FeeMath.sol";
 
 /// `deposit` happy path and revert coverage. Permit2 signature acceptance is
 /// stubbed via an ERC-1271 contract at the payer address (any signature bytes
@@ -33,7 +35,7 @@ contract MASPDepositTest is Test {
     MockERC20 token;
     MASP masp;
 
-    address payer = address(0xface);
+    address payer = TestConstants.ESCROW_PAYER;
     address recipient = address(0xb0b);
 
     function setUp() public {
@@ -49,35 +51,20 @@ contract MASPDepositTest is Test {
         Stubs.installPermissiveERC1271(payer);
     }
 
-    function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = publicIn;
-        d.payer = payer;
-        d.recipient = recipient;
-        d.outCm = bytes32(uint256(0xdead));
-        d.feeCm = bytes32(uint256(0xfee));
-    }
-
-    function _aux() internal pure returns (AuxValidation.Output[6] memory aux) {
-        // Baby-Jubjub prime-order generator in both point slots, which passes
-        // the low-order and identity rejection in `AuxValidation`.
-        return SpendFixture.validAux();
+    function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory) {
+        return DepositFixture.request(ASSET_ID, publicIn, payer, recipient, bytes32(uint256(0xdead)));
     }
 
     function _fund(uint64 publicIn) internal returns (uint256 inAmt, uint256 fee) {
         inAmt = uint256(publicIn) * SCALE;
-        fee = (inAmt * FEE_BPS) / 10_000;
+        fee = FeeMath.fee(inAmt, FEE_BPS);
         token.mint(payer, inAmt + fee);
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
     }
 
     function _sig(uint256 maxTotal) internal pure returns (MASP.Permit2Sig memory) {
-        return
-            MASP.Permit2Sig({
-                nonce: 0, deadline: type(uint256).max, maxTotal: maxTotal, maxFee: 0, signature: hex"00"
-            });
+        return DepositFixture.sig(0, maxTotal, 0);
     }
 
     // --- happy path --------------------------------------------------------
@@ -88,7 +75,7 @@ contract MASPDepositTest is Test {
         uint256 total = inAmt + fee;
 
         PubInputs.DepositRequest memory d = _request(publicIn);
-        AuxValidation.Output[6] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
 
         uint256 poolBefore = token.balanceOf(address(masp));
         uint256 payerBefore = token.balanceOf(payer);
@@ -131,13 +118,9 @@ contract MASPDepositTest is Test {
         _fund(publicIn);
         _fund(publicIn); // second deposit's funds
         PubInputs.DepositRequest memory d = _request(publicIn);
-        AuxValidation.Output[6] memory aux = _aux();
-        MASP.Permit2Sig memory s1 = MASP.Permit2Sig({
-            nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
-        MASP.Permit2Sig memory s2 = MASP.Permit2Sig({
-            nonce: 1, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
+        MASP.Permit2Sig memory s1 = DepositFixture.sig(0);
+        MASP.Permit2Sig memory s2 = DepositFixture.sig(1);
 
         uint256 a = masp.deposit(d, s1, aux[0], aux[1]);
         uint256 b = masp.deposit(d, s2, aux[0], aux[1]);
@@ -148,7 +131,9 @@ contract MASPDepositTest is Test {
     function test_happy_sweep_nothingAccruedAtSubmit() public {
         uint64 publicIn = 100;
         _fund(publicIn);
-        masp.deposit(_request(publicIn), _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(
+            _request(publicIn), _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]
+        );
 
         // Fees accrue only at flush, so a submit leaves nothing to sweep;
         // escrowed principal and fee stay out of `accruedFee`.
@@ -164,13 +149,13 @@ contract MASPDepositTest is Test {
         PubInputs.DepositRequest memory d = _request(100);
         d.chainId = block.chainid + 1;
         vm.expectRevert(MASP.BadChainId.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     function test_revert_MustHaveDeposit() public {
         PubInputs.DepositRequest memory d = _request(0);
         vm.expectRevert(MASP.MustHaveDeposit.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     function test_revert_PublicInTooLarge() public {
@@ -178,21 +163,21 @@ contract MASPDepositTest is Test {
         PubInputs.DepositRequest memory d = _request(0);
         d.publicIn = uint64(uint256(type(uint48).max) + 1);
         vm.expectRevert(MASP.PublicInTooLarge.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     function test_revert_ZeroPayer() public {
         PubInputs.DepositRequest memory d = _request(100);
         d.payer = address(0);
         vm.expectRevert(MASP.ZeroPayer.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     function test_revert_ZeroRecipient() public {
         PubInputs.DepositRequest memory d = _request(100);
         d.recipient = address(0);
         vm.expectRevert(MASP.ZeroRecipient.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     function test_revert_ZeroCm() public {
@@ -202,14 +187,14 @@ contract MASPDepositTest is Test {
         d.outCm = bytes32(0);
         d.feeCm = bytes32(uint256(0xfee));
         vm.expectRevert(MASP.ZeroCm.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     function test_revert_UnknownAsset() public {
         PubInputs.DepositRequest memory d = _request(100);
         d.publicAssetId = 999;
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, 999));
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     // --- admin / cancelDelay -----------------------------------------------
@@ -299,7 +284,7 @@ contract MASPDepositTest is Test {
         PubInputs.DepositRequest memory d = _request(publicIn);
         d.feeIn = feeIn;
         d.feeAssetId = ASSET_ID;
-        AuxValidation.Output[6] memory aux = _aux();
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
 
         uint256 payerBefore = token.balanceOf(payer);
         uint256 poolBefore = token.balanceOf(address(masp));
@@ -317,7 +302,7 @@ contract MASPDepositTest is Test {
         PubInputs.DepositRequest memory d = _request(100);
         d.feeIn = uint64(uint256(type(uint48).max) + 1);
         vm.expectRevert(MASP.PublicInTooLarge.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     /// A deposit mints two leaves, so the fee leaf's commitment gets the same
@@ -328,29 +313,29 @@ contract MASPDepositTest is Test {
         PubInputs.DepositRequest memory d = _request(100);
         d.feeCm = bytes32(0);
         vm.expectRevert(MASP.ZeroCm.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], _aux()[1]);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
     /// Both aux payloads are validated. The two arguments are interchangeable in
     /// every other test, so a swapped or dropped `feeAux` check would otherwise
     /// go undetected and publish an unvalidated payload to the event.
     ///
-    /// Each case takes its payload from a fresh `_aux()`: a memory struct is a
+    /// Each case takes its payload from a fresh `SpendFixture.validAux()`: a memory struct is a
     /// reference, so reusing one would carry the previous mutation forward.
     function test_revert_feeAuxValidatedIndependently() public {
         _fund(100);
         PubInputs.DepositRequest memory d = _request(100);
 
-        AuxValidation.Output memory badFee = _aux()[1];
+        AuxValidation.Output memory badFee = SpendFixture.validAux()[1];
         badFee.ciphertext = hex"";
         vm.expectRevert(AuxValidation.CiphertextTooShort.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], badFee);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], badFee);
 
         // Off-curve ephemeral key in the fee payload, principal payload intact.
-        badFee = _aux()[1];
+        badFee = SpendFixture.validAux()[1];
         badFee.ephPubX = 1;
         badFee.ephPubY = 1;
         vm.expectRevert(AuxValidation.OffCurvePoint.selector);
-        masp.deposit(d, _sig(type(uint256).max), _aux()[0], badFee);
+        masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], badFee);
     }
 }
