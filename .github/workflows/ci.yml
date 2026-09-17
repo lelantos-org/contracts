@@ -158,7 +158,12 @@ jobs:
       # `--no-dynamic-test-linking`: dynamic test linking (Foundry 1.8+)
       # injects synthetic `foundry-pp/*.sol` sources that crytic-compile cannot
       # resolve. See the `slither` recipe in the justfile.
-      - run: forge build --build-info --no-dynamic-test-linking
+      # `--skip` excludes test/ and script/: Slither parses every source in
+      # build-info before `filter_paths` drops the non-src findings, and test/
+      # is 217 of the 274 first-party sources. See the `slither` recipe in the
+      # justfile for the measurements and for the informational findings the
+      # narrower scope adds.
+      - run: forge build --build-info --no-dynamic-test-linking --skip 'test/**' --skip 'script/**'
       # v0.4.2 or later is required: slither 0.11.5 needs Python >=3.10, and
       # earlier action images ship Python 3.9.
       - uses: crytic/slither-action@v0.4.2

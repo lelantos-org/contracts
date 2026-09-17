@@ -395,11 +395,27 @@ fmt-check:
 # what it recompiled, leaving entries with no `output` key, and crytic-compile
 # fails with `KeyError: 'output'`. CI checks out fresh, so this affects only
 # local runs.
+#
+# `--skip` keeps test/ and script/ out of the build. Slither reports only on
+# src/ (`filter_paths` in slither.config.json), but `filter_paths` drops
+# findings after the fact: every source in build-info is still parsed and run
+# through the detectors first. test/ is 217 of the 274 first-party sources and
+# compiles through via_ir, so excluding it takes the whole recipe from ~8
+# minutes to ~12 seconds (build 221s -> 6s, Slither 250s -> 6s, measured
+# locally) and build-info from 142 MB to 17 MB. src/ bytecode is unchanged.
+#
+# The narrower scope adds 11 informational findings (`dead-code`,
+# `unused-state`, `missing-inheritance`) and removes none. They are an artifact
+# of `compilation_restrictions` in foundry.toml: MASP compiles at 1_000 runs
+# into its own compilation unit, so the copy of each base contract in the
+# 1_000_000-run unit has no caller once the test contracts that used to call it
+# are gone. All are below the `--fail-medium` gate, which sees the same set of
+# findings either way.
 [doc('Run Slither (mirrors the CI job)')]
 [group('ci')]
 slither:
     forge clean
-    forge build --build-info --no-dynamic-test-linking
+    forge build --build-info --no-dynamic-test-linking --skip 'test/**' --skip 'script/**'
     slither . --config-file slither.config.json --ignore-compile --fail-medium
 
 # Aderyn (Cyfrin) is an AST-level analyzer run alongside Slither: the two
