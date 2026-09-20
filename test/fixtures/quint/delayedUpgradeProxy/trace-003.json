@@ -1,7 +1,7 @@
 {
   "meta": {
     "spec": "spec/delayed_upgrade_proxy.qnt",
-    "specHash": "0x1087c2f457897618fc4a17f1468e6ded4eea446f1ffa503b3c29cd2c98944474",
+    "specHash": "0xc08e529090312f1d1d18f16bda859ed1feaec1d6aadcc29b4d5e7bbfa8b76b03",
     "module": "delayed_upgrade_proxy",
     "quintVersion": "0.32.0",
     "backend": "rust",

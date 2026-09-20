@@ -15,7 +15,7 @@
 // contract would otherwise leave a stale module that the `./*` subpath export
 // keeps importable and publishable.
 
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -113,6 +113,11 @@ function assertUnique() {
  * Fails when a `src/` contract with a non-empty ABI is neither published nor
  * listed in `EXCLUDED`. Walks the Foundry build rather than the source tree, so
  * it checks what solc produced.
+ *
+ * Artifacts whose source no longer exists are skipped: `forge build` never
+ * prunes `out/`, and CI restores it from a cache keyed on a prefix, so a
+ * contract deleted since the cached build leaves its artifact behind and would
+ * otherwise be reported as unpublished drift forever.
  */
 function assertNoDrift() {
     const known = new Set([...CONTRACTS.map((e) => `${e.source}:${e.contract}`), ...EXCLUDED.keys()]);
@@ -130,6 +135,7 @@ function assertNoDrift() {
             if (!artifact.abi?.length) continue;
             for (const [source, contract] of Object.entries(artifact.metadata?.settings?.compilationTarget ?? {})) {
                 if (!source.startsWith("src/")) continue;
+                if (!existsSync(join(repoRoot, source))) continue;
                 if (!known.has(`${source}:${contract}`)) missing.push(`${source}:${contract}`);
             }
         }
@@ -148,6 +154,13 @@ function artifactPath({ source, contract }) {
 
 function loadAbi(entry) {
     const path = artifactPath(entry);
+    // The other half of the stale-`out/` hazard `assertNoDrift` skips: a
+    // deleted source leaves its artifact behind, and its `compilationTarget`
+    // still matches, so a `CONTRACTS` entry left in place would publish a dead
+    // ABI rather than fail.
+    if (!existsSync(join(repoRoot, entry.source))) {
+        throw new Error(`${entry.source} no longer exists — remove ${entry.contract} from CONTRACTS`);
+    }
     let artifact;
     try {
         artifact = JSON.parse(readFileSync(path, "utf8"));
