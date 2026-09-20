@@ -6,6 +6,7 @@ import { Test } from "forge-std/Test.sol";
 import { UpgradeStorage } from "../../src/UpgradeStorage.sol";
 import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { VenueBinding } from "../../src/yield/YieldOps.sol";
+import { VerifierStorage } from "../../src/VerifierStorage.sol";
 
 /// ERC-7201 namespaced slots used by the pool under `delegatecall`. Each slot is
 /// a literal constant, re-derived here so a transcription error cannot alias
@@ -96,5 +97,31 @@ contract VenueBindingSlotTest is NamespaceSlotTestBase {
     function test_slotIsClearOfTheOtherNamespaces() public pure {
         assertGt(_distance(VenueBinding.SLOT, ExitTerms.SLOT), 1e60, "ExitTerms");
         assertGt(_distance(VenueBinding.SLOT, UpgradeStorage.SLOT), 1e60, "UpgradeStorage");
+    }
+}
+
+contract VerifierStorageSlotTest is NamespaceSlotTestBase {
+    function test_slotMatchesTheErc7201Derivation() public pure {
+        bytes32 expected = _erc7201Slot("lelantos.storage.Verifiers");
+        assertEq(VerifierStorage.SLOT, expected, "slot constant drifted from its namespace");
+    }
+
+    /// ERC-7201 slots are 256-aligned, so the struct can grow within its
+    /// namespace.
+    function test_slotIsAligned() public pure {
+        assertEq(uint256(VerifierStorage.SLOT) & 0xff, 0);
+    }
+
+    /// The slot lies far above the sequential slots a pool implementation uses.
+    function test_slotIsNowhereNearSequentialStorage() public pure {
+        assertGt(uint256(VerifierStorage.SLOT), 1e60);
+    }
+
+    /// Four namespaces now live in the pool's storage, and the proxy writes two
+    /// of them in its own context. None may overlap.
+    function test_slotIsClearOfTheOtherNamespaces() public pure {
+        assertGt(_distance(VerifierStorage.SLOT, UpgradeStorage.SLOT), 1e60, "UpgradeStorage");
+        assertGt(_distance(VerifierStorage.SLOT, ExitTerms.SLOT), 1e60, "ExitTerms");
+        assertGt(_distance(VerifierStorage.SLOT, VenueBinding.SLOT), 1e60, "VenueBinding");
     }
 }

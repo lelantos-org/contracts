@@ -11,7 +11,7 @@ library UpgradeStorage {
     /// Re-derived in `UpgradeStorage.t.sol`.
     bytes32 internal constant SLOT = 0xfae014a5d49f1423ef3edefa98c6ee7aa2d26ee322477f34a126074d398a3b00;
 
-    /// Occupies one slot: 20 + 5 + 5 + 1 = 31 bytes. The pool reads this slot on
+    /// Occupies one slot: 20 + 5 + 5 = 30 bytes. The pool reads this slot on
     /// every entry point gated by `whenNotPaused`. `uint40` spans timestamps to
     /// the year 36,812.
     ///
@@ -25,8 +25,6 @@ library UpgradeStorage {
         uint40 activationAt;
         /// Spends are paused while `block.timestamp < pausedUntil`.
         uint40 pausedUntil;
-        /// Guardian's one-shot pause flag. Cleared only by governance.
-        bool guardianPauseUsed;
     }
 
     /// Named `$` because `layout` is reserved for promotion to a keyword.

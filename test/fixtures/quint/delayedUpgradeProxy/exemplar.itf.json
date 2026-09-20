@@ -5,13 +5,12 @@
     "source": "spec/delayed_upgrade_proxy.qnt",
     "status": "ok",
     "description": "Created by Quint; regenerate with `quint-sol-connect gen`",
-    "exemplarOf": "trace-004.json"
+    "exemplarOf": "trace-001.json"
   },
   "vars": [
     "activationAt",
     "admin",
     "carriedPause",
-    "guardianPauseUsed",
     "implVersion",
     "lastActivated",
     "mbt::actionTaken",
@@ -23,7 +22,6 @@
     "pendingImpl",
     "queueFirings",
     "queuedAt",
-    "resetFirings",
     "unpausedInWindow",
     "mbt::actionTaken",
     "mbt::nondetPicks"
@@ -42,7 +40,6 @@
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
       "implVersion": {
         "#bigint": "1"
       },
@@ -91,9 +88,6 @@
       "queuedAt": {
         "#bigint": "0"
       },
-      "resetFirings": {
-        "#bigint": "0"
-      },
       "unpausedInWindow": {
         "#bigint": "0"
       }
@@ -111,19 +105,18 @@
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "advanceTime",
+      "mbt::actionTaken": "pauseSpends",
       "mbt::nondetPicks": {
         "dt": {
           "tag": "Some",
           "value": {
-            "#bigint": "2592001"
+            "#bigint": "86400"
           }
         },
         "impl": {
@@ -140,16 +133,16 @@
         }
       },
       "nowTs": {
-        "#bigint": "2592001"
+        "#bigint": "0"
       },
       "pauseFirings": {
-        "#bigint": "0"
+        "#bigint": "1"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "0"
+        "#bigint": "86400"
       },
       "pendingImpl": {
         "#bigint": "0"
@@ -158,9 +151,6 @@
         "#bigint": "0"
       },
       "queuedAt": {
-        "#bigint": "0"
-      },
-      "resetFirings": {
         "#bigint": "0"
       },
       "unpausedInWindow": {
@@ -180,7 +170,136 @@
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": true,
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "advanceTime",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2592000"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2592000"
+      },
+      "pauseFirings": {
+        "#bigint": "1"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "86400"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "0"
+      },
+      "queuedAt": {
+        "#bigint": "0"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 3
+      },
+      "activationAt": {
+        "#bigint": "5184000"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2592000"
+      },
+      "pauseFirings": {
+        "#bigint": "1"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "86400"
+      },
+      "pendingImpl": {
+        "#bigint": "2"
+      },
+      "queueFirings": {
+        "#bigint": "1"
+      },
+      "queuedAt": {
+        "#bigint": "2592000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 4
+      },
+      "activationAt": {
+        "#bigint": "5184001"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -209,166 +328,25 @@
         }
       },
       "nowTs": {
+        "#bigint": "2592000"
+      },
+      "pauseFirings": {
+        "#bigint": "2"
+      },
+      "pausedInWindow": {
+        "#bigint": "1"
+      },
+      "pausedUntil": {
         "#bigint": "2592001"
       },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
       "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "0"
-      },
-      "queuedAt": {
-        "#bigint": "0"
-      },
-      "resetFirings": {
-        "#bigint": "0"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 3
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "advanceTime",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "86400"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "2678401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "0"
-      },
-      "queuedAt": {
-        "#bigint": "0"
-      },
-      "resetFirings": {
-        "#bigint": "0"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 4
-      },
-      "activationAt": {
-        "#bigint": "5270401"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "queueUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "1"
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "2678401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
+        "#bigint": "2"
       },
       "queueFirings": {
         "#bigint": "1"
       },
       "queuedAt": {
-        "#bigint": "2678401"
-      },
-      "resetFirings": {
-        "#bigint": "0"
+        "#bigint": "2592000"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -387,1111 +365,6 @@
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "activateTooEarly",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "2678401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "1"
-      },
-      "queuedAt": {
-        "#bigint": "2678401"
-      },
-      "resetFirings": {
-        "#bigint": "0"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 6
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "cancelUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "2678401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "1"
-      },
-      "queuedAt": {
-        "#bigint": "2678401"
-      },
-      "resetFirings": {
-        "#bigint": "0"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 7
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "1"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "1"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "2678401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "1"
-      },
-      "queuedAt": {
-        "#bigint": "2678401"
-      },
-      "resetFirings": {
-        "#bigint": "0"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 8
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "1"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "advanceTime",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "5184000"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "7862401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "1"
-      },
-      "queuedAt": {
-        "#bigint": "2678401"
-      },
-      "resetFirings": {
-        "#bigint": "0"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 9
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "2"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "7862401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "1"
-      },
-      "queuedAt": {
-        "#bigint": "2678401"
-      },
-      "resetFirings": {
-        "#bigint": "0"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 10
-      },
-      "activationAt": {
-        "#bigint": "10454401"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "queueUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "2"
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "7862401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "2"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "0"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 11
-      },
-      "activationAt": {
-        "#bigint": "10454401"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "7862401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "2"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "1"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 12
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "cancelUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "7862401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "2"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "1"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 13
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "0"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "7862401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "2"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "1"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 14
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "7862401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "2"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "1"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 15
-      },
-      "activationAt": {
-        "#bigint": "10454401"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "queueUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "1"
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "7862401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "1"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 16
-      },
-      "activationAt": {
-        "#bigint": "10454401"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "advanceTime",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "2592000"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "1"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 17
-      },
-      "activationAt": {
-        "#bigint": "10454401"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "1"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "2592002"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "1"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 18
-      },
-      "activationAt": {
-        "#bigint": "10454402"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "pauseSpends",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "1"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "2"
-      },
-      "pausedInWindow": {
-        "#bigint": "1"
-      },
-      "pausedUntil": {
-        "#bigint": "10454402"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "1"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 19
-      },
-      "activationAt": {
-        "#bigint": "10454402"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "2"
-      },
-      "pausedInWindow": {
-        "#bigint": "1"
-      },
-      "pausedUntil": {
-        "#bigint": "10454402"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "2"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 20
-      },
-      "activationAt": {
-        "#bigint": "10454402"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "activateTooEarly",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "2"
-      },
-      "pausedInWindow": {
-        "#bigint": "1"
-      },
-      "pausedUntil": {
-        "#bigint": "10454402"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "2"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 21
-      },
-      "activationAt": {
-        "#bigint": "10540802"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
       "implVersion": {
         "#bigint": "1"
       },
@@ -1520,7 +393,7 @@
         }
       },
       "nowTs": {
-        "#bigint": "10454401"
+        "#bigint": "2592000"
       },
       "pauseFirings": {
         "#bigint": "3"
@@ -1529,45 +402,41 @@
         "#bigint": "86401"
       },
       "pausedUntil": {
-        "#bigint": "10540801"
+        "#bigint": "2678400"
       },
       "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
         "#bigint": "2"
       },
-      "unpausedInWindow": {
+      "queueFirings": {
+        "#bigint": "1"
+      },
+      "queuedAt": {
         "#bigint": "2592000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
       }
     },
     {
       "#meta": {
-        "index": 22
+        "index": 6
       },
       "activationAt": {
-        "#bigint": "10540802"
+        "#bigint": "5270401"
       },
       "admin": {
-        "#bigint": "0"
+        "#bigint": "1"
       },
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "resetGuardianPause",
+      "mbt::actionTaken": "changeProxyAdmin",
       "mbt::nondetPicks": {
         "dt": {
           "tag": "None",
@@ -1582,173 +451,32 @@
           }
         },
         "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "3"
-      },
-      "pausedInWindow": {
-        "#bigint": "86401"
-      },
-      "pausedUntil": {
-        "#bigint": "10540801"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 23
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "cancelUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "3"
-      },
-      "pausedInWindow": {
-        "#bigint": "86401"
-      },
-      "pausedUntil": {
-        "#bigint": "10540801"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "3"
-      },
-      "queuedAt": {
-        "#bigint": "7862401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 24
-      },
-      "activationAt": {
-        "#bigint": "13132801"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "86400"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "queueUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
           "tag": "Some",
           "value": {
-            "#bigint": "2"
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
+            "#bigint": "1"
           }
         }
       },
       "nowTs": {
-        "#bigint": "10454401"
+        "#bigint": "2592000"
       },
       "pauseFirings": {
         "#bigint": "3"
       },
       "pausedInWindow": {
-        "#bigint": "0"
+        "#bigint": "86401"
       },
       "pausedUntil": {
-        "#bigint": "10540801"
+        "#bigint": "2678400"
       },
       "pendingImpl": {
         "#bigint": "2"
       },
       "queueFirings": {
-        "#bigint": "4"
+        "#bigint": "1"
       },
       "queuedAt": {
-        "#bigint": "10454401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2592000"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -1756,18 +484,17 @@
     },
     {
       "#meta": {
-        "index": 25
+        "index": 7
       },
       "activationAt": {
-        "#bigint": "13132801"
+        "#bigint": "5270401"
       },
       "admin": {
-        "#bigint": "0"
+        "#bigint": "1"
       },
       "carriedPause": {
-        "#bigint": "86400"
+        "#bigint": "0"
       },
-      "guardianPauseUsed": false,
       "implVersion": {
         "#bigint": "1"
       },
@@ -1796,28 +523,25 @@
         }
       },
       "nowTs": {
-        "#bigint": "10454401"
+        "#bigint": "2592000"
       },
       "pauseFirings": {
         "#bigint": "3"
       },
       "pausedInWindow": {
-        "#bigint": "0"
+        "#bigint": "86401"
       },
       "pausedUntil": {
-        "#bigint": "10540801"
+        "#bigint": "2678400"
       },
       "pendingImpl": {
         "#bigint": "2"
       },
       "queueFirings": {
-        "#bigint": "4"
+        "#bigint": "1"
       },
       "queuedAt": {
-        "#bigint": "10454401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2592000"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -1825,156 +549,17 @@
     },
     {
       "#meta": {
-        "index": 26
+        "index": 8
       },
       "activationAt": {
-        "#bigint": "13132801"
+        "#bigint": "5270402"
       },
       "admin": {
-        "#bigint": "2"
+        "#bigint": "1"
       },
       "carriedPause": {
-        "#bigint": "86400"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "2"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "3"
-      },
-      "pausedInWindow": {
         "#bigint": "0"
       },
-      "pausedUntil": {
-        "#bigint": "10540801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "4"
-      },
-      "queuedAt": {
-        "#bigint": "10454401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 27
-      },
-      "activationAt": {
-        "#bigint": "13132801"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "86400"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "10454401"
-      },
-      "pauseFirings": {
-        "#bigint": "3"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "10540801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "4"
-      },
-      "queuedAt": {
-        "#bigint": "10454401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 28
-      },
-      "activationAt": {
-        "#bigint": "13132802"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "86400"
-      },
-      "guardianPauseUsed": true,
       "implVersion": {
         "#bigint": "1"
       },
@@ -2003,28 +588,25 @@
         }
       },
       "nowTs": {
-        "#bigint": "10454401"
+        "#bigint": "2592000"
       },
       "pauseFirings": {
         "#bigint": "4"
       },
       "pausedInWindow": {
-        "#bigint": "1"
+        "#bigint": "86402"
       },
       "pausedUntil": {
-        "#bigint": "10454402"
+        "#bigint": "2592001"
       },
       "pendingImpl": {
         "#bigint": "2"
       },
       "queueFirings": {
-        "#bigint": "4"
+        "#bigint": "1"
       },
       "queuedAt": {
-        "#bigint": "10454401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2592000"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -2032,25 +614,24 @@
     },
     {
       "#meta": {
-        "index": 29
+        "index": 9
       },
       "activationAt": {
-        "#bigint": "13132802"
+        "#bigint": "5875202"
       },
       "admin": {
-        "#bigint": "2"
+        "#bigint": "1"
       },
       "carriedPause": {
-        "#bigint": "86400"
+        "#bigint": "0"
       },
-      "guardianPauseUsed": true,
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "advanceTime",
+      "mbt::actionTaken": "pauseSpends",
       "mbt::nondetPicks": {
         "dt": {
           "tag": "Some",
@@ -2072,47 +653,108 @@
         }
       },
       "nowTs": {
-        "#bigint": "11059201"
+        "#bigint": "2592000"
       },
       "pauseFirings": {
-        "#bigint": "4"
+        "#bigint": "5"
       },
       "pausedInWindow": {
-        "#bigint": "1"
+        "#bigint": "691202"
       },
       "pausedUntil": {
-        "#bigint": "10454402"
+        "#bigint": "3196800"
       },
       "pendingImpl": {
         "#bigint": "2"
       },
       "queueFirings": {
-        "#bigint": "4"
+        "#bigint": "1"
       },
       "queuedAt": {
-        "#bigint": "10454401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2592000"
       },
       "unpausedInWindow": {
-        "#bigint": "604799"
+        "#bigint": "0"
       }
     },
     {
       "#meta": {
-        "index": 30
+        "index": 10
+      },
+      "activationAt": {
+        "#bigint": "5875202"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "activateTooEarly",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2592000"
+      },
+      "pauseFirings": {
+        "#bigint": "5"
+      },
+      "pausedInWindow": {
+        "#bigint": "691202"
+      },
+      "pausedUntil": {
+        "#bigint": "3196800"
+      },
+      "pendingImpl": {
+        "#bigint": "2"
+      },
+      "queueFirings": {
+        "#bigint": "1"
+      },
+      "queuedAt": {
+        "#bigint": "2592000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 11
       },
       "activationAt": {
         "#bigint": "0"
       },
       "admin": {
-        "#bigint": "2"
+        "#bigint": "1"
       },
       "carriedPause": {
-        "#bigint": "86400"
+        "#bigint": "0"
       },
-      "guardianPauseUsed": true,
       "implVersion": {
         "#bigint": "1"
       },
@@ -2141,47 +783,108 @@
         }
       },
       "nowTs": {
-        "#bigint": "11059201"
+        "#bigint": "2592000"
       },
       "pauseFirings": {
-        "#bigint": "4"
+        "#bigint": "5"
       },
       "pausedInWindow": {
-        "#bigint": "1"
+        "#bigint": "691202"
       },
       "pausedUntil": {
-        "#bigint": "10454402"
+        "#bigint": "3196800"
       },
       "pendingImpl": {
         "#bigint": "0"
       },
       "queueFirings": {
-        "#bigint": "4"
+        "#bigint": "1"
       },
       "queuedAt": {
-        "#bigint": "10454401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2592000"
       },
       "unpausedInWindow": {
-        "#bigint": "604799"
+        "#bigint": "0"
       }
     },
     {
       "#meta": {
-        "index": 31
+        "index": 12
       },
       "activationAt": {
         "#bigint": "0"
       },
       "admin": {
-        "#bigint": "0"
+        "#bigint": "1"
       },
       "carriedPause": {
-        "#bigint": "86400"
+        "#bigint": "0"
       },
-      "guardianPauseUsed": true,
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "advanceTime",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3600"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2595600"
+      },
+      "pauseFirings": {
+        "#bigint": "5"
+      },
+      "pausedInWindow": {
+        "#bigint": "691202"
+      },
+      "pausedUntil": {
+        "#bigint": "3196800"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "1"
+      },
+      "queuedAt": {
+        "#bigint": "2592000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 13
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "2"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -2205,52 +908,178 @@
         "who": {
           "tag": "Some",
           "value": {
-            "#bigint": "0"
+            "#bigint": "2"
           }
         }
       },
       "nowTs": {
-        "#bigint": "11059201"
+        "#bigint": "2595600"
       },
       "pauseFirings": {
-        "#bigint": "4"
+        "#bigint": "5"
       },
       "pausedInWindow": {
-        "#bigint": "1"
+        "#bigint": "691202"
       },
       "pausedUntil": {
-        "#bigint": "10454402"
+        "#bigint": "3196800"
       },
       "pendingImpl": {
         "#bigint": "0"
       },
       "queueFirings": {
-        "#bigint": "4"
+        "#bigint": "1"
       },
       "queuedAt": {
-        "#bigint": "10454401"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2592000"
       },
       "unpausedInWindow": {
-        "#bigint": "604799"
+        "#bigint": "0"
       }
     },
     {
       "#meta": {
-        "index": 32
+        "index": 14
       },
       "activationAt": {
-        "#bigint": "13651201"
+        "#bigint": "0"
       },
       "admin": {
-        "#bigint": "0"
+        "#bigint": "1"
       },
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": true,
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2595600"
+      },
+      "pauseFirings": {
+        "#bigint": "5"
+      },
+      "pausedInWindow": {
+        "#bigint": "691202"
+      },
+      "pausedUntil": {
+        "#bigint": "3196800"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "1"
+      },
+      "queuedAt": {
+        "#bigint": "2592000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 15
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2595600"
+      },
+      "pauseFirings": {
+        "#bigint": "6"
+      },
+      "pausedInWindow": {
+        "#bigint": "691202"
+      },
+      "pausedUntil": {
+        "#bigint": "2595601"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "1"
+      },
+      "queuedAt": {
+        "#bigint": "2592000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 16
+      },
+      "activationAt": {
+        "#bigint": "5187601"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "1"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -2279,28 +1108,25 @@
         }
       },
       "nowTs": {
-        "#bigint": "11059201"
+        "#bigint": "2595600"
       },
       "pauseFirings": {
-        "#bigint": "4"
+        "#bigint": "6"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "10454402"
+        "#bigint": "2595601"
       },
       "pendingImpl": {
         "#bigint": "2"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "2"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2595600"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -2308,18 +1134,17 @@
     },
     {
       "#meta": {
-        "index": 33
+        "index": 17
       },
       "activationAt": {
-        "#bigint": "13651201"
+        "#bigint": "5187601"
       },
       "admin": {
-        "#bigint": "1"
-      },
-      "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": true,
+      "carriedPause": {
+        "#bigint": "1"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -2343,33 +1168,30 @@
         "who": {
           "tag": "Some",
           "value": {
-            "#bigint": "1"
+            "#bigint": "0"
           }
         }
       },
       "nowTs": {
-        "#bigint": "11059201"
+        "#bigint": "2595600"
       },
       "pauseFirings": {
-        "#bigint": "4"
+        "#bigint": "6"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "10454402"
+        "#bigint": "2595601"
       },
       "pendingImpl": {
         "#bigint": "2"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "2"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2595600"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -2377,25 +1199,24 @@
     },
     {
       "#meta": {
-        "index": 34
+        "index": 18
       },
       "activationAt": {
-        "#bigint": "13651201"
-      },
-      "admin": {
-        "#bigint": "1"
-      },
-      "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": true,
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "1"
+      },
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "activateTooEarly",
+      "mbt::actionTaken": "cancelUpgrade",
       "mbt::nondetPicks": {
         "dt": {
           "tag": "None",
@@ -2417,28 +1238,25 @@
         }
       },
       "nowTs": {
-        "#bigint": "11059201"
+        "#bigint": "2595600"
       },
       "pauseFirings": {
-        "#bigint": "4"
+        "#bigint": "6"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "10454402"
+        "#bigint": "2595601"
       },
       "pendingImpl": {
-        "#bigint": "2"
+        "#bigint": "0"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "2"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "3"
+        "#bigint": "2595600"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -2446,156 +1264,17 @@
     },
     {
       "#meta": {
-        "index": 35
+        "index": 19
       },
       "activationAt": {
-        "#bigint": "13651201"
+        "#bigint": "0"
       },
       "admin": {
-        "#bigint": "1"
+        "#bigint": "0"
       },
       "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
         "#bigint": "1"
       },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "11059201"
-      },
-      "pauseFirings": {
-        "#bigint": "4"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "10454402"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "5"
-      },
-      "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 36
-      },
-      "activationAt": {
-        "#bigint": "13651201"
-      },
-      "admin": {
-        "#bigint": "1"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "activateTooEarly",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "11059201"
-      },
-      "pauseFirings": {
-        "#bigint": "4"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "10454402"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "5"
-      },
-      "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 37
-      },
-      "activationAt": {
-        "#bigint": "13654801"
-      },
-      "admin": {
-        "#bigint": "1"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
       "implVersion": {
         "#bigint": "1"
       },
@@ -2607,420 +1286,6 @@
         "dt": {
           "tag": "Some",
           "value": {
-            "#bigint": "3600"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "11059201"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "3600"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "5"
-      },
-      "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 38
-      },
-      "activationAt": {
-        "#bigint": "13654801"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "0"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "11059201"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "3600"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "5"
-      },
-      "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 39
-      },
-      "activationAt": {
-        "#bigint": "13654801"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "activateTooEarly",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "11059201"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "3600"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "5"
-      },
-      "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 40
-      },
-      "activationAt": {
-        "#bigint": "13654801"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "activateTooEarly",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "11059201"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "3600"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "5"
-      },
-      "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 41
-      },
-      "activationAt": {
-        "#bigint": "13654801"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "activateTooEarly",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "11059201"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "3600"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "5"
-      },
-      "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 42
-      },
-      "activationAt": {
-        "#bigint": "13654801"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "0"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "11059201"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "3600"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "5"
-      },
-      "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 43
-      },
-      "activationAt": {
-        "#bigint": "13654801"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "advanceTime",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
             "#bigint": "1"
           }
         },
@@ -3038,28 +1303,25 @@
         }
       },
       "nowTs": {
-        "#bigint": "11059202"
+        "#bigint": "2595600"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "7"
       },
       "pausedInWindow": {
-        "#bigint": "3600"
+        "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "2595601"
       },
       "pendingImpl": {
-        "#bigint": "2"
+        "#bigint": "0"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "2"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
+        "#bigint": "2595600"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -3067,30 +1329,94 @@
     },
     {
       "#meta": {
-        "index": 44
+        "index": 20
       },
       "activationAt": {
-        "#bigint": "13654801"
+        "#bigint": "0"
       },
       "admin": {
         "#bigint": "0"
       },
       "carriedPause": {
-        "#bigint": "0"
+        "#bigint": "1"
       },
-      "guardianPauseUsed": true,
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "advanceTime",
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2595600"
+      },
+      "pauseFirings": {
+        "#bigint": "7"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "2595601"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "2"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 21
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "1"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
       "mbt::nondetPicks": {
         "dt": {
           "tag": "Some",
           "value": {
-            "#bigint": "3600"
+            "#bigint": "86400"
           }
         },
         "impl": {
@@ -3107,65 +1433,126 @@
         }
       },
       "nowTs": {
-        "#bigint": "11062802"
+        "#bigint": "2595600"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "8"
       },
       "pausedInWindow": {
-        "#bigint": "3600"
+        "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "2682000"
       },
       "pendingImpl": {
-        "#bigint": "2"
+        "#bigint": "0"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "2"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
+        "#bigint": "2595600"
       },
       "unpausedInWindow": {
-        "#bigint": "1"
+        "#bigint": "0"
       }
     },
     {
       "#meta": {
-        "index": 45
+        "index": 22
       },
       "activationAt": {
-        "#bigint": "13654801"
+        "#bigint": "0"
       },
       "admin": {
         "#bigint": "0"
       },
       "carriedPause": {
-        "#bigint": "0"
+        "#bigint": "1"
       },
-      "guardianPauseUsed": true,
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "advanceTime",
+      "mbt::actionTaken": "changeProxyAdmin",
       "mbt::nondetPicks": {
         "dt": {
-          "tag": "Some",
+          "tag": "None",
           "value": {
-            "#bigint": "2592000"
+            "#tup": []
           }
         },
         "impl": {
           "tag": "None",
           "value": {
             "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2595600"
+      },
+      "pauseFirings": {
+        "#bigint": "8"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "2682000"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "2"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 23
+      },
+      "activationAt": {
+        "#bigint": "5274000"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
           }
         },
         "who": {
@@ -3176,47 +1563,108 @@
         }
       },
       "nowTs": {
-        "#bigint": "13654802"
+        "#bigint": "2595600"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "8"
       },
       "pausedInWindow": {
-        "#bigint": "3600"
+        "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "2682000"
       },
       "pendingImpl": {
-        "#bigint": "2"
+        "#bigint": "1"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "3"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
+        "#bigint": "2595600"
       },
       "unpausedInWindow": {
-        "#bigint": "2592000"
+        "#bigint": "0"
       }
     },
     {
       "#meta": {
-        "index": 46
+        "index": 24
       },
       "activationAt": {
-        "#bigint": "13654801"
+        "#bigint": "5274000"
       },
       "admin": {
         "#bigint": "0"
       },
       "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "2595600"
+      },
+      "pauseFirings": {
+        "#bigint": "8"
+      },
+      "pausedInWindow": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": true,
+      "pausedUntil": {
+        "#bigint": "2682000"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "3"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 25
+      },
+      "activationAt": {
+        "#bigint": "5274000"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -3245,28 +1693,25 @@
         }
       },
       "nowTs": {
-        "#bigint": "18838802"
+        "#bigint": "7779600"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "8"
       },
       "pausedInWindow": {
-        "#bigint": "3600"
+        "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "2682000"
       },
       "pendingImpl": {
-        "#bigint": "2"
+        "#bigint": "1"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "3"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "4"
+        "#bigint": "2595600"
       },
       "unpausedInWindow": {
         "#bigint": "2592000"
@@ -3274,25 +1719,89 @@
     },
     {
       "#meta": {
-        "index": 47
+        "index": 26
       },
       "activationAt": {
-        "#bigint": "13654801"
+        "#bigint": "5360400"
       },
       "admin": {
         "#bigint": "0"
       },
       "carriedPause": {
-        "#bigint": "0"
+        "#bigint": "86400"
       },
-      "guardianPauseUsed": false,
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "resetGuardianPause",
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "86400"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "7779600"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "86400"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "3"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2592000"
+      }
+    },
+    {
+      "#meta": {
+        "index": 27
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "activateUpgrade",
       "mbt::nondetPicks": {
         "dt": {
           "tag": "None",
@@ -3314,28 +1823,25 @@
         }
       },
       "nowTs": {
-        "#bigint": "18838802"
+        "#bigint": "7779600"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "9"
       },
       "pausedInWindow": {
-        "#bigint": "3600"
+        "#bigint": "86400"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "7866000"
       },
       "pendingImpl": {
-        "#bigint": "2"
+        "#bigint": "0"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "3"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "5"
+        "#bigint": "2595600"
       },
       "unpausedInWindow": {
         "#bigint": "2592000"
@@ -3343,18 +1849,602 @@
     },
     {
       "#meta": {
-        "index": 48
+        "index": 28
       },
       "activationAt": {
         "#bigint": "0"
       },
       "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "7779600"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "86400"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
         "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "3"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2592000"
+      }
+    },
+    {
+      "#meta": {
+        "index": 29
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "advanceTime",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3600"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "7783200"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "86400"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "3"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2592000"
+      }
+    },
+    {
+      "#meta": {
+        "index": 30
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "advanceTime",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "604800"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8388000"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "86400"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "3"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2592000"
+      }
+    },
+    {
+      "#meta": {
+        "index": 31
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8388000"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "86400"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "3"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2592000"
+      }
+    },
+    {
+      "#meta": {
+        "index": 32
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "advanceTime",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3600"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8391600"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "86400"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "3"
+      },
+      "queuedAt": {
+        "#bigint": "2595600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2592000"
+      }
+    },
+    {
+      "#meta": {
+        "index": 33
+      },
+      "activationAt": {
+        "#bigint": "10983600"
+      },
+      "admin": {
+        "#bigint": "1"
       },
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8391600"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
+        "#bigint": "2"
+      },
+      "queueFirings": {
+        "#bigint": "4"
+      },
+      "queuedAt": {
+        "#bigint": "8391600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 34
+      },
+      "activationAt": {
+        "#bigint": "10983600"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "advanceTime",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "86400"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
+        "#bigint": "2"
+      },
+      "queueFirings": {
+        "#bigint": "4"
+      },
+      "queuedAt": {
+        "#bigint": "8391600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "86400"
+      }
+    },
+    {
+      "#meta": {
+        "index": 35
+      },
+      "activationAt": {
+        "#bigint": "10983600"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "activateTooEarly",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "9"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "7866000"
+      },
+      "pendingImpl": {
+        "#bigint": "2"
+      },
+      "queueFirings": {
+        "#bigint": "4"
+      },
+      "queuedAt": {
+        "#bigint": "8391600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "86400"
+      }
+    },
+    {
+      "#meta": {
+        "index": 36
+      },
+      "activationAt": {
+        "#bigint": "11588400"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "604800"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "10"
+      },
+      "pausedInWindow": {
+        "#bigint": "604800"
+      },
+      "pausedUntil": {
+        "#bigint": "9082800"
+      },
+      "pendingImpl": {
+        "#bigint": "2"
+      },
+      "queueFirings": {
+        "#bigint": "4"
+      },
+      "queuedAt": {
+        "#bigint": "8391600"
+      },
+      "unpausedInWindow": {
+        "#bigint": "86400"
+      }
+    },
+    {
+      "#meta": {
+        "index": 37
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -3383,47 +2473,108 @@
         }
       },
       "nowTs": {
-        "#bigint": "18838802"
+        "#bigint": "8478000"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "10"
       },
       "pausedInWindow": {
-        "#bigint": "3600"
+        "#bigint": "604800"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "9082800"
       },
       "pendingImpl": {
         "#bigint": "0"
       },
       "queueFirings": {
-        "#bigint": "5"
+        "#bigint": "4"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "5"
+        "#bigint": "8391600"
       },
       "unpausedInWindow": {
-        "#bigint": "2592000"
+        "#bigint": "86400"
       }
     },
     {
       "#meta": {
-        "index": 49
+        "index": 38
       },
       "activationAt": {
-        "#bigint": "0"
+        "#bigint": "11674800"
       },
       "admin": {
-        "#bigint": "2"
+        "#bigint": "1"
       },
       "carriedPause": {
+        "#bigint": "604800"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "10"
+      },
+      "pausedInWindow": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
+      "pausedUntil": {
+        "#bigint": "9082800"
+      },
+      "pendingImpl": {
+        "#bigint": "2"
+      },
+      "queueFirings": {
+        "#bigint": "5"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 39
+      },
+      "activationAt": {
+        "#bigint": "11674800"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "604800"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -3447,21 +2598,86 @@
         "who": {
           "tag": "Some",
           "value": {
-            "#bigint": "2"
+            "#bigint": "1"
           }
         }
       },
       "nowTs": {
-        "#bigint": "18838802"
+        "#bigint": "8478000"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "10"
       },
       "pausedInWindow": {
-        "#bigint": "3600"
+        "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "9082800"
+      },
+      "pendingImpl": {
+        "#bigint": "2"
+      },
+      "queueFirings": {
+        "#bigint": "5"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 40
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "604800"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "cancelUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "10"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "9082800"
       },
       "pendingImpl": {
         "#bigint": "0"
@@ -3470,29 +2686,220 @@
         "#bigint": "5"
       },
       "queuedAt": {
-        "#bigint": "11059201"
-      },
-      "resetFirings": {
-        "#bigint": "5"
+        "#bigint": "8478000"
       },
       "unpausedInWindow": {
-        "#bigint": "2592000"
+        "#bigint": "0"
       }
     },
     {
       "#meta": {
-        "index": 50
+        "index": 41
       },
       "activationAt": {
-        "#bigint": "21430802"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "604800"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "604800"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "11"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "9082800"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "5"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 42
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "604800"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "86400"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "12"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8564400"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "5"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 43
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "604800"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "86400"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "13"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8564400"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "5"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 44
+      },
+      "activationAt": {
+        "#bigint": "11156400"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -3521,16 +2928,16 @@
         }
       },
       "nowTs": {
-        "#bigint": "18838802"
+        "#bigint": "8478000"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "13"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "8564400"
       },
       "pendingImpl": {
         "#bigint": "1"
@@ -3539,10 +2946,7 @@
         "#bigint": "6"
       },
       "queuedAt": {
-        "#bigint": "18838802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
+        "#bigint": "8478000"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -3550,18 +2954,342 @@
     },
     {
       "#meta": {
-        "index": 51
+        "index": 45
       },
       "activationAt": {
-        "#bigint": "21430802"
+        "#bigint": "11156400"
       },
       "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "13"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8564400"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "6"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 46
+      },
+      "activationAt": {
+        "#bigint": "11160000"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "3600"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "3600"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "6"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 47
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "cancelUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "3600"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "6"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 48
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "3600"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "6"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 49
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "8478000"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "3600"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "6"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 50
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -3590,31 +3318,93 @@
         }
       },
       "nowTs": {
-        "#bigint": "21430802"
+        "#bigint": "11070000"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "14"
       },
       "pausedInWindow": {
-        "#bigint": "0"
+        "#bigint": "3600"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "8481600"
       },
       "pendingImpl": {
-        "#bigint": "1"
+        "#bigint": "0"
       },
       "queueFirings": {
         "#bigint": "6"
       },
       "queuedAt": {
-        "#bigint": "18838802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
+        "#bigint": "8478000"
       },
       "unpausedInWindow": {
-        "#bigint": "2592000"
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 51
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "11070000"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "3600"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "6"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
       }
     },
     {
@@ -3625,24 +3415,23 @@
         "#bigint": "0"
       },
       "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
+      "carriedPause": {
+        "#bigint": "86400"
+      },
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "cancelUpgrade",
+      "mbt::actionTaken": "advanceTime",
       "mbt::nondetPicks": {
         "dt": {
-          "tag": "None",
+          "tag": "Some",
           "value": {
-            "#tup": []
+            "#bigint": "604800"
           }
         },
         "impl": {
@@ -3659,16 +3448,16 @@
         }
       },
       "nowTs": {
-        "#bigint": "21430802"
+        "#bigint": "11674800"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "14"
       },
       "pausedInWindow": {
-        "#bigint": "0"
+        "#bigint": "3600"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "8481600"
       },
       "pendingImpl": {
         "#bigint": "0"
@@ -3677,13 +3466,10 @@
         "#bigint": "6"
       },
       "queuedAt": {
-        "#bigint": "18838802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
+        "#bigint": "8478000"
       },
       "unpausedInWindow": {
-        "#bigint": "2592000"
+        "#bigint": "0"
       }
     },
     {
@@ -3694,150 +3480,11 @@
         "#bigint": "0"
       },
       "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "21430802"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "6"
-      },
-      "queuedAt": {
-        "#bigint": "18838802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 54
-      },
-      "activationAt": {
-        "#bigint": "24022802"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "1"
-      },
-      "lastActivated": {
-        "#bigint": "1"
-      },
-      "mbt::actionTaken": "queueUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "2"
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "21430802"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "7"
-      },
-      "queuedAt": {
-        "#bigint": "21430802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 55
-      },
-      "activationAt": {
-        "#bigint": "24022802"
-      },
-      "admin": {
         "#bigint": "1"
       },
       "carriedPause": {
-        "#bigint": "0"
+        "#bigint": "86400"
       },
-      "guardianPauseUsed": false,
       "implVersion": {
         "#bigint": "1"
       },
@@ -3866,16 +3513,81 @@
         }
       },
       "nowTs": {
-        "#bigint": "21430802"
+        "#bigint": "11674800"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "3600"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "6"
+      },
+      "queuedAt": {
+        "#bigint": "8478000"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 54
+      },
+      "activationAt": {
+        "#bigint": "14266800"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "11674800"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "8481600"
       },
       "pendingImpl": {
         "#bigint": "2"
@@ -3884,10 +3596,7 @@
         "#bigint": "7"
       },
       "queuedAt": {
-        "#bigint": "21430802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
+        "#bigint": "11674800"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -3895,10 +3604,10 @@
     },
     {
       "#meta": {
-        "index": 56
+        "index": 55
       },
       "activationAt": {
-        "#bigint": "24022802"
+        "#bigint": "0"
       },
       "admin": {
         "#bigint": "1"
@@ -3906,14 +3615,13 @@
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
       "implVersion": {
         "#bigint": "1"
       },
       "lastActivated": {
         "#bigint": "1"
       },
-      "mbt::actionTaken": "resetGuardianPause",
+      "mbt::actionTaken": "cancelUpgrade",
       "mbt::nondetPicks": {
         "dt": {
           "tag": "None",
@@ -3935,28 +3643,90 @@
         }
       },
       "nowTs": {
-        "#bigint": "21430802"
+        "#bigint": "11674800"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "14"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "8481600"
       },
       "pendingImpl": {
-        "#bigint": "2"
+        "#bigint": "0"
       },
       "queueFirings": {
         "#bigint": "7"
       },
       "queuedAt": {
-        "#bigint": "21430802"
+        "#bigint": "11674800"
       },
-      "resetFirings": {
-        "#bigint": "5"
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 56
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "11674800"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "7"
+      },
+      "queuedAt": {
+        "#bigint": "11674800"
       },
       "unpausedInWindow": {
         "#bigint": "0"
@@ -3967,7 +3737,7 @@
         "index": 57
       },
       "activationAt": {
-        "#bigint": "24022802"
+        "#bigint": "14266800"
       },
       "admin": {
         "#bigint": "1"
@@ -3975,7 +3745,71 @@
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "11674800"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "8"
+      },
+      "queuedAt": {
+        "#bigint": "11674800"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 58
+      },
+      "activationAt": {
+        "#bigint": "14266800"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
       "implVersion": {
         "#bigint": "1"
       },
@@ -4004,97 +3838,25 @@
         }
       },
       "nowTs": {
-        "#bigint": "24022803"
+        "#bigint": "14266801"
       },
       "pauseFirings": {
-        "#bigint": "5"
+        "#bigint": "14"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "11062801"
+        "#bigint": "8481600"
       },
       "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "7"
-      },
-      "queuedAt": {
-        "#bigint": "21430802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 58
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
         "#bigint": "1"
       },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "activateUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24022803"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
       "queueFirings": {
-        "#bigint": "7"
+        "#bigint": "8"
       },
       "queuedAt": {
-        "#bigint": "21430802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
+        "#bigint": "11674800"
       },
       "unpausedInWindow": {
         "#bigint": "2592000"
@@ -4113,1180 +3875,6 @@
       "carriedPause": {
         "#bigint": "0"
       },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "1"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24022803"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "7"
-      },
-      "queuedAt": {
-        "#bigint": "21430802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 60
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "1"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24022803"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "7"
-      },
-      "queuedAt": {
-        "#bigint": "21430802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 61
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "0"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24022803"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "7"
-      },
-      "queuedAt": {
-        "#bigint": "21430802"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 62
-      },
-      "activationAt": {
-        "#bigint": "26614803"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "queueUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "2"
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24022803"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 63
-      },
-      "activationAt": {
-        "#bigint": "26614803"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "advanceTime",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "604800"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24627603"
-      },
-      "pauseFirings": {
-        "#bigint": "5"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "11062801"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "604800"
-      }
-    },
-    {
-      "#meta": {
-        "index": 64
-      },
-      "activationAt": {
-        "#bigint": "27219603"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "pauseSpends",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "604800"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24627603"
-      },
-      "pauseFirings": {
-        "#bigint": "6"
-      },
-      "pausedInWindow": {
-        "#bigint": "604800"
-      },
-      "pausedUntil": {
-        "#bigint": "25232403"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "604800"
-      }
-    },
-    {
-      "#meta": {
-        "index": 65
-      },
-      "activationAt": {
-        "#bigint": "27219603"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "activateTooEarly",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24627603"
-      },
-      "pauseFirings": {
-        "#bigint": "6"
-      },
-      "pausedInWindow": {
-        "#bigint": "604800"
-      },
-      "pausedUntil": {
-        "#bigint": "25232403"
-      },
-      "pendingImpl": {
-        "#bigint": "2"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "604800"
-      }
-    },
-    {
-      "#meta": {
-        "index": 66
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "cancelUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24627603"
-      },
-      "pauseFirings": {
-        "#bigint": "6"
-      },
-      "pausedInWindow": {
-        "#bigint": "604800"
-      },
-      "pausedUntil": {
-        "#bigint": "25232403"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "5"
-      },
-      "unpausedInWindow": {
-        "#bigint": "604800"
-      }
-    },
-    {
-      "#meta": {
-        "index": 67
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24627603"
-      },
-      "pauseFirings": {
-        "#bigint": "6"
-      },
-      "pausedInWindow": {
-        "#bigint": "604800"
-      },
-      "pausedUntil": {
-        "#bigint": "25232403"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "604800"
-      }
-    },
-    {
-      "#meta": {
-        "index": 68
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": false,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "resetGuardianPause",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24627603"
-      },
-      "pauseFirings": {
-        "#bigint": "6"
-      },
-      "pausedInWindow": {
-        "#bigint": "604800"
-      },
-      "pausedUntil": {
-        "#bigint": "25232403"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "604800"
-      }
-    },
-    {
-      "#meta": {
-        "index": 69
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "pauseSpends",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "3600"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "24627603"
-      },
-      "pauseFirings": {
-        "#bigint": "7"
-      },
-      "pausedInWindow": {
-        "#bigint": "604800"
-      },
-      "pausedUntil": {
-        "#bigint": "24631203"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "604800"
-      }
-    },
-    {
-      "#meta": {
-        "index": 70
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "advanceTime",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "5184000"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "29811603"
-      },
-      "pauseFirings": {
-        "#bigint": "7"
-      },
-      "pausedInWindow": {
-        "#bigint": "604800"
-      },
-      "pausedUntil": {
-        "#bigint": "24631203"
-      },
-      "pendingImpl": {
-        "#bigint": "0"
-      },
-      "queueFirings": {
-        "#bigint": "8"
-      },
-      "queuedAt": {
-        "#bigint": "24022803"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "604800"
-      }
-    },
-    {
-      "#meta": {
-        "index": 71
-      },
-      "activationAt": {
-        "#bigint": "32403603"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "queueUpgrade",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "1"
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "29811603"
-      },
-      "pauseFirings": {
-        "#bigint": "7"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "24631203"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "9"
-      },
-      "queuedAt": {
-        "#bigint": "29811603"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 72
-      },
-      "activationAt": {
-        "#bigint": "32403603"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "activateTooEarly",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "29811603"
-      },
-      "pauseFirings": {
-        "#bigint": "7"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "24631203"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "9"
-      },
-      "queuedAt": {
-        "#bigint": "29811603"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 73
-      },
-      "activationAt": {
-        "#bigint": "32403603"
-      },
-      "admin": {
-        "#bigint": "2"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "2"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "29811603"
-      },
-      "pauseFirings": {
-        "#bigint": "7"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "24631203"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "9"
-      },
-      "queuedAt": {
-        "#bigint": "29811603"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 74
-      },
-      "activationAt": {
-        "#bigint": "32403603"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "changeProxyAdmin",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "0"
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "29811603"
-      },
-      "pauseFirings": {
-        "#bigint": "7"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "24631203"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "9"
-      },
-      "queuedAt": {
-        "#bigint": "29811603"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "0"
-      }
-    },
-    {
-      "#meta": {
-        "index": 75
-      },
-      "activationAt": {
-        "#bigint": "32403603"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
-      "implVersion": {
-        "#bigint": "2"
-      },
-      "lastActivated": {
-        "#bigint": "2"
-      },
-      "mbt::actionTaken": "advanceTime",
-      "mbt::nondetPicks": {
-        "dt": {
-          "tag": "Some",
-          "value": {
-            "#bigint": "2592001"
-          }
-        },
-        "impl": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        },
-        "who": {
-          "tag": "None",
-          "value": {
-            "#tup": []
-          }
-        }
-      },
-      "nowTs": {
-        "#bigint": "32403604"
-      },
-      "pauseFirings": {
-        "#bigint": "7"
-      },
-      "pausedInWindow": {
-        "#bigint": "0"
-      },
-      "pausedUntil": {
-        "#bigint": "24631203"
-      },
-      "pendingImpl": {
-        "#bigint": "1"
-      },
-      "queueFirings": {
-        "#bigint": "9"
-      },
-      "queuedAt": {
-        "#bigint": "29811603"
-      },
-      "resetFirings": {
-        "#bigint": "6"
-      },
-      "unpausedInWindow": {
-        "#bigint": "2592000"
-      }
-    },
-    {
-      "#meta": {
-        "index": 76
-      },
-      "activationAt": {
-        "#bigint": "0"
-      },
-      "admin": {
-        "#bigint": "0"
-      },
-      "carriedPause": {
-        "#bigint": "0"
-      },
-      "guardianPauseUsed": true,
       "implVersion": {
         "#bigint": "1"
       },
@@ -5315,16 +3903,211 @@
         }
       },
       "nowTs": {
-        "#bigint": "32403604"
+        "#bigint": "14266801"
       },
       "pauseFirings": {
-        "#bigint": "7"
+        "#bigint": "14"
       },
       "pausedInWindow": {
         "#bigint": "0"
       },
       "pausedUntil": {
-        "#bigint": "24631203"
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "8"
+      },
+      "queuedAt": {
+        "#bigint": "11674800"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2592000"
+      }
+    },
+    {
+      "#meta": {
+        "index": 60
+      },
+      "activationAt": {
+        "#bigint": "16858801"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "9"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 61
+      },
+      "activationAt": {
+        "#bigint": "16858801"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "activateTooEarly",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "9"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 62
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "cancelUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
       },
       "pendingImpl": {
         "#bigint": "0"
@@ -5333,13 +4116,920 @@
         "#bigint": "9"
       },
       "queuedAt": {
-        "#bigint": "29811603"
-      },
-      "resetFirings": {
-        "#bigint": "6"
+        "#bigint": "14266801"
       },
       "unpausedInWindow": {
-        "#bigint": "2592000"
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 63
+      },
+      "activationAt": {
+        "#bigint": "16858801"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "10"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 64
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "cancelUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "10"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 65
+      },
+      "activationAt": {
+        "#bigint": "16858801"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "11"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 66
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "1"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "cancelUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "11"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 67
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "changeProxyAdmin",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "0"
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "14"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "8481600"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "11"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 68
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "86400"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "15"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "14353201"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "11"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 69
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "16"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "14266802"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "11"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 70
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "86400"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "17"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "14353201"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "11"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 71
+      },
+      "activationAt": {
+        "#bigint": "16945201"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14266801"
+      },
+      "pauseFirings": {
+        "#bigint": "17"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "14353201"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "12"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
+      }
+    },
+    {
+      "#meta": {
+        "index": 72
+      },
+      "activationAt": {
+        "#bigint": "16945201"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "advanceTime",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "604800"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14871601"
+      },
+      "pauseFirings": {
+        "#bigint": "17"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "14353201"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "12"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "518400"
+      }
+    },
+    {
+      "#meta": {
+        "index": 73
+      },
+      "activationAt": {
+        "#bigint": "17550001"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "pauseSpends",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "604800"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "14871601"
+      },
+      "pauseFirings": {
+        "#bigint": "18"
+      },
+      "pausedInWindow": {
+        "#bigint": "604800"
+      },
+      "pausedUntil": {
+        "#bigint": "15476401"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "12"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "518400"
+      }
+    },
+    {
+      "#meta": {
+        "index": 74
+      },
+      "activationAt": {
+        "#bigint": "17550001"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "advanceTime",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "2592001"
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "17463602"
+      },
+      "pauseFirings": {
+        "#bigint": "18"
+      },
+      "pausedInWindow": {
+        "#bigint": "604800"
+      },
+      "pausedUntil": {
+        "#bigint": "15476401"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "12"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2505601"
+      }
+    },
+    {
+      "#meta": {
+        "index": 75
+      },
+      "activationAt": {
+        "#bigint": "0"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "86400"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "cancelUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "17463602"
+      },
+      "pauseFirings": {
+        "#bigint": "18"
+      },
+      "pausedInWindow": {
+        "#bigint": "604800"
+      },
+      "pausedUntil": {
+        "#bigint": "15476401"
+      },
+      "pendingImpl": {
+        "#bigint": "0"
+      },
+      "queueFirings": {
+        "#bigint": "12"
+      },
+      "queuedAt": {
+        "#bigint": "14266801"
+      },
+      "unpausedInWindow": {
+        "#bigint": "2505601"
+      }
+    },
+    {
+      "#meta": {
+        "index": 76
+      },
+      "activationAt": {
+        "#bigint": "20055602"
+      },
+      "admin": {
+        "#bigint": "0"
+      },
+      "carriedPause": {
+        "#bigint": "0"
+      },
+      "implVersion": {
+        "#bigint": "1"
+      },
+      "lastActivated": {
+        "#bigint": "1"
+      },
+      "mbt::actionTaken": "queueUpgrade",
+      "mbt::nondetPicks": {
+        "dt": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        },
+        "impl": {
+          "tag": "Some",
+          "value": {
+            "#bigint": "1"
+          }
+        },
+        "who": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "nowTs": {
+        "#bigint": "17463602"
+      },
+      "pauseFirings": {
+        "#bigint": "18"
+      },
+      "pausedInWindow": {
+        "#bigint": "0"
+      },
+      "pausedUntil": {
+        "#bigint": "15476401"
+      },
+      "pendingImpl": {
+        "#bigint": "1"
+      },
+      "queueFirings": {
+        "#bigint": "13"
+      },
+      "queuedAt": {
+        "#bigint": "17463602"
+      },
+      "unpausedInWindow": {
+        "#bigint": "0"
       }
     }
   ]

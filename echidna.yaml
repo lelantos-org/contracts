@@ -19,6 +19,19 @@ testLimit: 50000
 # mostly early-return. At seqLen 100 they do not fire within 40k calls.
 seqLen: 400
 
+# Wall-clock cap on a single campaign, on top of `testLimit`; whichever is
+# reached first ends the run, and the corpus is written either way. The limit
+# alone does not bound runtime: the time to spend a fixed number of sequences
+# grows with the corpus restored from the previous night (the EchidnaMasp
+# property sweep took 89, 103, 121 and 137 minutes for the same 400k limit
+# across 2026-09-17..20, against corpora of 45-63 MB), so a nightly job sized
+# against last month's runtime eventually overruns and is cancelled, losing
+# the whole campaign. 2h trades the tail of a long campaign — the sequences a
+# capped run does not reach are the least likely to be novel, since the corpus
+# is replayed first — for a nightly that always finishes and always saves.
+# `just echidna <big limit>` is capped the same way locally.
+timeout: 7200
+
 # `cancelDeposit` unlocks CANCEL_DELAY_DEFAULT (7_200) blocks after submit.
 # The per-call block delay must be able to exceed that, or the cancel path is
 # unreachable and three of the four properties never see a Cancelled id. The

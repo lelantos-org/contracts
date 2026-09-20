@@ -14,7 +14,7 @@ import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// On-chain governance. Executes through a `TimelockController`, which owns
-/// `ProtocolAdmin`, which owns `MASP` and `SwapWrapper`.
+/// `MASP` and `SwapWrapper` directly and is the pool's proxy admin.
 ///
 /// Vote weight is a delegated-balance snapshot taken at `proposalSnapshot`, and
 /// the proposal threshold is read at `clock() - 1`. Both are past timepoints, so

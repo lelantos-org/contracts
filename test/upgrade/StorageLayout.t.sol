@@ -2,8 +2,10 @@
 pragma solidity 0.8.36;
 
 import { UpgradeStorage } from "../../src/UpgradeStorage.sol";
+import { VerifierStorage } from "../../src/VerifierStorage.sol";
 
 import { MASPUpgradeTestBase } from "../utils/MASPUpgradeTestBase.sol";
+import { PoolSlots } from "../utils/PoolSlots.sol";
 import { MASPNext } from "../mocks/MASPNext.sol";
 
 /// The pool's storage layout, pinned at the raw-slot level.
@@ -13,43 +15,40 @@ import { MASPNext } from "../mocks/MASPNext.sol";
 /// The compiler cannot detect that across separately compiled implementations,
 /// so it is asserted here. Upgrades may only append after the last slot.
 contract StorageLayoutTest is MASPUpgradeTestBase {
-    uint256 internal constant SLOT_ROOTS = 0; // bytes32[64] -> slots 0..63
-    uint256 internal constant SLOT_PACKED_COUNTS = 64; // rootIndex | committedCount
-    uint256 internal constant SLOT_RETIRED_KNOWN_ROOT = 65; // reserved gap (`_retiredKnownRootSlot`)
-    uint256 internal constant SLOT_OWNER = 66;
-    uint256 internal constant SLOT_ASSETS = 67;
-    uint256 internal constant SLOT_SPENT_BUCKETS = 68;
-    uint256 internal constant SLOT_TREASURY = 69;
-    uint256 internal constant SLOT_ACCRUED_FEE = 70;
-    uint256 internal constant SLOT_YIELD_STORE = 71; // 5 slots, 71..75
-    // Verifier and Permit2 addresses.
-    uint256 internal constant SLOT_TUB_VERIFIER = 76;
-    uint256 internal constant SLOT_SPEND_VERIFIER = 77;
-    uint256 internal constant SLOT_PERMIT2 = 78;
-    uint256 internal constant SLOT_ESCROWED = 79;
-    uint256 internal constant SLOT_NEXT_DEPOSIT_ID = 80;
-    uint256 internal constant SLOT_CANCEL_DELAY = 81;
-    /// `_escrowPulled`, the yield-escrow refund cap. A mapping root, so the slot
-    /// itself stays zero; entries live at `keccak256(abi.encode(id, 82))`.
-    uint256 internal constant SLOT_ESCROW_PULLED = 82;
-    /// First slot past the layout.
-    uint256 internal constant SLOT_END = 83;
+    // The slot map itself lives in `utils/PoolSlots.sol`, so the suites that
+    // read raw storage cannot drift apart from it. This suite is what pins it
+    // against the live contract.
 
     function _slot(uint256 i) internal view returns (uint256) {
         return uint256(vm.load(address(proxy), bytes32(i)));
     }
 
     function test_ownerAndTreasuryOccupyExpectedSlots() public view {
-        assertEq(address(uint160(_slot(SLOT_OWNER))), poolOwner, "owner moved off slot 66");
-        assertEq(address(uint160(_slot(SLOT_TREASURY))), treasury, "treasury moved off slot 69");
+        assertEq(address(uint160(_slot(PoolSlots.OWNER))), poolOwner, "owner moved off its slot");
+        assertEq(address(uint160(_slot(PoolSlots.TREASURY))), treasury, "treasury moved off its slot");
     }
 
-    /// The verifier and Permit2 addresses, held in storage so they survive an
-    /// upgrade.
-    function test_verifierAddressesAreStateAtSlots76To78() public view {
-        assertEq(address(uint160(_slot(SLOT_TUB_VERIFIER))), address(tubVerifier));
-        assertEq(address(uint160(_slot(SLOT_SPEND_VERIFIER))), address(batchVerifier));
-        assertEq(address(uint160(_slot(SLOT_PERMIT2))), permit2);
+    /// Permit2 is held in storage so it survives an upgrade.
+    function test_permit2AddressIsHeldInSequentialStorage() public view {
+        assertEq(address(uint160(_slot(PoolSlots.PERMIT2))), permit2);
+    }
+
+    /// The verifiers are no longer in the sequential layout: they live in the
+    /// `VerifierStorage` namespace, which the proxy writes and the pool reads,
+    /// and the slots they used to occupy now hold what followed them.
+    function test_verifiersAreInTheirNamespaceAndNotInSequentialStorage() public view {
+        // Read from the proxy's storage: `$()` resolves against whatever
+        // context it runs in, which here would be the test contract's own.
+        bytes32 base = VerifierStorage.SLOT;
+        address tub = address(uint160(uint256(vm.load(address(proxy), base))));
+        address spend = address(uint160(uint256(vm.load(address(proxy), bytes32(uint256(base) + 1)))));
+        assertEq(tub, address(tubVerifier), "tree-update verifier not in the namespace");
+        assertEq(spend, address(batchVerifier), "spend verifier not in the namespace");
+
+        assertEq(address(uint160(_slot(PoolSlots.PERMIT2))), permit2, "Permit2 did not shift up into slot 76");
+        assertTrue(
+            address(uint160(_slot(PoolSlots.ESCROWED))) != address(batchVerifier), "a verifier is still in the layout"
+        );
     }
 
     /// `rootIndex` and `committedCount` share one slot; unpacking them would
@@ -59,7 +58,7 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         uint256 id = _deposit(1_000, cm, 0);
         _flush(id, 1_000, cm);
 
-        uint256 packed = _slot(SLOT_PACKED_COUNTS);
+        uint256 packed = _slot(PoolSlots.PACKED_COUNTS);
         uint32 rootIndex = uint32(packed);
         uint64 committedCount = uint64(packed >> 32);
 
@@ -70,14 +69,14 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
 
     function test_scalarSlotsMatchTheirGetters() public {
         _deposit(1_000, bytes32(uint256(0x111)), 0);
-        assertEq(_slot(SLOT_NEXT_DEPOSIT_ID), masp.nextDepositId(), "nextDepositId moved off slot 77");
-        assertEq(uint32(_slot(SLOT_CANCEL_DELAY)), masp.cancelDelay(), "cancelDelay moved off slot 78");
+        assertEq(_slot(PoolSlots.NEXT_DEPOSIT_ID), masp.nextDepositId(), "nextDepositId moved off its slot");
+        assertEq(uint32(_slot(PoolSlots.CANCEL_DELAY)), masp.cancelDelay(), "cancelDelay moved off its slot");
     }
 
     /// The genesis root occupies the first element of `roots`, written by the
     /// initializer.
     function test_genesisRootIsInSlotZero() public view {
-        assertEq(bytes32(_slot(SLOT_ROOTS)), masp.currentRoot());
+        assertEq(bytes32(_slot(PoolSlots.ROOTS)), masp.currentRoot());
     }
 
     // ============== Namespace isolation ======================================
@@ -102,8 +101,14 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         uint256 id = _deposit(1_000, cm, 0);
         _flush(id, 1_000, cm);
 
-        uint256[6] memory watched =
-            [SLOT_PACKED_COUNTS, SLOT_OWNER, SLOT_ASSETS, SLOT_TREASURY, SLOT_NEXT_DEPOSIT_ID, SLOT_CANCEL_DELAY];
+        uint256[6] memory watched = [
+            PoolSlots.PACKED_COUNTS,
+            PoolSlots.OWNER,
+            PoolSlots.ASSETS,
+            PoolSlots.TREASURY,
+            PoolSlots.NEXT_DEPOSIT_ID,
+            PoolSlots.CANCEL_DELAY
+        ];
         uint256[6] memory before;
         for (uint256 i = 0; i < watched.length; ++i) {
             before[i] = _slot(watched[i]);
@@ -127,8 +132,10 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         uint256 id = _deposit(1_000, cm, 0);
         _flush(id, 1_000, cm);
 
-        uint256[SLOT_END] memory before;
-        for (uint256 i = 0; i < SLOT_END; ++i) {
+        // Dynamic: an array length must be a literal or a local constant
+        // expression, which a library constant is not.
+        uint256[] memory before = new uint256[](PoolSlots.END);
+        for (uint256 i = 0; i < PoolSlots.END; ++i) {
             before[i] = _slot(i);
         }
 
@@ -138,7 +145,7 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         vm.warp(T0 + UPGRADE_DELAY);
         proxy.activateUpgrade();
 
-        for (uint256 i = 0; i < SLOT_END; ++i) {
+        for (uint256 i = 0; i < PoolSlots.END; ++i) {
             assertEq(_slot(i), before[i], "a pool slot changed across the upgrade");
         }
     }
@@ -146,8 +153,8 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
     /// Slots beyond the layout are free, so an appending upgrade cannot alias
     /// state already in use.
     function test_appendedSlotsStartEmpty() public view {
-        assertEq(_slot(SLOT_ESCROW_PULLED), 0, "a mapping root holds no value");
-        assertEq(_slot(SLOT_END), 0, "slot after the layout is not free");
-        assertEq(_slot(SLOT_END + 1), 0);
+        assertEq(_slot(PoolSlots.ESCROW_PULLED), 0, "a mapping root holds no value");
+        assertEq(_slot(PoolSlots.END), 0, "slot after the layout is not free");
+        assertEq(_slot(PoolSlots.END + 1), 0);
     }
 }

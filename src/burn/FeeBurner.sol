@@ -3,11 +3,11 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ReentrancyGuardTransient } from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import { LelantosToken } from "../governance/LelantosToken.sol";
+import { OwnableInit } from "../OwnableInit.sol";
 
 /// `FeeConfig.sweep` on any pool this burner is the treasury of.
 interface IFeeSweeper {
@@ -39,7 +39,7 @@ interface IFeeSweeper {
 ///
 /// Absent a GOV market the auction receives no bids and fee tokens accumulate
 /// here until one exists.
-contract FeeBurner is Ownable, ReentrancyGuardTransient {
+contract FeeBurner is OwnableInit, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     /// GOV wei per one base unit of the fee token, scaled by 1e18.
@@ -133,8 +133,9 @@ contract FeeBurner is Ownable, ReentrancyGuardTransient {
         uint16 restartMultBps_,
         uint16 burnBps_,
         address secondaryTreasury_
-    ) Ownable(owner_) {
+    ) {
         if (address(gov_) == address(0)) revert ZeroAddress();
+        _initOwner(owner_);
         GOV = gov_;
         _setDecayParams(halfLife_, maxHalvings_, restartMultBps_);
         _setBurnPolicy(burnBps_, secondaryTreasury_);

@@ -6,9 +6,9 @@ import { BaseGovernanceDeploy } from "./base/BaseGovernanceDeploy.s.sol";
 /// Governance-stack deploy against an already-deployed MASP and SwapWrapper.
 /// Ethereum mainnet only (chain id 1); reverts on any other chain.
 ///
-/// Deploys `LelantosToken`, `TimelockController`, `LelantosGovernor`,
-/// `FeeBurner` and `ProtocolAdmin`, wires the Timelock role table, and renounces
-/// the deployer's admin as the final transaction.
+/// Deploys `LelantosToken`, `TimelockController`, `LelantosGovernor` and
+/// `FeeBurner`, wires the Timelock role table, and renounces the deployer's
+/// admin as the final transaction.
 ///
 /// It does not hand the pool over; that is `HandoverOwnership.s.sol`, to be run
 /// only once delegated voting weight exists. A Timelock-owned pool with no
@@ -51,7 +51,7 @@ import { BaseGovernanceDeploy } from "./base/BaseGovernanceDeploy.s.sol";
 contract DeployGovernance is BaseGovernanceDeploy {
     string constant DEFAULT_CONFIG = "script/config/mainnet.gov.json";
 
-    function run() external returns (address token, address timelock, address governor, address burner, address admin) {
+    function run() external returns (address token, address timelock, address governor, address burner) {
         // Governance lives on Ethereum mainnet only; the other chains' pools are
         // not governed by it. A mainnet fork keeps chain id 1, so rehearsals pass.
         require(block.chainid == 1, "governance is Ethereum mainnet only");
@@ -90,6 +90,6 @@ contract DeployGovernance is BaseGovernanceDeploy {
 
         _logGovKv(s);
 
-        return (address(s.token), address(s.timelock), address(s.governor), address(s.burner), address(s.admin));
+        return (address(s.token), address(s.timelock), address(s.governor), address(s.burner));
     }
 }

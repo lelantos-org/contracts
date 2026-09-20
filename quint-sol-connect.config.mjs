@@ -339,7 +339,7 @@ export default {
       module: 'delayed_upgrade_proxy',
 
       // Fewer, longer traces: every property here is an interleaving
-      // (queue -> pause -> activate, pause -> queue, latch -> reset -> latch),
+      // (queue -> pause -> activate, pause -> queue, pause -> pause),
       // and one 60-step trace reaches more of them than two 30-step ones.
       // 76 rather than 60 since `queueUpgrade` defers by a running pause:
       // longer windows cost activations, and 8 x 60 fell below the floor.
@@ -359,10 +359,11 @@ export default {
       budget: {
         maxBytes: 700_000,
         why:
-          '512 B/step is already near the floor for seven scalars and three pick names. '
+          '512 B/step is already near the floor for six scalars and three pick names. '
           + 'The overage is trace count, and cutting it costs the interleavings this spec '
-          + 'exists for - activateUpgrade fires 9 times in 8 x 76 and 7 in 8 x 60, below its floor, '
-          + 'now that queueUpgrade defers activation by a running pause',
+          + 'exists for - activateUpgrade sits exactly on its floor of 8 in 8 x 76, since '
+          + 'queueUpgrade defers activation by a running pause and pauseSpends, now that the '
+          + 'one-shot latch is gone, is always enabled and chains',
       },
 
       coverage: {
@@ -372,7 +373,6 @@ export default {
           activateUpgrade: 8,
           activateTooEarly: 25,
           pauseSpends: 25,
-          resetGuardianPause: 25,
           changeProxyAdmin: 25,
           advanceTime: 40,
         },
@@ -385,7 +385,6 @@ export default {
         pendingImpl: 'uint256',
         activationAt: 'uint256',
         pausedUntil: 'uint256',
-        guardianPauseUsed: 'bool',
         // Read live through the proxy: the only observable effect of an
         // activation.
         implVersion: 'uint256',
@@ -402,9 +401,7 @@ export default {
         unpausedInWindow:
           'ghost: unpaused seconds the clock spent inside the live window, so inv_exitWindowIsUnpaused can state the exit guarantee independently of how activationAt was computed',
         pauseFirings:
-          'ghost: counts pauses so the one-shot latch is constrained by something other than itself',
-        resetFirings:
-          'ghost: counts *effective* resets, so inv_latchMatchesCounters can pin the latch; an idempotent reset must not move it',
+          'ghost: counts pauses, so a trace that chained several is visible; pauseSpends is repeatable and the window arithmetic has to survive that',
         queueFirings:
           'ghost: windows opened, so wit_requeued can show a second window was started from scratch',
         lastActivated:
@@ -418,7 +415,6 @@ export default {
         // Negative path: the driver asserts NotYetActivatable and its argument.
         activateTooEarly: {},
         pauseSpends: { dt: 'uint256' },
-        resetGuardianPause: {},
         changeProxyAdmin: { who: 'uint256' },
         advanceTime: { dt: 'uint256' },
       },

@@ -7,6 +7,7 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
 import { MASP } from "../../src/MASP.sol";
+import { VerifierStorage } from "../../src/VerifierStorage.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
@@ -153,24 +154,26 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
     // --- constructor dependency checks -------------------------------------
 
     function test_revert_ZeroVerifier_treeUpdate() public {
-        _expectDeployRevert(MASP.ZeroVerifier.selector, IVerifier(address(0)), bv, permit2);
+        _expectDeployRevert(VerifierStorage.ZeroVerifier.selector, IVerifier(address(0)), bv, permit2);
     }
 
     /// The check is `code.length == 0`, so an EOA-shaped address is rejected
     /// even though it is non-zero.
     function test_revert_ZeroVerifier_codelessAddress() public {
-        _expectDeployRevert(MASP.ZeroVerifier.selector, IVerifier(address(0xdeadbeef)), bv, permit2);
+        _expectDeployRevert(VerifierStorage.ZeroVerifier.selector, IVerifier(address(0xdeadbeef)), bv, permit2);
     }
 
     function test_revert_ZeroVerifier_batch() public {
-        _expectDeployRevert(MASP.ZeroVerifier.selector, tub, IBatchVerifier(address(0)), permit2);
+        _expectDeployRevert(VerifierStorage.ZeroVerifier.selector, tub, IBatchVerifier(address(0)), permit2);
     }
 
     /// The constructor probes the spend slot rather than trusting the address.
     /// A contract with code but no `verifyBatch` reverts into the probe's
     /// `catch`; a single-proof `Groth16Verifier` is the likely misconfiguration.
     function test_revert_BadSpendVerifier_wrongInterface() public {
-        _expectDeployRevert(MASP.BadSpendVerifier.selector, tub, IBatchVerifier(address(realVerifier)), permit2);
+        _expectDeployRevert(
+            VerifierStorage.BadSpendVerifier.selector, tub, IBatchVerifier(address(realVerifier)), permit2
+        );
     }
 
     /// The real batch verifier passes the probe. Without this, the test above

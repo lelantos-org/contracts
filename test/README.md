@@ -48,7 +48,7 @@ own `setUp` and uses the free functions in `utils/PoolDeployer.sol` directly.
 | `utils/MASPUpgradeTestBase` | `EscrowFlowBase` behind a suite-controlled `DelayedUpgradeProxy`. |
 | `utils/YieldTestBase` | A plain and an indexed id over one ERC-20, an ERC-4626 venue, escrow helpers. |
 | `utils/WrapperTestBase` | Stub pool, Permit2 and tokens for the escrow wrappers; extended by `swap/SwapTestBase` and `generic/GenericCallTestBase`. |
-| `governance/GovTestBase` | Token, timelock, governor, burner and `ProtocolAdmin`, with proposal helpers. |
+| `governance/GovTestBase` | Token, timelock, governor and burner over a real pool owned by the timelock, with proposal helpers. |
 | `burn/FeeBurnerTestBase` | `EscrowFlowBase` with the burner as treasury. |
 
 Bases are `abstract`. A concrete contract that other suites inherit reruns

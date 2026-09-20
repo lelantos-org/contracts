@@ -54,9 +54,10 @@ contract TimelockRolesTest is GovTestBase {
 
     // ============== Veto =====================================================
 
-    /// The guardian can cancel a queued proposal within the delay window. This is
-    /// the backstop against a hostile `migrateAdmin` or a malicious parameter
-    /// change that passes a vote.
+    /// The guardian can cancel a queued proposal within the delay window. With
+    /// the Timelock owning the pool directly this is the only backstop against a
+    /// proposal that passes a vote and destroys ownership, moves the proxy admin
+    /// or sets a malicious parameter.
     function test_guardianCanVetoAQueuedProposal() public {
         (address[] memory t, uint256[] memory v, bytes[] memory c) =
             _adminCall(address(masp), abi.encodeCall(MASP.setCancelDelay, (4_000)));

@@ -13,14 +13,14 @@ import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { GovTestBase } from "./GovTestBase.sol";
 
 /// End-to-end governance control of the pool: a proposal travels the full
-/// Governor → Timelock → ProtocolAdmin → MASP path and changes real pool state.
+/// Governor → Timelock → MASP path and changes real pool state.
 contract GovernorLifecycleTest is GovTestBase {
     function test_handoverPutsThePoolUnderGovernance() public view {
-        assertEq(masp.owner(), address(protocolAdmin), "pool owner");
-        assertEq(wrapper.owner(), address(protocolAdmin), "wrapper owner");
+        assertEq(masp.owner(), address(timelock), "pool owner");
+        assertEq(wrapper.owner(), address(timelock), "wrapper owner");
         assertEq(masp.treasury(), address(burner), "pool treasury");
         assertEq(wrapper.treasury(), address(burner), "wrapper treasury");
-        assertTrue(protocolAdmin.hasRole(protocolAdmin.DEFAULT_ADMIN_ROLE(), address(timelock)));
+        assertEq(_poolProxy().proxyAdmin(), address(timelock), "proxy admin");
     }
 
     /// After handover the previous owner has no administrative access.
@@ -144,31 +144,47 @@ contract GovernorLifecycleTest is GovTestBase {
     }
 
     // ============== Ownership-destroying calls ===============================
+    //
+    // With the Timelock owning the pool directly there is no interposed contract
+    // to refuse these. What remains is what each target refuses for itself:
+    // `OwnableInit` never declares `renounceOwnership`, so neither the pool nor
+    // the wrapper can be left ownerless. A transfer is not refused, and is
+    // irreversible. The proposal threshold, the vote, the Timelock delay and the
+    // guardian's `CANCELLER_ROLE` are the only brakes; the veto itself is
+    // covered by `Timelock.roles.t.sol`.
 
-    /// `renounceOwnership` leaves the pool without an owner, so it is unreachable
-    /// even by a proposal that passes.
-    function test_proposalCannotRenounceOwnership() public {
-        (address[] memory t, uint256[] memory v, bytes[] memory c) =
-            _adminCall(address(masp), abi.encodeCall(Ownable.renounceOwnership, ()));
-        string memory desc = "renounce";
-        _queueToEta(t, v, c, desc);
+    /// `OwnableInit` never declares `renounceOwnership`, so the call finds no
+    /// function and the proposal's execution reverts. This holds for both owned
+    /// contracts and is the one bound on the owner a proposal cannot lift.
+    function test_proposalCannotRenounceEitherOwnedContract() public {
+        address[2] memory targets = [address(masp), address(wrapper)];
+        for (uint256 i = 0; i < targets.length; ++i) {
+            (address[] memory t, uint256[] memory v, bytes[] memory c) =
+                _adminCall(targets[i], abi.encodeCall(Ownable.renounceOwnership, ()));
+            string memory desc = string.concat("renounce ", vm.toString(targets[i]));
+            _queueToEta(t, v, c, desc);
 
-        vm.expectRevert();
-        governor.execute(t, v, c, keccak256(bytes(desc)));
-        assertEq(masp.owner(), address(protocolAdmin), "owner survived");
+            vm.expectRevert();
+            governor.execute(t, v, c, keccak256(bytes(desc)));
+            assertEq(Ownable(targets[i]).owner(), address(timelock), "owner survived");
+        }
     }
 
-    /// `transferOwnership` is blocked as well as `renounceOwnership`: it refuses
-    /// only `address(0)`, and a transfer to a burn address has the same effect.
-    function test_proposalCannotTransferOwnershipToBurnAddress() public {
+    /// Ownership can still be moved to an address that cannot administer it,
+    /// which `ProtocolAdmin` used to refuse. Only the delay and the guardian's
+    /// veto stand in the way.
+    function test_proposalCanMoveThePoolToABurnAddress() public {
         address dead = address(0xdEaD);
         (address[] memory t, uint256[] memory v, bytes[] memory c) =
             _adminCall(address(masp), abi.encodeCall(Ownable.transferOwnership, (dead)));
-        string memory desc = "transfer to dead";
-        _queueToEta(t, v, c, desc);
+        _passProposal(t, v, c, "transfer to dead");
 
+        assertEq(masp.owner(), dead, "pool owner moved");
+
+        (t, v, c) = _adminCall(address(masp), abi.encodeCall(MASP.setCancelDelay, (4_200)));
+        string memory desc2 = "administer after transfer";
+        _queueToEta(t, v, c, desc2);
         vm.expectRevert();
-        governor.execute(t, v, c, keccak256(bytes(desc)));
-        assertEq(masp.owner(), address(protocolAdmin), "owner survived");
+        governor.execute(t, v, c, keccak256(bytes(desc2)));
     }
 }

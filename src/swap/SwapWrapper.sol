@@ -3,7 +3,6 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 
@@ -12,6 +11,7 @@ import { SnarkCompression } from "../SnarkCompression.sol";
 import { AuxValidation } from "../libs/AuxValidation.sol";
 
 import { IMASPPool } from "../interfaces/IMASPPool.sol";
+import { OwnableInit } from "../OwnableInit.sol";
 import { MaspEscrowSatellite } from "../MaspEscrowSatellite.sol";
 import { ISwapAdapter } from "./ISwapAdapter.sol";
 
@@ -30,7 +30,7 @@ import { ISwapAdapter } from "./ISwapAdapter.sol";
 /// The escrow record and the Permit2 and cancel plumbing come from
 /// [MaspEscrowSatellite](../MaspEscrowSatellite.sol); the swap legs and the
 /// treasury dust sweep are defined here.
-contract SwapWrapper is MaspEscrowSatellite, Ownable {
+contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
     using SafeERC20 for IERC20;
 
     address public treasury;
@@ -151,9 +151,9 @@ contract SwapWrapper is MaspEscrowSatellite, Ownable {
 
     constructor(IMASPPool pool, IAllowanceTransfer permit2, address owner_, address treasury_)
         MaspEscrowSatellite(pool, permit2)
-        Ownable(owner_)
     {
         if (treasury_ == address(0)) revert ZeroAddress();
+        _initOwner(owner_);
         treasury = treasury_;
         emit TreasurySet(treasury_);
     }

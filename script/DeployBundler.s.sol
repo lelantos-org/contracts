@@ -11,9 +11,9 @@ import { BaseSwapDeploy } from "./base/BaseSwapDeploy.s.sol";
 /// an already-deployed MASP, NativeAdapter and SwapWrapper.
 ///
 /// For chains whose swap stack predates the generic wrapper and the factory.
-/// Re-running `DeploySwap.s.sol` there would mint a new SwapWrapper, which
-/// `ProtocolAdmin.WRAPPER` and the live wrapper's escrows do not follow. A fresh
-/// chain runs `DeploySwap.s.sol` with `"genericCall": true` instead.
+/// Re-running `DeploySwap.s.sol` there would mint a new SwapWrapper, which the
+/// live wrapper's escrows do not follow. A fresh chain runs `DeploySwap.s.sol`
+/// with `"genericCall": true` instead.
 ///
 /// Env `BUNDLER_OPERATOR` (the relayer's signer) and `BUNDLER_OWNER` are both
 /// required: the point of this script is the relayer's Bundler, and the deploy

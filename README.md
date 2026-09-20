@@ -34,8 +34,7 @@ The pool is deployed behind [`DelayedUpgradeProxy`](src/DelayedUpgradeProxy.sol)
 ```mermaid
 flowchart TB
   subgraph G["Governance"]
-    GOV["LelantosGovernor<br/>+ TimelockController"]
-    PA["ProtocolAdmin<br/>owner · guardian switches"]
+    GOV["LelantosGovernor<br/>+ TimelockController<br/>owner · proxy admin"]
     FB["FeeBurner<br/>treasury · buy-and-burn"]
   end
   subgraph P["Peripherals — hold no pool state, independently deployable"]
@@ -47,9 +46,8 @@ flowchart TB
   end
   PX["<b>DelayedUpgradeProxy</b><br/>exit window · pause"]
   M["<b>MASP</b><br/>tree · nullifiers · escrow<br/>registry · fees · yield index"]
-  GOV --> PA
-  PA -->|"owner"| PX
-  PA -->|"proxy admin"| PX
+  GOV -->|"owner"| PX
+  GOV -->|"proxy admin"| PX
   PX -.->|"delegatecall"| M
   M -->|"sweep"| FB
   NA -->|"depositAuthorized<br/>cancelDeposit / withdraw"| PX
@@ -80,13 +78,19 @@ A relayer lands several tree-advancing operations in one transaction through its
 
 ## Governance and upgrades
 
-Pool administration is held by [`ProtocolAdmin`](src/governance/ProtocolAdmin.sol), owned by a `TimelockController` that executes proposals from [`LelantosGovernor`](src/governance/LelantosGovernor.sol). Vote weight is a delegated-balance snapshot of [`LelantosToken`](src/governance/LelantosToken.sol), a fixed-supply `ERC20Votes` with no mint function and no owner.
+Pool administration is held by the `TimelockController` itself, which executes proposals from [`LelantosGovernor`](src/governance/LelantosGovernor.sol). It owns `MASP` and `SwapWrapper` and is the pool's proxy admin. Vote weight is a delegated-balance snapshot of [`LelantosToken`](src/governance/LelantosToken.sol), a fixed-supply `ERC20Votes` with no mint function and no owner.
 
 The voting window is asymmetric, as in Railgun: For and Abstain, the votes that count toward quorum, close `quorumVoteCutoff` seconds before the proposal deadline (1 day on mainnet), while Against stays open to it, so a last-minute swing toward passing or quorum can still be answered. The cutoff is changed only by proposal, must stay below the voting period, and is fixed per proposal when it is created.
 
-`ProtocolAdmin` splits the owner role in two. The Timelock reaches everything through `execute`; a guardian holds only five one-way switches — `disableAsset`, `haltYield`, `emergencyUnwind`, `pauseSpends`, `disallowAdapter` — whose direction is fixed in bytecode; reversing any of them goes through `execute`. `pauseSpends` is latched to one use until governance re-arms it, so pauses cannot be chained into an indefinite freeze. `execute` rejects both `Ownable` ownership selectors and `changeProxyAdmin`, leaving `migrateAdmin` and its five checks as the only route by which pool ownership, wrapper ownership and the proxy admin can leave the contract; all three move in one call.
+There is no privileged path around the delay. Every administrative action — registering an asset, changing a rate, repointing the treasury, disabling an asset, halting or unwinding a yield binding, allowlisting a swap adapter, pausing spends, queueing an upgrade — is a proposal that runs the full vote and the Timelock delay. Nothing can act on the pool sooner.
 
-Upgrades are queued, not applied. `DelayedUpgradeProxy` activates a queued implementation only after `UPGRADE_DELAY`, which is `immutable` and has no setter; until then the current implementation serves every call, so holders may withdraw under the terms in force when they entered. `activateUpgrade` is permissionless. A guardian pause halts every proof-dependent entry point and defers any pending activation by the pause duration, so the window measures unpaused time; `cancelDeposit` and `sweep` stay open, keeping escrowed funds recoverable. Raises to the terms a holder exits under (`withdrawBps`, `perfBps`, `cancelDelay`) are queued for 30 days, measured from the raise and extended past any pause, and applied only through the permissionless `commitExitTerms`; the proxy constructor rejects an `UPGRADE_DELAY` longer than that, so a raise cannot land inside an upgrade window whatever the call order.
+The only in-delay power is negative: a guardian holding `CANCELLER_ROLE` on the Timelock may veto a queued proposal, and governance may revoke or rotate that role by proposal. The guardian cannot propose, execute, or touch the pool. Deployments may run without one.
+
+The Timelock's authority is correspondingly unguarded. A passed proposal can move the ownership of `MASP` or `SwapWrapper` to an address that cannot administer it, or repoint the proxy admin, and each is irreversible. The proposal threshold, the vote, the delay and the guardian's veto are the whole of the protection. The one bound a proposal cannot lift is [`OwnableInit`](src/OwnableInit.sol), which declares no `renounceOwnership`, so neither owned contract can be left ownerless.
+
+Upgrades are queued, not applied. `DelayedUpgradeProxy` activates a queued implementation only after `UPGRADE_DELAY`, which is `immutable` and has no setter; until then the current implementation serves every call, so holders may withdraw under the terms in force when they entered. `activateUpgrade` is permissionless. A pause halts every proof-dependent entry point and defers any pending activation by the pause duration, so the window measures unpaused time; `cancelDeposit` and `sweep` stay open, keeping escrowed funds recoverable. Raises to the terms a holder exits under (`withdrawBps`, `perfBps`, `cancelDelay`) are queued for 30 days, measured from the raise and extended past any pause, and applied only through the permissionless `commitExitTerms`; the proxy constructor rejects an `UPGRADE_DELAY` longer than that, so a raise cannot land inside an upgrade window whatever the call order.
+
+The verifiers take the same route. Replacing one is the same power as replacing the implementation — either can make the pool honour notes that were never legitimately created — so `queueVerifierUpdate` on the proxy takes `UPGRADE_DELAY`, is deferred by a pause exactly as an activation is, and is landed by the permissionless `commitVerifierUpdate`. Both verifiers move in one queue, since `BatchedGroth16Verifier` embeds the verifying keys of both circuits and `TreeUpdateBatchVerifier` embeds one of them. The pool holds no verifier setter, so there is no faster path.
 
 Protocol fees accrue to [`FeeBurner`](src/burn/FeeBurner.sol), which is the pool's `treasury`. It sells accrued fee tokens for the governance token in a descending-price auction and burns the proceeds; `priceOf` reads no external state, so the price cannot be moved by manipulating a market.
 
@@ -136,7 +140,6 @@ Deployed sizes under the deploy profile (EIP-170 limit 24 576 B):
 | `FeeBurner` | 6 863 | 17 713 |
 | `NativeAdapter` | 5 351 | 19 225 |
 | `BundlerFactory` | 5 065 | 19 511 |
-| `ProtocolAdmin` | 4 608 | 19 968 |
 | `DelayedUpgradeProxy` | 3 256 | 21 320 |
 | `Bundler` | 2 697 | 21 879 |
 | `UniV3Adapter` | 2 467 | 22 109 |

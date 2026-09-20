@@ -48,20 +48,17 @@ jobs:
           node-version: "24"
       - uses: extractions/setup-just@v2
       - run: just quint-install
+      # This job used to carry the EchidnaGenericCall optimization sweep as a
+      # `continue-on-error` step, to spread load away from the echidna job.
+      # It never ran: the sweep needs the Foundry build and the generated
+      # config that only the echidna job produces, so every invocation died
+      # immediately on
+      # "EchidnaGenericCall.optimize.generated.yaml: withBinaryFile: does not
+      # exist (No such file or directory)", which `continue-on-error` turned
+      # into a green step. The sweep now runs in the echidna matrix leg for
+      # that contract, next to the build it depends on.
       - name: Fresh-seed Quint sweep
         run: just quint-fresh
-      - name: Echidna optimization sweep (EchidnaGenericCall)
-        uses: crytic/echidna-action@v2
-        # Non-zero exit in optimization mode regardless of result; see above.
-        continue-on-error: true
-        with:
-          files: test/echidna/EchidnaGenericCall.sol
-          contract: EchidnaGenericCall
-          config: test/echidna/EchidnaGenericCall.optimize.generated.yaml
-          echidna-version: v2.3.3
-          test-limit: 50000
-          format: text
-          crytic-args: --compile-force-framework foundry --ignore-compile
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -74,11 +71,45 @@ jobs:
   # seed every night, so a rare sequence must be rediscovered each time, while
   # Echidna mutates a corpus restored from the previous run. This depends on
   # the cache below round-tripping.
+  #
+  # One job per target, rather than one job running every sweep in sequence.
+  # Sequentially the runtimes added up against a single budget while the
+  # leading campaign's own runtime grew with the corpus it restored: the
+  # EchidnaMasp property sweep alone took 89-137 minutes across the runs of
+  # 2026-09-17..20, and the sweeps behind it got whatever was left of the
+  # job's 180 minutes. That stopped being enough once EchidnaGenericCall was
+  # added as a third target, and the job was cancelled mid-run on 2026-09-16
+  # and 2026-09-20, in both cases inside an optimization sweep that therefore
+  # has not run since. Splitting by target makes each job's budget depend on
+  # one contract's two campaigns instead of all five, so a slow target no
+  # longer starves the others, and the wall-clock `timeout` in echidna.yaml
+  # bounds each campaign on top of its test limit.
   echidna:
     runs-on: [ubuntu-latest]
-    # Longer than the other jobs because `seqLen: 400` makes each sequence
-    # deep; locally the suite runs ~5k transactions a minute.
-    timeout-minutes: 180
+    strategy:
+      # A broken property on one target is a finding about that target; the
+      # other two still owe the night's fuzzing.
+      fail-fast: false
+      matrix:
+        include:
+          # Test limits carried over from when these ran as sequential steps.
+          # They are upper bounds on sequences generated; `timeout` in
+          # echidna.yaml bounds the same campaign in wall-clock, and whichever
+          # is reached first ends it.
+          - contract: EchidnaMasp
+            property_limit: 400000
+            optimize_limit: 150000
+          - contract: EchidnaMaspYield
+            property_limit: 250000
+            optimize_limit: 150000
+          - contract: EchidnaGenericCall
+            property_limit: 150000
+            optimize_limit: 50000
+    # A leg is one build plus at most two campaigns, each capped at 7200s by
+    # `timeout` in echidna.yaml, so ~250 minutes is the worst case it can
+    # reach by fuzzing. Anything past this is a hang outside Echidna's own
+    # accounting and should fail rather than run to the 6h ceiling.
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,34 +135,48 @@ jobs:
       # A fresh checkout builds everything; `--force` keeps the step correct if
       # a cache is introduced.
       - run: FOUNDRY_PROFILE=echidna forge build --build-info --force --skip script
-      # Both configs are generated before any Echidna run. crytic-compile
-      # re-runs `forge build` scoped to the target it compiles and Foundry
-      # prunes artifacts outside that dependency graph, so generating the
-      # second config after the first sweep fails on a missing ABI.
-      - run: |
-          just _echidna-config EchidnaMasp
-          just _echidna-config EchidnaMaspYield
-          just _echidna-config EchidnaGenericCall
-      # Append-only cache: the key is unique per run so this job always writes
-      # a fresh entry, and `restore-keys` picks up the newest previous one. A
-      # fixed key would restore the first saved corpus indefinitely and never
-      # save again, which produces no error in the logs.
-      - uses: actions/cache@v4
+      # Only this leg's target. The ordering constraint the justfile recipes
+      # work around — crytic-compile re-runs `forge build` scoped to the
+      # target it compiles, and Foundry prunes artifacts outside that
+      # dependency graph, so a config generated after another contract's sweep
+      # fails on a missing ABI — does not arise here, because a leg runs one
+      # contract. Both of this contract's configs are written by this single
+      # invocation, before either sweep.
+      - run: just _echidna-config ${{ matrix.contract }}
+      # Append-only cache, one entry per target: the key is unique per run so
+      # this job always writes a fresh entry, and `restore-keys` picks up the
+      # newest previous one for the same contract. A fixed key would restore
+      # the first saved corpus indefinitely and never save again, which
+      # produces no error in the logs.
+      #
+      # Restore and save are separate actions rather than one `actions/cache`
+      # step. The combined action saves in a post step, and post steps are
+      # skipped when a job is cancelled — which is what a `timeout-minutes`
+      # expiry is. So the runs that most needed their corpus kept were exactly
+      # the ones that dropped it: "Post Run actions/cache@v4 ... skipped" in
+      # the cancelled runs of 2026-09-16 and 2026-09-20. `if: always()` on an
+      # explicit save step runs during cancellation.
+      #
+      # The key scheme gained the contract segment here, so the first run after
+      # this change restores nothing and each target starts from an empty
+      # corpus once.
+      - uses: actions/cache/restore@v4
         with:
-          path: test/echidna/corpus
-          key: echidna-corpus-${{ github.run_id }}
-          restore-keys: echidna-corpus-
-      # Two targets: the plain-asset state machine and the indexed-asset
-      # (yield) accounting, in separate contracts because their setups and
-      # properties are disjoint; see test/echidna/README.md.
-      - name: Echidna property sweep (EchidnaMasp)
+          path: test/echidna/corpus/${{ matrix.contract }}
+          key: echidna-corpus-${{ matrix.contract }}-${{ github.run_id }}
+          restore-keys: echidna-corpus-${{ matrix.contract }}-
+      # Three targets: the plain-asset state machine, the indexed-asset
+      # (yield) accounting, and the generic-call wrapper, in separate
+      # contracts because their setups and properties are disjoint; see
+      # test/echidna/README.md.
+      - name: Echidna property sweep (${{ matrix.contract }})
         uses: crytic/echidna-action@v2
         with:
-          files: test/echidna/EchidnaMasp.sol
-          contract: EchidnaMasp
-          config: test/echidna/EchidnaMasp.generated.yaml
+          files: test/echidna/${{ matrix.contract }}.sol
+          contract: ${{ matrix.contract }}
+          config: test/echidna/${{ matrix.contract }}.generated.yaml
           echidna-version: v2.3.3
-          test-limit: 400000
+          test-limit: ${{ matrix.property_limit }}
           format: text
           crytic-args: --compile-force-framework foundry --ignore-compile
           # `echidna-version` is pinned to the version the justfile recipes use;
@@ -152,61 +197,36 @@ jobs:
           # "Running slither failed. Echidna will continue, however fuzzing will
           # likely be less effective", which reduces mutation quality but not
           # correctness.
-      - name: Echidna property sweep (EchidnaMaspYield)
-        uses: crytic/echidna-action@v2
-        with:
-          files: test/echidna/EchidnaMaspYield.sol
-          contract: EchidnaMaspYield
-          config: test/echidna/EchidnaMaspYield.generated.yaml
-          echidna-version: v2.3.3
-          test-limit: 250000
-          format: text
-          crytic-args: --compile-force-framework foundry --ignore-compile
-      - name: Echidna property sweep (EchidnaGenericCall)
-        uses: crytic/echidna-action@v2
-        with:
-          files: test/echidna/EchidnaGenericCall.sol
-          contract: EchidnaGenericCall
-          config: test/echidna/EchidnaGenericCall.generated.yaml
-          echidna-version: v2.3.3
-          test-limit: 150000
-          format: text
-          crytic-args: --compile-force-framework foundry --ignore-compile
-      - name: Echidna optimization sweep (EchidnaMasp)
-        uses: crytic/echidna-action@v2
+      - name: Echidna optimization sweep (${{ matrix.contract }})
+        # Runs even when the property sweep above failed: the two answer
+        # different questions, and the magnitude report is worth having
+        # alongside a broken property. The property sweep stays the gate.
+        # Not `always()`, which also fires while the job is being cancelled
+        # and would start a fresh campaign inside the cancellation window.
+        if: success() || failure()
         # Echidna exits non-zero in optimization mode regardless of result: an
         # optimization target is never "solved" and is reported as an open
         # test (property mode exits 0 on the same contract; optimization mode
         # exits 1 even with every maximum at 0). Without this the job would
-        # fail on every run. The property sweeps above are the gate.
+        # fail on every run.
         continue-on-error: true
-        with:
-          files: test/echidna/EchidnaMasp.sol
-          contract: EchidnaMasp
-          config: test/echidna/EchidnaMasp.optimize.generated.yaml
-          echidna-version: v2.3.3
-          test-limit: 150000
-          format: text
-          crytic-args: --compile-force-framework foundry --ignore-compile
-      - name: Echidna optimization sweep (EchidnaMaspYield)
         uses: crytic/echidna-action@v2
-        # Echidna exits non-zero in optimization mode regardless of result: an
-        # optimization target is never "solved" and is reported as an open
-        # test (property mode exits 0 on the same contract; optimization mode
-        # exits 1 even with every maximum at 0). Without this the job would
-        # fail on every run. The property sweeps above are the gate.
-        continue-on-error: true
         with:
-          files: test/echidna/EchidnaMaspYield.sol
-          contract: EchidnaMaspYield
-          config: test/echidna/EchidnaMaspYield.optimize.generated.yaml
+          files: test/echidna/${{ matrix.contract }}.sol
+          contract: ${{ matrix.contract }}
+          config: test/echidna/${{ matrix.contract }}.optimize.generated.yaml
           echidna-version: v2.3.3
-          test-limit: 150000
+          test-limit: ${{ matrix.optimize_limit }}
           format: text
           crytic-args: --compile-force-framework foundry --ignore-compile
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: test/echidna/corpus/${{ matrix.contract }}
+          key: echidna-corpus-${{ matrix.contract }}-${{ github.run_id }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: echidna-corpus
-          path: test/echidna/corpus/
+          name: echidna-corpus-${{ matrix.contract }}
+          path: test/echidna/corpus/${{ matrix.contract }}/
           if-no-files-found: warn

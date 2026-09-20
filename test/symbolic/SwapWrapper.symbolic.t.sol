@@ -200,9 +200,8 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
 
     /// Only an owner-allowlisted adapter may be used, for every address.
     ///
-    /// The adapter receives the unshielded funds. The guardian can revoke
-    /// adapters from this allowlist; `ProtocolAdmin.symbolic.t.sol` proves that
-    /// revocation is one-way.
+    /// The adapter receives the unshielded funds. Allowlisting and revoking are
+    /// both `onlyOwner`, so each is a governance proposal.
     function check_validate_rejectsEveryNonAllowlistedAdapter(address adapter) public {
         vm.assume(adapter != ADAPTER);
 

@@ -10,6 +10,7 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
 
 import { YieldTestBase } from "../utils/YieldTestBase.sol";
+import { PoolSlots } from "../utils/PoolSlots.sol";
 
 /// The escrow half of the index: what flush and cancel do to the books.
 contract YieldEscrowTest is YieldTestBase {
@@ -25,9 +26,10 @@ contract YieldEscrowTest is YieldTestBase {
         );
     }
 
-    /// Slot of `MASP._escrowPulled`, pinned by `StorageLayout.t.sol`. The
-    /// mapping is private, so the cap is read from raw storage.
-    uint256 internal constant SLOT_ESCROW_PULLED = 82;
+    /// Slot of `MASP._escrowPulled`, taken from the shared map and pinned by
+    /// `StorageLayout.t.sol`. The mapping is private, so the cap is read from
+    /// raw storage.
+    uint256 internal constant SLOT_ESCROW_PULLED = PoolSlots.ESCROW_PULLED;
 
     function _pulledCap(uint256 id) internal view returns (uint256) {
         return uint256(vm.load(address(masp), keccak256(abi.encode(id, SLOT_ESCROW_PULLED))));

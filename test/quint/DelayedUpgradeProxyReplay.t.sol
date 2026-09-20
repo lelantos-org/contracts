@@ -79,9 +79,6 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
         } else if (action == DelayedUpgradeProxySpec.Action.PauseSpends) {
             vm.prank(admin);
             proxy.pauseSpends(picks.dt);
-        } else if (action == DelayedUpgradeProxySpec.Action.ResetGuardianPause) {
-            vm.prank(admin);
-            proxy.resetGuardianPause();
         } else if (action == DelayedUpgradeProxySpec.Action.ChangeProxyAdmin) {
             vm.prank(admin);
             proxy.changeProxyAdmin(admins[picks.who]);
@@ -136,7 +133,6 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
 
         uint256 until = proxy.spendsPausedUntil();
         s.pausedUntil = until == 0 ? 0 : until - T0;
-        s.guardianPauseUsed = proxy.guardianPauseUsed();
 
         // A live delegatecall through the proxy. This field detects an
         // activation that clears the queue without upgrading; every other

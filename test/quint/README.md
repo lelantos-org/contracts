@@ -38,7 +38,6 @@ silent no-op into a named failure — see the `flushOne` note in
 | The full ring contents match, slot by slot | `CommitmentTree` | `advance` | All 64 slots compared every step. No other suite compares the ring as a whole. | as above | 8 × 91 |
 | The exit window is exactly the delay plus every pause inside it, and holds `UPGRADE_DELAY` unpaused seconds | `DelayedUpgradeProxy` | queue / cancel / activate / activateTooEarly / pause / reset / changeAdmin / advanceTime | `pauseSpends` extends `activationAt` **only if an upgrade is already pending**, and `queueUpgrade` defers by a pause **still running at queue time**, so `queue; pause`, `pause; queue` and cancel-and-requeue mid-pause take different paths. `inv_exitWindowIsUnpaused` counts the unpaused seconds each window actually contained. The symbolic suite's 13 proxy checks are all single-call; no single-call proof sees the interleaving. | the implementation (V1/V2 by `version()`), caller identity | 8 × 77 |
 | An activation actually promotes the implementation | `DelayedUpgradeProxy` | `activateUpgrade` | `implVersion` is read live through the proxy by delegatecall, so an activation that cleared the queue without calling `upgradeToAndCall` diverges. Nothing else would notice. | as above | 8 × 77 |
-| The one-shot pause latch agrees with its own history | `DelayedUpgradeProxy` | `pauseSpends`, `resetGuardianPause` | The bound `pauses - resets <= 1` is satisfied by a reset that failed to clear the latch. Counting *effective* resets pins the live boolean to the counts. | as above | 8 × 77 |
 | The spent set matches the bitmap after every consume | `NullifierSet` | `consume`, `consumeSpent` | `test/symbolic/` proves the isolation property for a *pair* over all 2^256 values. This runs a *sequence* — up to 24 consumes across three buckets — and re-reads the whole set after each. | nothing; live reads throughout | 6 × 25 |
 | A second consume is rejected, and changes nothing | `NullifierSet` | `consumeSpent` | A negative action: the model asserts a *rejection* and the driver wraps the call in `vm.expectRevert(DoubleSpend.selector)`. An invariant run with `fail_on_revert = false` cannot tell a correct rejection from an unrelated revert from a call that never ran. | as above | 6 × 25 |
 | Every pool token is claimed by exactly one thing | `MASP` | submit / flush / cancel / cancelTooEarly / sweep / advanceBlocks / setCancelDelay / setAssetDisabled | `invariant_balanceConservation` checks this at the end of a run. Here it is checked after every step, so the report names the action that broke it. | Groth16, permit2, ERC-1271, the root ring | 20 × 97 |
@@ -97,15 +96,11 @@ the `BelowMinLot` and `BadMinLot` rejections stay single-call guards, and
 lot snapshots. One lot token is modelled, because the per-token mapping is a
 mapping.
 
-**`ProtocolAdmin`.** Considered and cut, so this reads as a decision. Its state is
-role sets over a fixed address set plus mirrored booleans: no arithmetic, no
-time, no accumulator, so a model asserted after every step establishes nothing an
-end-of-run invariant misses. The finding that 0–3 byte calldata bypasses
-`execute`'s selector gate is a *single-call* property (`data.length >= 4`) that a
-unit test or halmos owns better than a trace, and modelling the rest would mostly
-mean modelling OpenZeppelin `AccessControl`. Its two genuinely sequence-shaped
-properties — `migrateAdmin` as a one-way exit, and lockout by revoking the last
-admin — are each a fifteen-line Foundry test.
+**`ProtocolAdmin`.** Considered and cut, and then the contract itself was
+removed: the `TimelockController` owns `MASP` and `SwapWrapper` directly and is
+the pool's proxy admin, so there is no interposed role table left to model. The
+surviving governance sequencing lives in `LelantosGovernor` and OpenZeppelin's
+`TimelockController`, neither of which this suite models.
 
 **Nullifier properties that are already proven.** "Consuming `a` never marks
 `b`" holds for all 2^256 pairs and `test/symbolic/NullifierSet.symbolic.t.sol`

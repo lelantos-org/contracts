@@ -112,6 +112,22 @@ contract GovConfigTest is Test {
         assertTrue(vm.parseJsonAddress(j, ".swapWrapper") != address(0), "swapWrapper unset");
     }
 
+    /// `FeeBurner._setBurnPolicy` rejects a partial burn with no secondary
+    /// treasury, since the unburned share would have nowhere to go. A config
+    /// that pairs them reverts the deploy, late and for a reason the file does
+    /// not make obvious.
+    function test_partialBurnNamesASecondaryTreasury() public view {
+        string[2] memory files = _configs();
+        for (uint256 f; f < files.length; ++f) {
+            string memory j = vm.readFile(files[f]);
+            if (vm.parseJsonUint(j, ".burnBps") == 10_000) continue;
+            assertTrue(
+                vm.parseJsonAddress(j, ".secondaryTreasury") != address(0),
+                string.concat(files[f], ": a partial burn needs a secondary treasury")
+            );
+        }
+    }
+
     /// Voting parameters are in seconds because the token uses a timestamp
     /// clock. A value that looks like a block count is a misconfiguration.
     function test_votingParamsLookLikeSecondsNotBlocks() public view {

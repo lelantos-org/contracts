@@ -8,9 +8,9 @@
 //
 // test/symbolic/DelayedUpgradeProxy.symbolic.t.sol proves single-call
 // properties over all inputs: activation happens exactly after the window, a
-// queued payload cannot be swapped, the guardian pause is one-shot, non-admins
-// are rejected. This spec covers sequencing, in particular the two paths by
-// which paused time is kept out of the window:
+// queued payload cannot be swapped, pauses chain with each deferring the
+// window, non-admins are rejected. This spec covers sequencing, in particular
+// the two paths by which paused time is kept out of the window:
 //
 //     `pauseSpends` extends `activationAt` by its duration only if an upgrade
 //     is already pending; `queueUpgrade` starts the window at
@@ -75,9 +75,8 @@ module delayed_upgrade_proxy {
   /// 0 when nothing is queued.
   var activationAt: int
   /// Spends are halted while `nowTs < pausedUntil`. Expires with time; nothing
-  /// clears it, including `resetGuardianPause`.
+  /// clears it early.
   var pausedUntil: int
-  var guardianPauseUsed: bool
   /// `version()` through the proxy: the observable consequence of activation.
   var implVersion: int
   var admin: int
@@ -102,10 +101,9 @@ module delayed_upgrade_proxy {
   /// only action that moves the clock. Stated independently of both deferral
   /// paths, so `inv_exitWindowIsUnpaused` holds whichever one fires.
   var unpausedInWindow: int
-  /// The latch, counted independently. A boolean alone is unconstrained (see
-  /// `guardViolations` in spec/masp.qnt).
+  /// Pauses applied. `pauseSpends` is repeatable, so this is what shows a
+  /// trace exercised more than one, which `inv_windowIsExact` then pins.
   var pauseFirings: int
-  var resetFirings: int
   /// Windows opened. `> 1` shows more than one window was exercised; the
   /// contract keeps no history of past queues, so this is the only state in
   /// which a cancel-then-requeue is visible.
@@ -121,7 +119,6 @@ module delayed_upgrade_proxy {
     pendingImpl' = 0,
     activationAt' = 0,
     pausedUntil' = 0,
-    guardianPauseUsed' = false,
     implVersion' = 1,
     admin' = 0,
     queuedAt' = 0,
@@ -129,14 +126,13 @@ module delayed_upgrade_proxy {
     carriedPause' = 0,
     unpausedInWindow' = 0,
     pauseFirings' = 0,
-    resetFirings' = 0,
     queueFirings' = 0,
     lastActivated' = 1,
   }
 
   // --- frames -----------------------------------------------------------
   //
-  // Quint has no `UNCHANGED`, so every action assigns all fifteen variables.
+  // Quint has no `UNCHANGED`, so every action assigns all thirteen variables.
   // The frame actions below group the `x' = x` assignments by what the
   // variables describe rather than by which action writes them; a strict
   // writer-partition would need more groups than it saves.
@@ -156,13 +152,10 @@ module delayed_upgrade_proxy {
     queueFirings' = queueFirings,
   }
 
-  /// The guardian pause: the deadline, the one-shot latch, and the two counters
-  /// that pin the latch to its own history.
-  action unchangedPauseLatch = all {
+  /// The pause deadline and the count of pauses applied.
+  action unchangedPause = all {
     pausedUntil' = pausedUntil,
-    guardianPauseUsed' = guardianPauseUsed,
     pauseFirings' = pauseFirings,
-    resetFirings' = resetFirings,
   }
 
   /// The implementation running behind the proxy. Written only by
@@ -196,7 +189,7 @@ module delayed_upgrade_proxy {
       pausedInWindow' = 0,
       unpausedInWindow' = 0,
       queueFirings' = queueFirings + 1,
-      unchangedPauseLatch,
+      unchangedPause,
       unchangedImpl,
       unchangedAdmin,
       unchangedClock,
@@ -213,7 +206,7 @@ module delayed_upgrade_proxy {
     carriedPause' = carriedPause,
     unpausedInWindow' = unpausedInWindow,
     queueFirings' = queueFirings,
-    unchangedPauseLatch,
+    unchangedPause,
     unchangedImpl,
     unchangedAdmin,
     unchangedClock,
@@ -233,7 +226,7 @@ module delayed_upgrade_proxy {
     carriedPause' = carriedPause,
     unpausedInWindow' = unpausedInWindow,
     queueFirings' = queueFirings,
-    unchangedPauseLatch,
+    unchangedPause,
     unchangedAdmin,
     unchangedClock,
   }
@@ -244,27 +237,28 @@ module delayed_upgrade_proxy {
   action activateTooEarly = all {
     pendingImpl != 0,
     nowTs < activationAt,
-    // A rejected call leaves all fifteen variables unchanged.
+    // A rejected call leaves all thirteen variables unchanged.
     unchangedUpgradeQueue,
-    unchangedPauseLatch,
+    unchangedPause,
     unchangedImpl,
     unchangedAdmin,
     unchangedClock,
   }
 
   /// `pauseSpends`. The window is extended only when `pendingImpl != 0`: a pause
-  /// with nothing queued halts spends and consumes the one-shot latch, and a
-  /// later `queueUpgrade` defers by whatever of it is still running.
+  /// with nothing queued halts spends, and a later `queueUpgrade` defers by
+  /// whatever of it is still running.
+  ///
+  /// Always enabled: each call is capped at `MAX_PAUSE` but nothing bounds how
+  /// many may be made, so a chain of pauses is a reachable state and the
+  /// window arithmetic must survive it.
   action pauseSpends = {
     nondet dt = TIME_JUMPS.oneOf()
     all {
-      not(guardianPauseUsed),
       dt > 0,
       dt <= MAX_PAUSE,
-      guardianPauseUsed' = true,
       pausedUntil' = nowTs + dt,
       pauseFirings' = pauseFirings + 1,
-      resetFirings' = resetFirings,
       activationAt' = if (pendingImpl != 0) activationAt + dt else activationAt,
       pausedInWindow' = if (pendingImpl != 0) pausedInWindow + dt else pausedInWindow,
       pendingImpl' = pendingImpl,
@@ -279,28 +273,12 @@ module delayed_upgrade_proxy {
     }
   }
 
-  /// `resetGuardianPause` clears the latch but not `pausedUntil`: an in-flight
-  /// pause runs to its end, and a second pause can then extend past it.
-  action resetGuardianPause = all {
-    guardianPauseUsed' = false,
-    // Counts effective resets only. Resetting an already-clear latch must not
-    // move the counter, or `inv_latchMatchesCounters` could not pin the latch.
-    resetFirings' = if (guardianPauseUsed) resetFirings + 1 else resetFirings,
-    // Clearing the latch does not end an in-flight pause.
-    pausedUntil' = pausedUntil,
-    pauseFirings' = pauseFirings,
-    unchangedUpgradeQueue,
-    unchangedImpl,
-    unchangedAdmin,
-    unchangedClock,
-  }
-
   action changeProxyAdmin = {
     nondet who = ADMINS.oneOf()
     all {
       admin' = who,
       unchangedUpgradeQueue,
-      unchangedPauseLatch,
+      unchangedPause,
       unchangedImpl,
       unchangedClock,
     }
@@ -324,7 +302,7 @@ module delayed_upgrade_proxy {
       pausedInWindow' = pausedInWindow,
       carriedPause' = carriedPause,
       queueFirings' = queueFirings,
-      unchangedPauseLatch,
+      unchangedPause,
       unchangedImpl,
       unchangedAdmin,
     }
@@ -336,7 +314,6 @@ module delayed_upgrade_proxy {
     activateUpgrade,
     activateTooEarly,
     pauseSpends,
-    resetGuardianPause,
     changeProxyAdmin,
     advanceTime,
   }
@@ -373,12 +350,6 @@ module delayed_upgrade_proxy {
   /// A pause never runs longer than the permitted maximum.
   val inv_pauseBounded = pausedUntil == 0 or pausedUntil <= nowTs + MAX_PAUSE
 
-  /// The latch is one-shot between resets, and its value agrees with the
-  /// counters. The bound alone is insufficient: a reset that fails to clear the
-  /// latch still moves the counter and satisfies it.
-  val inv_pauseOneShot = pauseFirings - resetFirings <= 1
-  val inv_latchMatchesCounters = guardianPauseUsed == (pauseFirings == resetFirings + 1)
-
   /// What the proxy serves is what the last activation promoted.
   val inv_implFollowsActivation = implVersion == lastActivated
 
@@ -392,8 +363,6 @@ module delayed_upgrade_proxy {
     inv_exitWindowIsUnpaused,
     inv_unpausedWithinElapsed,
     inv_pauseBounded,
-    inv_pauseOneShot,
-    inv_latchMatchesCounters,
     inv_implFollowsActivation,
     inv_implIsAnImplementation,
   }

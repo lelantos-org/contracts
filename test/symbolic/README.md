@@ -68,7 +68,7 @@ reasoning does not — a proof that merely re-samples what
 | A pause defers activation by its own duration | `DelayedUpgradeProxy.pauseSpends` | every permitted duration | Makes the window measure *unpaused* time; otherwise a pause could run it out | within `MAX_PAUSE` | as above | 0.02s |
 | An upgrade queued during a pause defers activation by the pause still to run | `DelayedUpgradeProxy.queueUpgrade` | every permitted duration, every queue time | The other ordering: a pause issued before the queue, or across a cancel and re-queue, must not run inside the new window | within `MAX_PAUSE`; `activationAt` fits `uint40` | as above | 0.17s |
 | Construction accepts exactly a pause ceiling shorter than the window | `DelayedUpgradeProxy` constructor | any non-zero delay, any ceiling | A single pause as long as the window could hold exits shut for all of it | `upgradeDelay > 0` | as above | 0.02s |
-| Pause accepted for exactly its permitted durations, one-shot until reset | `DelayedUpgradeProxy` | any duration | Bounds how long a guardian can hold spends closed | — | as above | 0.03s |
+| Pause accepted for exactly its permitted durations; pauses chain, each deferring the window by its own duration | `DelayedUpgradeProxy` | any two durations | `MAX_PAUSE` bounds one call, not the sequence, so the window arithmetic has to hold for the second pause as for the first | — | as above | 0.03s |
 | Activation is permissionless | `DelayedUpgradeProxy.activateUpgrade` | any caller | Closing the window needs no privileged keeper | — | as above | 0.01s |
 | Cancel withdraws and never promotes | `DelayedUpgradeProxy.cancelUpgrade` | every later timestamp | A cancelled upgrade cannot be resurrected by waiting | — | as above | 0.01s |
 | Privileged proxy entry points reject every non-admin | `DelayedUpgradeProxy` | any caller | — | `caller != admin` | as above | 0.02s |
@@ -80,20 +80,6 @@ reasoning does not — a proof that merely re-samples what
 | Ownership can never be dropped | `OwnableInit` via `FeeConfig` | any owner calldata | An unowned pool cannot register assets, retune fees, or be handed to governance | call succeeded | `MockERC20` | 0.06s |
 | Spent is permanent | `NullifierSet` | any two distinct nullifiers | The property a double-spend defence rests on | `a != b` | none | 0.07s |
 | Cancel delay accepted for exactly its range, owner-only; only a shortening applies at once | `MASP.setCancelDelay` | any delay, any caller | Decides how long escrowed funds are locked; bounded on both sides, and a lengthening is queued | — | Permit2, both verifiers | 0.05s |
-| No `execute` moves the pool's or wrapper's owner | `ProtocolAdmin.execute` | any calldata (`svm.createBytes`), both targets | The contract's whole reason to exist rests on a four-byte comparison against a 2^32 space; a fuzzer drawing `bytes` never hits either value | call succeeded | pool and wrapper | 0.06s each |
-| Both `Ownable` selectors refused, whatever follows them | `ProtocolAdmin.execute` | any trailing 32 bytes | Pins the revert reason, so a guard firing for an unrelated cause is caught | none | as above | 0.01s |
-| No `execute` moves the pool's proxy admin | `ProtocolAdmin.execute` | any calldata | Moving that seat alone would leave the pool upgradeable by someone other than its owner | call succeeded | pool with a proxy-admin seat | 0.07s |
-| `changeProxyAdmin` refused, whatever follows it | `ProtocolAdmin.execute` | any trailing 32 bytes | Pins the revert reason for the row above | none | as above | 0.00s |
-| An ordinary governance call is forwarded | `ProtocolAdmin.execute` | any argument | Non-vacuity anchor for the two rows above | none | as above | 0.01s |
-| Every self-call is refused | `ProtocolAdmin.execute` | any calldata | Reaching `grantRole` with `msg.sender == address(this)` would mint a guardian or revoke governance | none | as above | 0.00s |
-| `execute` and `migrateAdmin` reject every non-admin | `ProtocolAdmin` | any caller, any target, any calldata | The guardian holds a role here, so "not governance" is the property | `caller != gov` | as above | 0.01s |
-| Each guardian switch drives one way only | `ProtocolAdmin` | any asset id, any adapter | A compromised guardian key must cost availability, never custody | none | as above | 0.02s |
-| Guardian entry points reject every non-guardian | `ProtocolAdmin` | any caller, any id, any adapter, any pause duration | — | caller lacks the role | as above | 0.03s |
-| The guardian's pause reaches the proxy unchanged | `ProtocolAdmin.pauseSpends` | any duration | The ceiling and one-shot latch live on the proxy, proved in its own suite | none | as above | 0.01s |
-| The guardian cannot reach governance's surface | `ProtocolAdmin` | any calldata, any successor | The role split stated from the other side | none | as above | 0.01s |
-| `migrateAdmin` moves both owners together | `ProtocolAdmin.migrateAdmin` | — | A pool and wrapper under different owners cannot be driven by either; the targets are immutable | none | as above | 0.02s |
-| `migrateAdmin` moves the proxy admin with ownership, and refuses while it is held elsewhere | `ProtocolAdmin.migrateAdmin` | any other holder | Upgrade authority cannot stay behind with a retired governance while the successor owns the pool | holder is neither this contract nor zero | as above | 0.05s total |
-| Migration rejects mismatched targets, an ungoverned successor, and every codeless one | `ProtocolAdmin.migrateAdmin` | any claimed pool and wrapper, any address | Stops the accident; a hostile successor is bounded by the timelock delay instead | one field wrong per proof | as above | 0.04s total |
 | Every misreported refund is rejected | `MaspEscrowSatellite._cancelAndVerify` | any recorded x any delivered x any reported amount | Clearing a record destroys the only evidence of what the funder is owed; a short or long delivery is one wei off a symbolic report, a point a sampler has no reason to draw | `delivered != reported`, non-overflowing | pool and token | not yet measured |
 | Every exact refund is accepted and the delivered amount forwarded | as above | any recorded x any delivered | A yield refund is capped at the pull and floored at the index, so it can fall below the record; a floor at the record would leave that escrow unrefundable | non-overflowing | as above | not yet measured |
 | A cancel cannot be replayed | as above | any recorded amount | The record is the authorization | none | as above | 0.03s |
@@ -259,7 +245,6 @@ What remains of them, and what was never on the list:
    earn a proof here is the wiring, not the base contracts. `FeeBurner`'s
    slippage bound routes through a swap quote, which is the division wall again.
 
-`ProtocolAdmin` was called out here as the most worthwhile of the three, and it
 proved to be: `execute`'s selector gate is the single comparison standing
 between a governance proposal and an unowned, permanently unadministrable pool.
 Deleting either selector from that gate is caught by three separate rows above.
@@ -345,7 +330,6 @@ wiring, as `NativeAdapter` does with its wrapped-native pool.
 The three peripheral suites deploy no pool at all, because none of their
 properties are about what the pool does:
 
-- `ProtocolAdmin` drives two `MockAdminTarget`s. Ownership on them is real
   `Ownable`, since the property under proof is that `execute` cannot move it,
   and a stubbed owner would prove nothing about the selector guard. They also
   carry the proxy's admin seat (`proxyAdmin`, `changeProxyAdmin`, `pauseSpends`),

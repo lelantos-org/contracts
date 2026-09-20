@@ -29,15 +29,15 @@ import { BaseGovernanceDeploy } from "./base/BaseGovernanceDeploy.s.sol";
 /// halvings, 2x restart), since auction timing is not what a dev stack
 /// exercises.
 ///
-/// No guardian (`address(0)`): the Timelock gets no extra canceller and
-/// `ProtocolAdmin` no guardian role, so every administrative action on the dev
-/// stack goes through a proposal, as the no-guardian mainnet variant does.
+/// No guardian (`address(0)`): the Timelock gets no extra canceller, so no one
+/// can veto a queued proposal on the dev stack. Every administrative action
+/// goes through a proposal either way.
 ///
 /// Like `DeployGovernance.s.sol` this transfers no ownership:
 /// `HandoverOwnership.s.sol` is not run, so MASP and SwapWrapper stay with
 /// their dev owners and the rest of the local stack keeps working unchanged.
 contract DeployTestGovernance is BaseGovernanceDeploy {
-    function run() external returns (address token, address timelock, address governor, address burner, address admin) {
+    function run() external returns (address token, address timelock, address governor, address burner) {
         GovParams memory p;
         p.tokenName = "Lelantos";
         p.tokenSymbol = "LNT";
@@ -77,6 +77,6 @@ contract DeployTestGovernance is BaseGovernanceDeploy {
 
         _logGovKv(s);
 
-        return (address(s.token), address(s.timelock), address(s.governor), address(s.burner), address(s.admin));
+        return (address(s.token), address(s.timelock), address(s.governor), address(s.burner));
     }
 }

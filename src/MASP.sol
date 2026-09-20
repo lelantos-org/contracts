@@ -17,6 +17,7 @@ import { YieldOps } from "./yield/YieldOps.sol";
 import { DepositOps } from "./libs/DepositOps.sol";
 import { IVerifier } from "./interfaces/IVerifier.sol";
 import { IBatchVerifier } from "./interfaces/IBatchVerifier.sol";
+import { VerifierStorage } from "./VerifierStorage.sol";
 import { PubInputs } from "./libs/PubInputs.sol";
 import { AuxValidation } from "./libs/AuxValidation.sol";
 import { Fees } from "./libs/Fees.sol";
@@ -41,18 +42,6 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     /// Upper-case accessor names are part of the external interface: `IMASPPool`,
     /// the peripherals and the SDK read them by name.
     ///
-    /// Verifier for `tree_update_batch.circom` (MAX_L = `PubInputs.MAX_L_BATCH`).
-    /// Used by `flushBatch`, which carries a lone tree-update proof; a spend's
-    /// tree-update proof is checked by `SPEND_VERIFIER`. "Batch" denotes a batch
-    /// of leaves, not a batched pairing.
-    IVerifier public TREE_UPDATE_BATCH_VERIFIER;
-
-    /// Checks the `(4x6, tree_update_batch)` proof pair a spend carries in one
-    /// BN254 pairing call. Argument order is significant: transact first,
-    /// tree-update second. This is the whole of a spend's proof check; the pool
-    /// holds no standalone `4x6` verifier, and a rejection is not attributable
-    /// to either proof on-chain.
-    IBatchVerifier public SPEND_VERIFIER;
 
     /// Width of the per-token fee accumulators in `flushBatch`: one slot per
     /// deposit, since a batch drains at most `MAX_L_BATCH / LEAVES_PER_DEPOSIT`
@@ -230,9 +219,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     error BatchMisaligned();
     error TreeFull();
     // --- registry / proof verification ---------------------------------------
-    error ZeroVerifier();
     /// `spendVerifier_` has code but does not answer `verifyBatch`.
-    error BadSpendVerifier();
     error ZeroPermit2();
     error ProofRejected();
     error TreeUpdateRejected();
@@ -304,14 +291,13 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     ) external initializer {
         _initOwner(owner_);
         _initCommitmentTree();
-        if (address(treeUpdateBatchVerifier_).code.length == 0) revert ZeroVerifier();
-        if (address(spendVerifier_).code.length == 0) revert ZeroVerifier();
-        _probeSpendVerifier(spendVerifier_);
+        VerifierStorage.validatePair(address(treeUpdateBatchVerifier_), address(spendVerifier_));
         if (address(permit2_).code.length == 0) revert ZeroPermit2();
         // Deploy-time guard for the duplicated batch width; see FEE_ACC_SLOTS.
         if (FEE_ACC_SLOTS * PubInputs.LEAVES_PER_DEPOSIT != PubInputs.MAX_L_BATCH) revert BadBatchSize();
-        TREE_UPDATE_BATCH_VERIFIER = treeUpdateBatchVerifier_;
-        SPEND_VERIFIER = spendVerifier_;
+        VerifierStorage.Layout storage v = VerifierStorage.$();
+        v.treeUpdateBatchVerifier = address(treeUpdateBatchVerifier_);
+        v.spendVerifier = address(spendVerifier_);
         PERMIT2 = permit2_;
         _initTreasury(treasury_);
         _writeAssets(ids, tokens, scales, depositBps, withdrawBps);
@@ -359,6 +345,30 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     function _applyCancelDelay(uint32 newDelay) private {
         emit CancelDelayUpdated(cancelDelay, newDelay);
         cancelDelay = newDelay;
+    }
+
+    /// Verifier for `tree_update_batch.circom` (MAX_L = `PubInputs.MAX_L_BATCH`).
+    /// Used by `flushBatch`, which carries a lone tree-update proof; a spend's
+    /// tree-update proof is checked by `SPEND_VERIFIER`. "Batch" denotes a batch
+    /// of leaves, not a batched pairing.
+    ///
+    /// Held in `VerifierStorage`, not in the pool's sequential layout: the
+    /// proxy installs a replacement and would otherwise need a copy of that
+    /// layout to do it. Declared explicitly rather than as a public variable so
+    /// the accessor name, which `IMASPPool` and the SDK read, is unchanged.
+    function TREE_UPDATE_BATCH_VERIFIER() external view returns (IVerifier) {
+        return VerifierStorage.treeUpdateBatchVerifier();
+    }
+
+    /// Checks the `(4x6, tree_update_batch)` proof pair a spend carries in one
+    /// BN254 pairing call. Argument order is significant: transact first,
+    /// tree-update second. This is the whole of a spend's proof check; the pool
+    /// holds no standalone `4x6` verifier, and a rejection is not attributable
+    /// to either proof on-chain.
+    ///
+    /// Held in `VerifierStorage`; see `TREE_UPDATE_BATCH_VERIFIER`.
+    function SPEND_VERIFIER() external view returns (IBatchVerifier) {
+        return VerifierStorage.spendVerifier();
     }
 
     /// The rates `id` charges on each leg. Reverts `UnknownAsset` for an
@@ -734,7 +744,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
 
         // Phase 3: verify the batch SNARK and advance the tree by
         // `n * LEAVES_PER_DEPOSIT` leaves.
-        if (!TREE_UPDATE_BATCH_VERIFIER.verifyProof(tp.a, tp.b, tp.c, tpi.compress())) {
+        if (!VerifierStorage.treeUpdateBatchVerifier().verifyProof(tp.a, tp.b, tp.c, tpi.compress())) {
             revert TreeUpdateRejected();
         }
         unchecked {
@@ -1097,23 +1107,6 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         if (uint256(cc) + TRANSACT_OUT_LEAVES > MAX_LEAVES) revert TreeFull();
     }
 
-    /// Reverts unless `bv` answers `verifyBatch`. `SPEND_VERIFIER` has no
-    /// setter, so a wrong address would make every spend revert with nothing
-    /// identifying the cause. The return value is ignored: the probe establishes
-    /// the interface, not a verdict.
-    function _probeSpendVerifier(IBatchVerifier bv) private view {
-        // Zero-valued probe arguments; memory is already zeroed.
-        // slither-disable-next-line uninitialized-local
-        uint256[2] memory g1;
-        // slither-disable-next-line uninitialized-local
-        uint256[2][2] memory g2;
-        // slither-disable-next-line unused-return
-        try bv.verifyBatch(g1, g2, g1, g1, g1, g2, g1, g1) returns (bool) { }
-        catch {
-            revert BadSpendVerifier();
-        }
-    }
-
     /// Verifies both Groth16 proofs (`4x6` and `tree_update_batch`) in a single
     /// pairing check. Public inputs are Fiat-Shamir-compressed to `(y, z)`
     /// beforehand.
@@ -1134,11 +1127,11 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         AuxValidation.Output[6] calldata aux,
         bytes32 oldRoot
     ) private view {
-        if (!SPEND_VERIFIER.verifyBatch(
+        bool ok = VerifierStorage.spendVerifier()
+            .verifyBatch(
                 p.a, p.b, p.c, PubInputs.compress(pi, aux), tp.a, tp.b, tp.c, PubInputs.compressSpend(pi, tpi, oldRoot)
-            )) {
-            revert ProofRejected();
-        }
+            );
+        if (!ok) revert ProofRejected();
     }
 
     /// Emits `NotePayload` for each output of a spend. `AssetMoved` is left to

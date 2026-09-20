@@ -81,8 +81,8 @@ flowchart LR
 classDiagram
   class MASP {
     +mapping escrowed
-    +IVerifier TREE_UPDATE_BATCH_VERIFIER
-    +IBatchVerifier SPEND_VERIFIER
+    +TREE_UPDATE_BATCH_VERIFIER()
+    +SPEND_VERIFIER()
     +deposit()
     +depositAuthorized()
     +flushBatch()
@@ -207,7 +207,8 @@ classDiagram
 | [MASP.sol](MASP.sol) | Pool entry points, escrow ledger, proof cross-binding, token movement. Deployed behind [DelayedUpgradeProxy](DelayedUpgradeProxy.sol); its constructor calls `_disableInitializers()`, so setup runs in `initialize`. |
 | [DelayedUpgradeProxy.sol](DelayedUpgradeProxy.sol) | The pool's proxy. A queued upgrade activates only after `UPGRADE_DELAY`, which is immutable; the current implementation serves throughout. A pause defers activation by its own duration. |
 | [UpgradeStorage.sol](UpgradeStorage.sol) | Exit-window state at a fixed ERC-7201 slot, written by the proxy and read by the pool under `delegatecall`. One slot. |
-| [OwnableInit.sol](OwnableInit.sol) | Initializer-assigned ownership. `renounceOwnership` is not declared; `transferOwnership` is owner-gated and used by `ProtocolAdmin.migrateAdmin`. |
+| [VerifierStorage.sol](VerifierStorage.sol) | The live verifier pair and any queued replacement, at a fixed ERC-7201 slot. Written by the proxy and read by the pool, like `UpgradeStorage`, so a swap needs no copy of the pool's sequential layout. Four slots. |
+| [OwnableInit.sol](OwnableInit.sol) | Initializer-assigned ownership. `renounceOwnership` is not declared, so the pool cannot be left ownerless; `transferOwnership` is owner-gated. |
 | [CommitmentTree.sol](CommitmentTree.sol) | Lazy-root quaternary tree and 64-slot known-root ring buffer. Genesis root seeded from an initializer. |
 | [NullifierSet.sol](NullifierSet.sol) | Packed-bitmap spent-nullifier set. |
 | [AssetRegistry.sol](AssetRegistry.sol) | Owner-managed `assetId → (ERC-20, scale)` mapping. |
@@ -225,12 +226,11 @@ classDiagram
 | [verifiers/TreeUpdateBatchVerifier.sol](verifiers/TreeUpdateBatchVerifier.sol) | snarkJS codegen for `tree_update_batch` (`TreeUpdateBatchGroth16Verifier`). |
 | [verifiers/VerifyingKeys.sol](verifiers/VerifyingKeys.sol) | The thirty verifying-key constants, lifted verbatim from the two codegen files, plus the `BATCH_DOMAIN` transcript separator. |
 | [verifiers/BatchedGroth16Verifier.sol](verifiers/BatchedGroth16Verifier.sol) | Hand-written assembly verifying both spend proofs in one pairing call. |
-| [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both adapters call, pinned to `MASP`'s selectors by `IMASPPool.t.sol` — and `IProtocolAdmin`, the admin surfaces `ProtocolAdmin` drives. |
+| [interfaces/](interfaces/) | `IVerifier`, `IBatchVerifier`, `IWrappedNative`, `IMASPPool` — the pool surface both adapters call, pinned to `MASP`'s selectors by `IMASPPool.t.sol`. |
 | [MaspEscrowSatellite.sol](MaspEscrowSatellite.sol) | Abstract base for peripherals that escrow as their own `payer`: Permit2 arming, balance-delta escrow measurement, escrow record, cancel-and-verify. |
 | [native/](native/) | `NativeAdapter`: wraps native coin into the deposit path and unwraps it out of the withdraw path. The pool itself is ERC-20 only. |
 | [governance/LelantosToken.sol](governance/LelantosToken.sol) | Governance token: `ERC20` + `Burnable` + `Permit` + `Votes`. Fixed supply minted once; no mint function and no owner. Timestamp clock (ERC-6372). |
 | [governance/LelantosGovernor.sol](governance/LelantosGovernor.sol) | OZ `Governor` executing through a `TimelockController`. Inherits the token's clock through `GovernorVotes`. For and Abstain, the votes counted toward quorum, close `quorumVoteCutoff` seconds before the deadline; Against stays open to it. |
-| [governance/ProtocolAdmin.sol](governance/ProtocolAdmin.sol) | Owner of `MASP` and `SwapWrapper`. The Timelock reaches everything through `execute`, which rejects both ownership selectors; the guardian holds four one-way switches. `migrateAdmin` is the only ownership exit. |
 | [burn/FeeBurner.sol](burn/FeeBurner.sol) | The pool's `treasury`. Auctions accrued fee tokens for the governance token and burns the proceeds. Prices from stored state and `block.timestamp` only. |
 | [swap/](swap/) | Atomic unshield → swap → re-shield wrapper, plus the Uniswap v3 and v4 adapters. |
 | [generic/](generic/) | `GenericCallWrapper`: atomic unshield → arbitrary calls → re-shield into up to four notes, the calls run in a fresh `CallExecutor` clone. |
@@ -656,7 +656,9 @@ Registration verifies the binding on-chain rather than trusting a deploy config:
 
 ### Authority chain
 
-`LelantosToken` → `LelantosGovernor` → `TimelockController` → `ProtocolAdmin` → `MASP` and `SwapWrapper`.
+`LelantosToken` → `LelantosGovernor` → `TimelockController` → `MASP` and `SwapWrapper`.
+
+The Timelock owns `MASP` and `SwapWrapper` and is the pool's proxy admin. Nothing is interposed, so every administrative call is a proposal that has passed a vote and served the delay.
 
 `LelantosToken` is a fixed-supply `ERC20Votes` minted once in its constructor. It declares no owner, minter or pauser, so supply is monotonically non-increasing and `INITIAL_SUPPLY - totalSupply()` is the cumulative burn. It uses a timestamp clock (ERC-6372); `LelantosGovernor` does not restate its own clock, reading it from the token through `GovernorVotes` so the two cannot diverge.
 
@@ -666,21 +668,21 @@ Vote weight is read at `proposalSnapshot`, and the proposal threshold at `clock(
 
 The voting window is asymmetric. For and Abstain, the two vote types counted toward quorum, close `quorumVoteCutoff` seconds before `proposalDeadline` (`QuorumVotingClosed`); Against stays open until the deadline. A For or Abstain vote cast at the last moment could otherwise carry a proposal past the For/Against comparison or past quorum with no time left to answer it, whereas a late Against can only defeat. The cutoff is set in the constructor (1 day on mainnet), changed only by proposal through `setQuorumVoteCutoff`, and must stay below `votingPeriod`; `setVotingPeriod` enforces the same bound. Each proposal stores its own `proposalQuorumVoteDeadline` at propose time and emits `ProposalQuorumVoteDeadline` right after `ProposalCreated`, so a cutoff change never reschedules a proposal already open.
 
-### ProtocolAdmin
+### Administrative authority
 
-| Function | Caller | Effect |
+Every owner-gated call on `MASP` and `SwapWrapper`, and every proxy-admin call on `DelayedUpgradeProxy`, is made by the Timelock and so reaches the contract only after a passed vote and the full `minDelay`. There is no interposed admin and no role that can act sooner:
+
+| Surface | Reached by | Examples |
 | --- | --- | --- |
-| `execute(target, data)` | Timelock | Arbitrary call as owner of `POOL` or `WRAPPER`, and as the pool's proxy admin. Rejects both `Ownable` ownership selectors, `changeProxyAdmin`, and self-calls. |
-| `migrateAdmin(newAdmin)` | Timelock | The only route by which ownership and the proxy admin leave this contract. Moves pool ownership, wrapper ownership and the pool's proxy admin together; reverts `ProxyAdminNotHeld` unless this contract holds the proxy admin. |
-| `pauseSpends(d)` | guardian | Proxy `pauseSpends(d)`: one-shot until governance calls `resetGuardianPause` through `execute`. |
-| `disableAsset(id)` | guardian | `setAssetDisabled(id, true)` |
-| `haltYield(id)` | guardian | `setHalted(id, true)` |
-| `emergencyUnwind(id)` | guardian | Withdraws the venue position to idle |
-| `disallowAdapter(a)` | guardian | `setAdapterAllowed(a, false)` |
+| `MASP` `onlyOwner` | Timelock, by proposal | `addAsset`, `addYieldAsset`, `setAssetFee`, `setAssetDisabled`, `setYieldParams`, `setHalted`, `emergencyUnwind`, `setCancelDelay`, `setTreasury` |
+| `SwapWrapper` `onlyOwner` | Timelock, by proposal | `setAdapterAllowed`, `setTreasury` |
+| `DelayedUpgradeProxy` `onlyAdmin` | Timelock, by proposal | `queueUpgrade`, `cancelUpgrade`, `pauseSpends`, `changeProxyAdmin` |
 
-Each guardian function fixes its argument in bytecode, so the role can only reduce protocol capability; re-enabling requires a proposal. `POOL` and `WRAPPER` are immutable, so a compromised proposal cannot re-point this contract while keeping its role table.
+The consequence is deliberate and worth stating plainly: **there is no emergency response inside the delay.** Disabling an asset, halting a yield binding, unwinding a venue position, revoking a swap adapter and pausing spends all take a full proposal cycle — `votingDelay + votingPeriod + minDelay`.
 
-`migrateAdmin` checks that the successor has code, reports the same `POOL` and `WRAPPER`, and is administered by the calling Timelock. These reject misconfiguration, not a hostile successor, which controls its own getters; the timelock delay and the guardian's `CANCELLER_ROLE` bound that case. Migrating to a new Timelock therefore requires the current one to hold `DEFAULT_ADMIN_ROLE` on the successor at the time of the call.
+The one in-delay power is negative. A guardian holding `CANCELLER_ROLE` on the Timelock may cancel a queued operation; it cannot propose, execute, or call anything on the pool. Governance may grant, revoke or rotate that role by proposal, and a deployment may run with no guardian at all (`guardian: 0x0` in the config).
+
+Correspondingly, little constrains what a passed proposal may do. It can move the ownership of either owned contract, or the proxy admin, to an address that cannot administer it, or set any parameter to any value the target itself accepts — each irreversible. The proposal threshold, the vote, the delay and the guardian's veto are the whole of the protection. The exception is `OwnableInit`, which both owned contracts use and which never declares `renounceOwnership`: neither can be left with no owner.
 
 ### The exit window
 
@@ -691,13 +693,16 @@ Each guardian function fixes its argument in bytecode, so the role can only redu
 | `queueUpgrade(impl)` | proxy admin | Sets `pendingImplementation` and `activationAt`. One at a time. |
 | `cancelUpgrade()` | proxy admin | Clears the queue. |
 | `activateUpgrade()` | **anyone** | Promotes the queued implementation once `activationAt` has passed. |
-| `pauseSpends(d)` | proxy admin | Halts proof-dependent entry points for `d` and defers `activationAt` by `d`. |
-| `resetGuardianPause()` | proxy admin | Re-arms the one-shot pause. |
-| `changeProxyAdmin(a)` | proxy admin | Hands administration over. Required because `ProtocolAdmin` holds the pool address as an immutable and cannot precede the proxy. |
+| `pauseSpends(d)` | proxy admin | Halts proof-dependent entry points for `d` and defers `activationAt` by `d`. Repeatable: `MAX_PAUSE` bounds one call, not the sequence, and each call is a proposal. |
+| `changeProxyAdmin(a)` | proxy admin | Hands administration over. Required because the proxy needs an admin at construction, before governance exists; `HandoverOwnership.s.sol` moves it to the Timelock. |
+| `queueVerifierUpdate(t, s)` | proxy admin | Queues a replacement verifier pair and sets its `notBefore`. One at a time. |
+| `cancelVerifierUpdate()` | proxy admin | Clears the queued pair. |
+| `commitVerifierUpdate()` | **anyone** | Promotes the queued pair once `notBefore` has passed. |
 
-Two rules keep the window meaningful:
+Three rules keep the window meaningful:
 
 - **A pause cannot consume it.** `pauseSpends` defers a pending `activationAt` by exactly its duration, and `queueUpgrade` starts the window at `max(now, pausedUntil)`, so a pause issued before the queue (or running across a cancel and re-queue) is not spent inside it either. The window measures unpaused time in every ordering, and the constructor requires `MAX_PAUSE < UPGRADE_DELAY`. `cancelDeposit` and `sweep` remain open while paused, keeping escrowed funds recoverable.
+- **A verifier cannot be swapped without the same notice.** The verifiers decide what the pool accepts as a valid proof, so replacing them is the same power as replacing the implementation: either can make the pool honour notes that were never legitimately created. A swap therefore takes the same route and the same window — `queueVerifierUpdate` sets `notBefore` to `max(now, pausedUntil) + UPGRADE_DELAY`, `pauseSpends` defers it by the pause duration, and `commitVerifierUpdate` is permissionless once it has run. Matching `UPGRADE_DELAY` is deliberate: governance can already change what the pool accepts by upgrading the implementation, so a shorter window would be a route around the guarantee this proxy exists to provide, and a longer one would buy nothing governance could not undo by upgrading instead. Both verifiers move in one queue, because `BatchedGroth16Verifier` embeds the verifying keys of `4x6` and `tree_update_batch` while `TreeUpdateBatchVerifier` embeds the second of those; replacing them separately would leave a window in which a `tree_update_batch` proof is accepted on the spend path and rejected on the flush path. The pool exposes no setter of its own, so the proxy is the only way in.
 - **The exit terms cannot be raised without notice.** Three owner-set terms decide what leaving costs a holder already in the pool, and all three are read live: `withdrawBps` (read at spend), `perfBps` (charged on growth while the holder stays) and `cancelDelay` (read by every escrow in flight). A setter call at or below the live value applies at once and drops any queued raise. A higher value is queued in `ExitTerms`, a namespaced ERC-7201 slot, and applies only through the permissionless `commitExitTerms(id)` once `ExitTerms.DELAY` (30 days) has passed **and** a full `DELAY` has passed since the latest pause ended, so paused time never counts as notice. Re-sending the queued value keeps its timer; any other higher value restarts it. The delay is measured from the raise, not from any upgrade, so no call order helps: a proposal that raises a term and then queues an upgrade, or cancels, raises and re-queues, still leaves the whole window at the old terms, because `Deploy.s.sol` requires `UPGRADE_DELAY <= ExitTerms.DELAY`. The deposit leg and the buffer apply at once: the deposit rate is snapshotted into the escrow digest at submit, and the buffer changes no claim.
 
 | Term | Setter | Applied immediately | Queued | Event on apply | Event on queue / clear / commit |

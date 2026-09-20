@@ -72,9 +72,9 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         assertEq(masp.owner(), poolOwner);
     }
 
-    /// `transferOwnership` is declared for `ProtocolAdmin.migrateAdmin` and the
-    /// deploy handover. Only the owner may call it, and that owner is
-    /// `ProtocolAdmin`, whose `execute` rejects the selector.
+    /// `transferOwnership` is declared for the deploy handover. Only the owner
+    /// may call it, and after handover that owner is the Timelock, so a move is
+    /// a governance proposal.
     function test_transferOwnershipIsOwnerGatedAndRejectsZero() public {
         vm.prank(makeAddr("stranger"));
         vm.expectRevert();

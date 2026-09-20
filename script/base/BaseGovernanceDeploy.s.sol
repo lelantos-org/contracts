@@ -8,7 +8,6 @@ import { IVotes } from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
 import { LelantosToken } from "../../src/governance/LelantosToken.sol";
 import { LelantosGovernor } from "../../src/governance/LelantosGovernor.sol";
-import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 import { FeeBurner } from "../../src/burn/FeeBurner.sol";
 
 /// Shared governance-stack deploy and KV logging, mirroring `BaseDeploy` and
@@ -31,7 +30,9 @@ abstract contract BaseGovernanceDeploy is Script {
         uint32 quorumVoteCutoff;
         uint256 proposalThreshold;
         uint256 quorumNumerator;
-        /// Optional. Zero deploys the no-guardian variant.
+        /// Optional. Zero deploys without a canceller guardian. The guardian
+        /// holds `CANCELLER_ROLE` on the Timelock only: it may veto a queued
+        /// proposal within the delay, never act on the pool.
         address guardian;
         address masp;
         address swapWrapper;
@@ -47,7 +48,6 @@ abstract contract BaseGovernanceDeploy is Script {
         TimelockController timelock;
         LelantosGovernor governor;
         FeeBurner burner;
-        ProtocolAdmin admin;
     }
 
     function _requireCode(address a, string memory label) internal view {
@@ -103,8 +103,6 @@ abstract contract BaseGovernanceDeploy is Script {
             p.secondaryTreasury
         );
 
-        s.admin = new ProtocolAdmin(p.masp, p.swapWrapper, address(s.timelock), p.guardian);
-
         _assertRoles(s, p, deployer);
 
         // Last step: every step above is recoverable; this one is not.
@@ -120,11 +118,10 @@ abstract contract BaseGovernanceDeploy is Script {
         require(s.timelock.hasRole(s.timelock.DEFAULT_ADMIN_ROLE(), address(s.timelock)), "timelock not self-admin");
         require(!s.timelock.hasRole(s.timelock.PROPOSER_ROLE(), deployer), "deployer can propose");
         require(s.burner.owner() == address(s.timelock), "burner not owned by timelock");
-        require(s.admin.hasRole(s.admin.DEFAULT_ADMIN_ROLE(), address(s.timelock)), "admin not governed");
         require(address(s.governor.token()) == address(s.token), "governor token mismatch");
         if (p.guardian != address(0)) {
-            require(s.admin.hasRole(s.admin.GUARDIAN_ROLE(), p.guardian), "guardian not set");
-            require(!s.admin.hasRole(s.admin.DEFAULT_ADMIN_ROLE(), p.guardian), "guardian over-privileged");
+            require(s.timelock.hasRole(s.timelock.CANCELLER_ROLE(), p.guardian), "guardian not canceller");
+            require(!s.timelock.hasRole(s.timelock.PROPOSER_ROLE(), p.guardian), "guardian over-privileged");
         }
     }
 
@@ -136,6 +133,5 @@ abstract contract BaseGovernanceDeploy is Script {
         console2.log(string.concat("TIMELOCK=", vm.toString(address(s.timelock))));
         console2.log(string.concat("GOVERNOR=", vm.toString(address(s.governor))));
         console2.log(string.concat("FEE_BURNER=", vm.toString(address(s.burner))));
-        console2.log(string.concat("PROTOCOL_ADMIN=", vm.toString(address(s.admin))));
     }
 }

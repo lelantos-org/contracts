@@ -102,6 +102,13 @@ as mutation bases. That is the whole return on running both, and it only holds
 while the corpus survives between runs — see the cache note in the `echidna`
 job in [`.github/workflows/fuzz.yml`](../../.github/workflows/fuzz.yml).
 
+Compounding also costs time: replaying a larger corpus makes the same test
+limit take longer every night, which is why that job runs one matrix leg per
+target with its own cache entry, and why `echidna.yaml` sets a `timeout` that
+bounds a campaign in wall-clock as well as in sequences. A campaign stopped by
+that timeout still writes its corpus and still reports its properties, so the
+next night resumes from it.
+
 Optimization mode is the second thing Foundry has no equivalent of.
 `just echidna-optimize` maximises a value rather than asserting it, which
 answers "how far can solvency drift" instead of "does it ever break" — the
@@ -266,7 +273,7 @@ confused with an unreachable one.
 
 ```sh
 just echidna              # both targets, property mode, 50k tests each
-just echidna 400000       # roughly what CI runs nightly
+just echidna 400000       # roughly what CI runs nightly (capped at `timeout`)
 just echidna-optimize     # both targets, optimization mode; reports, does not gate
 ```
 

@@ -7,11 +7,11 @@ pragma solidity 0.8.36;
 /// run for a proxy: it would write the implementation's storage and leave the
 /// proxy unowned. The owner is assigned from an initializer instead.
 ///
-/// `renounceOwnership` is not declared, so ownership cannot be dropped.
-/// `transferOwnership` is declared because `ProtocolAdmin.migrateAdmin` calls it
-/// and the deploy uses it to hand the pool to governance; once `ProtocolAdmin`
-/// holds ownership its `execute` rejects that selector, leaving `migrateAdmin`
-/// as the only route.
+/// `renounceOwnership` is not declared, so ownership cannot be dropped — the
+/// one bound on the owner that a governance proposal cannot lift.
+/// `transferOwnership` is declared because the deploy uses it to hand each
+/// contract to the Timelock; a later proposal can move it again, and nothing
+/// refuses a destination that cannot administer it.
 ///
 /// `_owner` occupies a sequential slot, matching the position OZ's `Ownable`
 /// takes in the inheritance chain.

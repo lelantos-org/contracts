@@ -216,26 +216,22 @@ contract DelayedUpgradeProxyTest is Test {
         assertEq(pool.version(), 2);
     }
 
-    /// The guardian cannot chain pauses into an indefinite freeze.
-    function test_guardianPauseIsOneShot() public {
+    /// Pauses chain: `MAX_PAUSE` bounds one call, not the sequence. The admin
+    /// is the governance Timelock, so each link costs a full proposal cycle,
+    /// and that cost is the only bound on how long spends stay closed.
+    function test_pausesChainAndEachDefersActivation() public {
         vm.prank(admin);
-        proxy.pauseSpends(1 days);
-        assertTrue(proxy.guardianPauseUsed());
+        proxy.queueUpgrade(address(v2));
+        (, uint256 queuedAt) = proxy.pendingUpgrade();
 
-        vm.prank(admin);
-        vm.expectRevert(DelayedUpgradeProxy.GuardianPauseAlreadyUsed.selector);
+        vm.startPrank(admin);
         proxy.pauseSpends(1 days);
-    }
+        proxy.pauseSpends(2 days);
+        vm.stopPrank();
 
-    function test_governanceCanReArmThePause() public {
-        vm.prank(admin);
-        proxy.pauseSpends(1 days);
-        vm.prank(admin);
-        proxy.resetGuardianPause();
-        assertFalse(proxy.guardianPauseUsed());
-
-        vm.prank(admin);
-        proxy.pauseSpends(1 days);
+        (, uint256 activationAt) = proxy.pendingUpgrade();
+        assertEq(activationAt, queuedAt + 3 days, "each pause deferred the window by its own duration");
+        assertEq(proxy.spendsPausedUntil(), block.timestamp + 2 days, "the later pause sets the deadline");
     }
 
     function test_pauseIsBounded() public {
@@ -351,8 +347,6 @@ contract DelayedUpgradeProxyTest is Test {
         proxy.cancelUpgrade();
         vm.expectRevert(DelayedUpgradeProxy.NotProxyAdmin.selector);
         proxy.pauseSpends(1 days);
-        vm.expectRevert(DelayedUpgradeProxy.NotProxyAdmin.selector);
-        proxy.resetGuardianPause();
         vm.stopPrank();
     }
 
@@ -362,8 +356,8 @@ contract DelayedUpgradeProxyTest is Test {
         proxy.queueUpgrade(makeAddr("notAContract"));
     }
 
-    /// `ProtocolAdmin` holds the pool as an immutable and cannot precede the
-    /// proxy, so administration is handed over after deployment.
+    /// The proxy requires an admin at construction, before governance exists,
+    /// so administration is handed over after deployment.
     function test_adminCanHandOverAdministration() public {
         address governance = makeAddr("governance");
 
@@ -448,26 +442,39 @@ contract DelayedUpgradeProxyTest is Test {
     /// Reserved selectors never reach the implementation, so a collision would
     /// make a pool function permanently unreachable.
     function test_reservedSelectorsDoNotCollideWithTheImplementation() public pure {
-        bytes4[10] memory reserved = [
+        bytes4[16] memory reserved = [
             DelayedUpgradeProxy.changeProxyAdmin.selector,
             DelayedUpgradeProxy.queueUpgrade.selector,
             DelayedUpgradeProxy.cancelUpgrade.selector,
             DelayedUpgradeProxy.activateUpgrade.selector,
             DelayedUpgradeProxy.pauseSpends.selector,
-            DelayedUpgradeProxy.resetGuardianPause.selector,
+            DelayedUpgradeProxy.queueVerifierUpdate.selector,
+            DelayedUpgradeProxy.cancelVerifierUpdate.selector,
+            DelayedUpgradeProxy.commitVerifierUpdate.selector,
             DelayedUpgradeProxy.implementation.selector,
             DelayedUpgradeProxy.proxyAdmin.selector,
             DelayedUpgradeProxy.pendingUpgrade.selector,
-            DelayedUpgradeProxy.spendsPausedUntil.selector
+            DelayedUpgradeProxy.spendsPausedUntil.selector,
+            DelayedUpgradeProxy.verifiers.selector,
+            DelayedUpgradeProxy.pendingVerifierUpdate.selector,
+            // Public immutables have no `.selector`; derive them. They were
+            // missing from this list before the verifier selectors were added.
+            bytes4(keccak256("UPGRADE_DELAY()")),
+            bytes4(keccak256("MAX_PAUSE()"))
         ];
-        bytes4[6] memory implSelectors = [
+        // The real pool's selectors, not just the mock's: the verifier
+        // accessors are the ones this proxy's new reserved selectors could
+        // plausibly shadow, and `MASP` is the implementation that matters.
+        bytes4[8] memory implSelectors = [
             MockPoolV1.initialize.selector,
             MockPoolV1.version.selector,
             MockPoolV1.deposit.selector,
             MockPoolV1.withdraw.selector,
             // Public getters have no `.selector`; derive them.
             bytes4(keccak256("balanceOf(address)")),
-            bytes4(keccak256("totalDeposited()"))
+            bytes4(keccak256("totalDeposited()")),
+            bytes4(keccak256("TREE_UPDATE_BATCH_VERIFIER()")),
+            bytes4(keccak256("SPEND_VERIFIER()"))
         ];
         for (uint256 i = 0; i < reserved.length; ++i) {
             for (uint256 j = 0; j < implSelectors.length; ++j) {

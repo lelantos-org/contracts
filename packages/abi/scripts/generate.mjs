@@ -42,7 +42,6 @@ const CONTRACTS = [
     { source: "src/OwnableInit.sol", contract: "OwnableInit", export: "ownableInitAbi" },
     { source: "src/governance/LelantosToken.sol", contract: "LelantosToken", export: "lelantosTokenAbi" },
     { source: "src/governance/LelantosGovernor.sol", contract: "LelantosGovernor", export: "lelantosGovernorAbi" },
-    { source: "src/governance/ProtocolAdmin.sol", contract: "ProtocolAdmin", export: "protocolAdminAbi" },
     { source: "src/burn/FeeBurner.sol", contract: "FeeBurner", export: "feeBurnerAbi" },
     { source: "src/yield/YieldIndex.sol", contract: "YieldIndex", export: "yieldIndexAbi" },
     { source: "src/yield/YieldOps.sol", contract: "YieldOps", export: "yieldOpsAbi" },
@@ -82,12 +81,10 @@ const CONTRACTS = [
  */
 const EXCLUDED = new Map([
     ["src/UpgradeStorage.sol:UpgradeStorage", "internal-only library; empty ABI"],
+    ["src/VerifierStorage.sol:VerifierStorage", "internal-only library; empty ABI"],
     ["src/SnarkCompression.sol:SnarkCompression", "proof plumbing; not a consumer surface"],
     ["src/libs/AuxValidation.sol:AuxValidation", "proof plumbing; not a consumer surface"],
     ["src/burn/FeeBurner.sol:IFeeSweeper", "helper interface declared alongside its consumer"],
-    ["src/interfaces/IProtocolAdmin.sol:IProtocolAdmin", "admin plumbing; not a consumer surface"],
-    ["src/interfaces/IProtocolAdmin.sol:IPoolAdmin", "admin plumbing; not a consumer surface"],
-    ["src/interfaces/IProtocolAdmin.sol:IWrapperAdmin", "admin plumbing; not a consumer surface"],
     ["src/swap/UniV3Adapter.sol:ISwapRouter02", "external router surface, transcribed locally"],
     ["src/swap/UniV4Adapter.sol:IUniversalRouter", "external router surface, transcribed locally"],
     ["src/yield/YieldOps.sol:IERC4626Asset", "helper interface declared alongside its consumer"],
@@ -98,7 +95,6 @@ const EXCLUDED = new Map([
     ["src/bundler/Bundler.sol:Bundler", "provisional: publication not yet decided"],
     ["src/bundler/Bundler.sol:IBundlerDeployer", "provisional: publication not yet decided"],
     ["src/bundler/BundlerFactory.sol:BundlerFactory", "provisional: publication not yet decided"],
-    ["src/interfaces/IProtocolAdmin.sol:IUpgradeProxyAdmin", "provisional: likely admin plumbing, like its siblings"],
     ["src/libs/ExitTerms.sol:ExitTerms", "provisional: its event and errors already surface in maspAbi"],
 ]);
 

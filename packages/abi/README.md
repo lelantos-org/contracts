@@ -69,7 +69,6 @@ import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json"
 | `ownableInitAbi` | `src/OwnableInit.sol:OwnableInit` |
 | `lelantosTokenAbi` | `src/governance/LelantosToken.sol:LelantosToken` |
 | `lelantosGovernorAbi` | `src/governance/LelantosGovernor.sol:LelantosGovernor` |
-| `protocolAdminAbi` | `src/governance/ProtocolAdmin.sol:ProtocolAdmin` |
 | `feeBurnerAbi` | `src/burn/FeeBurner.sol:FeeBurner` |
 | `yieldIndexAbi` | `src/yield/YieldIndex.sol:YieldIndex` |
 | `yieldOpsAbi` | `src/yield/YieldOps.sol:YieldOps` |

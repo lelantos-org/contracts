@@ -549,9 +549,9 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
     // on or settling obligations without trapping funds already in escrow.
     // -----------------------------------------------------------------------
 
-    /// Trip the guardian pause. Reachable once: the proxy sets
-    /// `guardianPauseUsed` and refuses a second pause until governance clears
-    /// it.
+    /// Trip the pause. The proxy itself allows repeats; this handler takes one
+    /// per sequence (`pausedUntil != 0` returns early) so a live pause is never
+    /// extended mid-sequence and the window below stays the one it sized.
     ///
     /// The duration (60_000s to 199_999s) is sized against `maxTimeDelay`
     /// (15_000s) in `echidna.yaml`: the pause spans several calls, so a block

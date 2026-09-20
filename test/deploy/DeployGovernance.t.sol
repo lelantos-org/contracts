@@ -113,10 +113,6 @@ contract DeployGovernanceTest is Test {
         assertEq(address(s.burner.GOV()), address(s.token), "burner points at the gov token");
         assertEq(address(s.governor.token()), address(s.token), "governor token");
         assertEq(s.governor.timelock(), address(s.timelock), "governor timelock");
-        assertTrue(s.admin.hasRole(s.admin.DEFAULT_ADMIN_ROLE(), address(s.timelock)), "admin governed");
-        assertTrue(s.admin.hasRole(s.admin.GUARDIAN_ROLE(), guardian));
-        assertEq(s.admin.POOL(), address(masp));
-        assertEq(s.admin.WRAPPER(), address(wrapper));
     }
 
     function test_tokenSupplyGoesEntirelyToTheRecipient() public {

@@ -207,8 +207,8 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
     }
 
     /// A pause is accepted for exactly the permitted durations: non-zero and
-    /// within the immutable ceiling, which bounds how long the guardian can hold
-    /// spends closed.
+    /// within the immutable ceiling, which bounds how long a single pause can
+    /// hold spends closed.
     function check_pauseSpends_acceptsExactlyPermittedDurations(uint256 duration) public {
         vm.prank(ADMIN);
         (bool ok,) = address(proxy).call(abi.encodeCall(DelayedUpgradeProxy.pauseSpends, (duration)));
@@ -216,25 +216,30 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
         assertEq(ok, duration > 0 && duration <= MAX_PAUSE);
     }
 
-    /// The guardian's pause is one-shot: a second pause is refused until
-    /// governance clears the flag, so pauses cannot be chained into an
-    /// indefinite halt.
-    function check_guardianPauseIsOneShotUntilReset(uint40 first, uint40 second) public {
+    /// Pauses are repeatable, and each one defers a pending activation by its
+    /// own duration. `MAX_PAUSE` bounds a single call, not the sequence, so the
+    /// window arithmetic has to hold for the second pause exactly as for the
+    /// first; only the admin's own cost — a governance proposal each — bounds
+    /// how long spends stay closed.
+    function check_pausesChainAndEachDefersTheWindow(uint40 first, uint40 second) public {
         vm.assume(first > 0 && uint256(first) <= MAX_PAUSE);
         vm.assume(second > 0 && uint256(second) <= MAX_PAUSE);
 
+        _queue();
+        (, uint256 queuedAt) = proxy.pendingUpgrade();
+
         vm.startPrank(ADMIN);
         proxy.pauseSpends(first);
-
-        (bool again, bytes memory ret) = address(proxy).call(abi.encodeCall(DelayedUpgradeProxy.pauseSpends, (second)));
-        _assertRejected(again, ret, DelayedUpgradeProxy.GuardianPauseAlreadyUsed.selector, "second pause refused");
-
-        // Clearing the flag re-arms the guardian pause.
-        proxy.resetGuardianPause();
-        (bool afterReset,) = address(proxy).call(abi.encodeCall(DelayedUpgradeProxy.pauseSpends, (second)));
+        proxy.pauseSpends(second);
         vm.stopPrank();
 
-        assertTrue(afterReset, "reset re-arms the guardian");
+        (, uint256 activationAt) = proxy.pendingUpgrade();
+        assertEq(
+            activationAt,
+            queuedAt + uint256(first) + uint256(second),
+            "each pause defers the window by its own duration"
+        );
+        assertEq(proxy.spendsPausedUntil(), block.timestamp + uint256(second), "the later pause sets the deadline");
     }
 
     // --- (3) activation is permissionless -----------------------------------
@@ -289,12 +294,11 @@ contract DelayedUpgradeProxySymbolicTest is GuardAsserts {
     function check_privilegedEntryPointsRejectNonAdmins(address caller, uint256 duration) public {
         vm.assume(caller != ADMIN);
 
-        bytes[] memory calls = new bytes[](5);
+        bytes[] memory calls = new bytes[](4);
         calls[0] = abi.encodeCall(DelayedUpgradeProxy.queueUpgrade, (address(v2)));
         calls[1] = abi.encodeCall(DelayedUpgradeProxy.cancelUpgrade, ());
         calls[2] = abi.encodeCall(DelayedUpgradeProxy.pauseSpends, (duration));
-        calls[3] = abi.encodeCall(DelayedUpgradeProxy.resetGuardianPause, ());
-        calls[4] = abi.encodeCall(DelayedUpgradeProxy.changeProxyAdmin, (caller));
+        calls[3] = abi.encodeCall(DelayedUpgradeProxy.changeProxyAdmin, (caller));
 
         for (uint256 i = 0; i < calls.length; ++i) {
             vm.prank(caller);

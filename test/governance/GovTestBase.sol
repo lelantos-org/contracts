@@ -11,7 +11,6 @@ import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { LelantosToken } from "../../src/governance/LelantosToken.sol";
 import { LelantosGovernor } from "../../src/governance/LelantosGovernor.sol";
-import { ProtocolAdmin } from "../../src/governance/ProtocolAdmin.sol";
 import { FeeBurner } from "../../src/burn/FeeBurner.sol";
 
 import { GovConstants } from "../utils/GovConstants.sol";
@@ -19,8 +18,8 @@ import { MASPTestBase } from "../utils/MASPTestBase.sol";
 import { TEST_PROXY_ADMIN } from "../utils/PoolDeployer.sol";
 
 /// Deploys the governance stack over a real `MASP` and `SwapWrapper` with
-/// ownership and the pool's proxy admin handed over, so lifecycle tests
-/// exercise the production `onlyOwner` and `onlyAdmin` boundaries.
+/// ownership and the pool's proxy admin handed to the Timelock, so lifecycle
+/// tests exercise the production `onlyOwner` and `onlyAdmin` boundaries.
 ///
 /// Deliberately not built on `BaseGovernanceDeploy._deployGovernanceStack`: that
 /// path requires the `SwapWrapper` to exist before the burner, so the wrapper
@@ -57,7 +56,6 @@ abstract contract GovTestBase is MASPTestBase {
     LelantosToken internal gov;
     TimelockController internal timelock;
     LelantosGovernor internal governor;
-    ProtocolAdmin internal protocolAdmin;
     FeeBurner internal burner;
     SwapWrapper internal wrapper;
 
@@ -89,6 +87,8 @@ abstract contract GovTestBase is MASPTestBase {
 
         timelock.grantRole(timelock.PROPOSER_ROLE(), address(governor));
         timelock.grantRole(timelock.CANCELLER_ROLE(), address(governor));
+        // The guardian holds `CANCELLER_ROLE` only: it may veto a queued
+        // proposal within the delay, and has no power over the pool.
         timelock.grantRole(timelock.CANCELLER_ROLE(), guardian);
 
         burner = new FeeBurner(gov, address(timelock), HALF_LIFE, MAX_HALVINGS, RESTART_MULT_BPS, BURN_BPS, address(0));
@@ -97,19 +97,16 @@ abstract contract GovTestBase is MASPTestBase {
             IMASPPool(address(masp)), IAllowanceTransfer(address(permit2)), address(this), address(burner)
         );
 
-        protocolAdmin = new ProtocolAdmin(address(masp), address(wrapper), address(timelock), guardian);
-
         // Handover in the runbook order: treasuries first, so the first fee
         // routing needs no proposal, then ownership.
         vm.startPrank(OWNER);
         masp.setTreasury(address(burner));
-        masp.transferOwnership(address(protocolAdmin));
+        masp.transferOwnership(address(timelock));
         vm.stopPrank();
-        wrapper.transferOwnership(address(protocolAdmin));
-        // Then the proxy admin, as `HandoverOwnership.s.sol` does last:
-        // `migrateAdmin` refuses to move ownership without it.
+        wrapper.transferOwnership(address(timelock));
+        // Then the proxy admin, as `HandoverOwnership.s.sol` does last.
         vm.prank(TEST_PROXY_ADMIN);
-        _poolProxy().changeProxyAdmin(address(protocolAdmin));
+        _poolProxy().changeProxyAdmin(address(timelock));
 
         // Last step: the deployer renounces its admin role.
         timelock.renounceRole(timelock.DEFAULT_ADMIN_ROLE(), address(this));
@@ -175,14 +172,15 @@ abstract contract GovTestBase is MASPTestBase {
         calldatas[0] = data;
     }
 
-    /// A single `ProtocolAdmin.execute(target, data)` call, the shape of every
-    /// proposal that reaches an owned contract.
+    /// A single owner-gated call on `target`, the shape of every proposal that
+    /// reaches an owned contract. The Timelock is the owner, so the call is
+    /// direct: there is no interposed admin to route through.
     function _adminCall(address target, bytes memory data)
         internal
-        view
+        pure
         returns (address[] memory, uint256[] memory, bytes[] memory)
     {
-        return _one(address(protocolAdmin), abi.encodeCall(ProtocolAdmin.execute, (target, data)));
+        return _one(target, data);
     }
 
     /// A proposal whose content is irrelevant, for tests about voting and timing
@@ -193,7 +191,7 @@ abstract contract GovTestBase is MASPTestBase {
 
     // ============== Proposal pipeline ========================================
 
-    /// Calls `ProtocolAdmin.execute(target, data)` through the full pipeline.
+    /// Calls `target` as the owner through the full proposal pipeline.
     function _passAdminCall(address target, bytes memory data, string memory description) internal returns (uint256) {
         (address[] memory t, uint256[] memory v, bytes[] memory c) = _adminCall(target, data);
         return _passProposal(t, v, c, description);

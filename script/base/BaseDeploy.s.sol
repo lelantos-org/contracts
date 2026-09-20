@@ -37,7 +37,7 @@ abstract contract BaseDeploy is Script {
         uint16[] depositBps;
         uint16[] withdrawBps;
         address treasury;
-        /// Pool owner (`ProtocolAdmin` in production), set by the initializer.
+        /// Pool owner (the governance Timelock in production), set by the initializer.
         address owner;
         /// Admin of the pool proxy: the only address that may queue, cancel or
         /// activate an upgrade, or pause. Distinct from `owner`; see

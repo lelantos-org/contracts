@@ -21,7 +21,7 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 ///     "depositBps":  [0, 0, 0],       parallel to ids
 ///     "withdrawBps": [20, 20, 20],    parallel to ids
 ///     "treasury": "0x...",
-///     "owner":       "0x...",   pool owner (ProtocolAdmin in production)
+///     "owner":       "0x...",   pool owner (the governance Timelock in production)
 ///     "proxyAdmin":  "0x...",   may queue/cancel/activate upgrades and pause
 ///     "upgradeDelay": 2592000,  30d exit window; immutable once deployed; at
 ///                               most `ExitTerms.DELAY` (30d)
