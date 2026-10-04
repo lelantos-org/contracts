@@ -17,8 +17,8 @@
 # `*_verification_key.json` and `.wasm` files for both circuits: the release
 # whose verifiers are vendored under src/verifiers/ (see
 # test/fixtures/README.md). Download them as gen_proof_fixture.sh describes. It
-# defaults to the circuits checkout's `build/prototype-0.18.0`, an untracked
-# local copy of the v0.18.0 release assets; where a directory has no wasm, the
+# defaults to the circuits checkout's `build/prototype-0.19.0`, an untracked
+# local copy of the v0.19.0 release assets; where a directory has no wasm, the
 # generator takes it from `build/<circuit>_js/`.
 #
 # The generator asserts, before writing, that each verification key matches the
@@ -30,7 +30,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CIRCUITS="$(cd "${CIRCUITS:-$HERE/../circuits}" && pwd)"
-RELEASE="$(cd "${RELEASE:-$CIRCUITS/build/prototype-0.18.0}" && pwd)"
+RELEASE="$(cd "${RELEASE:-$CIRCUITS/build/prototype-0.19.0}" && pwd)"
 
 GENERATOR="$CIRCUITS/scripts/gen-masp-fixture.ts"
 for f in "$GENERATOR" "$CIRCUITS/node_modules/tsx"; do

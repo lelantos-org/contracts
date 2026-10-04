@@ -2,7 +2,7 @@
   "schema": "lelantos.contracts.proof-fixture/2",
   "source": {
     "vector": "tree-update-batch-8.json",
-    "package": "@lelantos-org/circuits@0.18.0",
+    "package": "@lelantos-org/circuits@0.19.0",
     "generator": "tree_update_batch",
     "template": "TreeUpdateBatch(11, 8)",
     "layoutDigest": "0x98865c4f5a08d35ef27c95dca2633f70993a881d7a6df573102919b0bce898ff"
@@ -11,22 +11,22 @@
     {
       "name": "single-deposit-empty-tree",
       "a": [
-        "0x0d8f6c670c9c2429683122dd039f55661b33f198bac97af33eaae1323711d23a",
-        "0x292493d3f39fced13e613cd89ea5f199d400d6dac5b30f66e62449102dad014d"
+        "0x1b15b6f9afb74d8b0f26089f08de943e4123938eca3439f3a94dbe65a7d44605",
+        "0x2868393b889708051c6e38e923c8188329d0a67e2c3b765a919e2a60b8a6ecf7"
       ],
       "b": [
         [
-          "0x1734da6f3f4b36d92b47d5003201eb1baf14b667d2ed249a7246f4465ac4c550",
-          "0x0f310e389d5b0e595381d1138b774b69621135455c387fcbbcd4bbb23c728290"
+          "0x0505e47759e33577fb8d6ed0dbf3f0c18a8184191e1f7b137ffe0d7d49790753",
+          "0x262ffbeffc4ab0a4d42d0093e84ba6392904016b64d39c8b29673b883f48688a"
         ],
         [
-          "0x1e9305e8c86852ab6ef9955443e34971ce7d0377b1404429dd1c04f91ed35fc1",
-          "0x1067ebb7f41bbfb7635642b2e3fb500121a6b39e641ec885e46449b5b8631226"
+          "0x2dc7b3ebb837559b863240dcdc9e6866234a157dedcecaa1c16dd283d0a1de91",
+          "0x2dbc2e50d5670792bba3ea75da38826ef01b0abac7021a6d89a4a47d73abe6c0"
         ]
       ],
       "c": [
-        "0x09c73f4cb3ed6944b92e4c2a0e18485766bc0404e97fd78f83698b08c2a2332a",
-        "0x2118ddde8a4b3edad4f0f46f47877c0caf5283780e59ef8b4a92433d02fd93d3"
+        "0x26fd6027e7f2434d050778ac95c4ec07b8941db806c60650e00757d49249c352",
+        "0x263e6f1348fb28999fd3e278e7b197b94bd48052fbf5109c670672ad911644c6"
       ],
       "pubSignals": [
         "0x03127c3c441c7676868ac4c32f23cad07cc27829327306a576b341e30088d308",
@@ -37,22 +37,22 @@
     {
       "name": "odd-three-leaf-batch",
       "a": [
-        "0x276b11423320bc570f4e49edefe3f1acf40ac2d880cb88c3274c457f9b195770",
-        "0x1d6dceb3491c3502a6f53f29cfa99334d95a1fd8b4af192ce6e0a94d49564e9c"
+        "0x1e10325f4eedf57c58e2ffb75e5d4c0f77c3f7d6642dff0e0b8b54cf93161c8b",
+        "0x15ed87aa429f4012833968b06633eeea19bc0221850015c9b5ae6ffff1a2fa87"
       ],
       "b": [
         [
-          "0x20ac266d404a97a5b775afed25b96cdb93a2fa6d35800c4544d0523b4e39aa21",
-          "0x27105219607d2ec39f6879b1e2a1e97c194482ddf4a398d14b28a2cdf6cec2c6"
+          "0x1b0d3011b9986ddf808b10f065b79e91e9e6fd8b64e9a8d0d83d26545dd59796",
+          "0x117053ceb822a2982fcb23bb46620b884edba7bc79ed127f16e0f795883bbb01"
         ],
         [
-          "0x0757d7e76e42d7c2fd16bc0613a345788efab485de796f77fa0c525839a634da",
-          "0x00197d4679d41013389c5ff7ec590d8e4ab409e32cf89709870bcf2530953633"
+          "0x0c610bf01f509accd96b512f8f82e9a75f41e5e86934b1071cd4bf0e3750737d",
+          "0x172c527820b60cab4e39757a5089a7d77a006cfefa4173248098a92a631732db"
         ]
       ],
       "c": [
-        "0x07c694e9fc87c68d774f7164077936293004e5a696fd70c1504aeeb47c0fbc0c",
-        "0x0649a923210306cd4a125296ae3070669ad28d708ff5855fbd5e02963ac01a58"
+        "0x071b908e88c70e8d2e6a97f4f1079003d8b74848f57516fc93101ec5a2bd691f",
+        "0x0b8373ac79e8b75ffb2248e5ad846d5b988bf558e6845856f06f48e6116cd73c"
       ],
       "pubSignals": [
         "0x2ca84e92428daf9fe81eb747971fd4511109e0a9b819ffdbba3575a156e99003",
@@ -63,22 +63,22 @@
     {
       "name": "mixed-batch-nonzero-start",
       "a": [
-        "0x0f01e1ee9cd43ca5b126213c99c2bfbba92e56f9799e985630df5ae6a44bc97f",
-        "0x2fbda32b675cc814e37c478111f3263cd8a4af2eaa827c18b38668beb39993c5"
+        "0x217942c7349ca20851444361c472e739327bca32559b8f98a93d33a76cb0e971",
+        "0x0b8a585a6f673ef246bb4d15e86344e692a9097f84b87bb5a89b82fe15738b2b"
       ],
       "b": [
         [
-          "0x0d1d6c042573803f9c14c5c768b905e23d249c54f484cf42c7942be42c8aacd1",
-          "0x0d22373fa0e02022cddf318f6c7c9a283f1992e5ea56fdd4115b21413a1520fb"
+          "0x1f43af42bcfd60df217a069ccced5653f1bbff256feccc56520193b88af5b7b7",
+          "0x15db9364b31cf15bd7342533d875df9c32bb7d449f51ddd59fb95742e3a19d8a"
         ],
         [
-          "0x10965b2f9235eb9b04a3f79f8c7eb6954dfe7cff1417dc1ab356f0ba9f8be2c6",
-          "0x298ff53f3ceab662a39ffa03ca23f191254faf8178692d72d94e3ff42f723c97"
+          "0x05200feb058ba71575cc840448c289101b209cadce00c945a64a39a389dbd298",
+          "0x0ab17efc64ab4ef150436404e4b989026d65631314b860540eea2e3d510c58c9"
         ]
       ],
       "c": [
-        "0x27900dda9e293c6bbf199cff3482ed1bc07ab5ed5e9ffb1449ae52df82b5799c",
-        "0x011a14e865ae9056045abf4212de44d68d5c3a62ed793a8dce3b7186c2ec34d2"
+        "0x2e7a3b22dfad543200713c427ff9e7bf4dc2cbf02a23d58976491184b8711bef",
+        "0x141edff6284ab89afa2404c1db7e53a076a5f06106b83b3841112fd963eb3b7a"
       ],
       "pubSignals": [
         "0x0a207bac0a4225018042f41d0439c570a6211b7e9efad876cd1a12a2e2bbf8d7",
