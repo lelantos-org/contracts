@@ -102,6 +102,7 @@ library VerifierStorage {
         // interface, not a verdict.
         // slither-disable-next-line uninitialized-local
         uint256[2] memory g1;
+        // slither-disable-next-line uninitialized-local
         uint256[3] memory pub;
         // slither-disable-next-line uninitialized-local
         uint256[2][2] memory g2;
