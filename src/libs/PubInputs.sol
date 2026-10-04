@@ -124,10 +124,10 @@ library PubInputs {
     /// preimage the recipient never learns, escrows a deposit nobody can spend,
     /// reclaimable only through `cancelDeposit` before it is flushed.
     ///
-    /// Paying the relayer in a note keeps its identity and the fee amount off
-    /// the event and makes the fee unstealable: `flushBatch` is permissionless,
-    /// so an on-chain amount payable to `msg.sender` could be claimed by
-    /// whoever front-runs the assembled batch.
+    /// Paying the relayer in a note keeps its identity off the event (the
+    /// note's asset and value are public) and makes the fee unstealable:
+    /// `flushBatch` is permissionless, so an on-chain amount payable to
+    /// `msg.sender` could be claimed by whoever front-runs the batch.
     struct DepositRequest {
         /// Full width, matching `Transact.chainId`, and one ABI word in the
         /// Permit2 witness preimage. Dirty high bits fail the `!= block.chainid`

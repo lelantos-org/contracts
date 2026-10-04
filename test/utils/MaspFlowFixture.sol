@@ -88,6 +88,8 @@ library MaspFlowFixture {
             string memory a = string.concat(key, ".aux", idx);
             s.aux[k].clueRx = VM.parseJsonUint(j, string.concat(a, ".clueRx"));
             s.aux[k].clueRy = VM.parseJsonUint(j, string.concat(a, ".clueRy"));
+            s.aux[k].clueQx = VM.parseJsonUint(j, string.concat(a, ".clueQx"));
+            s.aux[k].clueQy = VM.parseJsonUint(j, string.concat(a, ".clueQy"));
             s.aux[k].ephPubX = VM.parseJsonUint(j, string.concat(a, ".ephPubX"));
             s.aux[k].ephPubY = VM.parseJsonUint(j, string.concat(a, ".ephPubY"));
             s.aux[k].ciphertext = VM.parseJsonBytes(j, string.concat(a, ".ciphertext"));

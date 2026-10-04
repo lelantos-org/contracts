@@ -2,7 +2,7 @@
 
 JSON read by Foundry tests and the anvil deploy scripts through `vm.readFile`.
 
-> **Prototype setup.** The vectors, proofs and verification keys here, and the verifiers and `VerifyingKeys.sol` under `src/verifiers/`, are those of the `@lelantos-org/circuits` v0.17.0 release (public signals `[y, digest, z]`). That release's trusted setup has a single contributor and is marked not mainnet-safe. A deployment holding real value requires the keys of a multi-party ceremony. Replace the verifiers, `VerifyingKeys.sol`, the verification keys and every proof fixture together, using the procedures below.
+> **Prototype setup.** The vectors, proofs and verification keys here, and the verifiers and `VerifyingKeys.sol` under `src/verifiers/`, are those of the `@lelantos-org/circuits` v0.18.0 release (public signals `[y, digest, z]`). That release's trusted setup has a single contributor and is marked not mainnet-safe. A deployment holding real value requires the keys of a multi-party ceremony. Replace the verifiers, `VerifyingKeys.sol`, the verification keys and every proof fixture together, using the procedures below.
 
 ## Files
 
@@ -80,13 +80,15 @@ Read by [VerifyingKeys.t.sol](../verifiers/VerifyingKeys.t.sol), which pins ever
 Proving artifacts must come from the circuits GitHub release, not from a local `circuits/build/`. A local setup produces a different `delta`, so its proofs do not satisfy the vendored verifiers. The script asserts the release verification key against the vendored Solidity verifier before proving.
 
 ```sh
-gh release download v0.17.0 --repo lelantos-org/circuits -D /tmp/rel \
+gh release download v0.18.0 --repo lelantos-org/circuits -D /tmp/rel \
   -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
 RELEASE=/tmp/rel CIRCUITS=../circuits \
   script/fixtures/gen_proof_fixture.sh transact_4x6
 ```
 
 Groth16 proving is randomized: a refresh produces different proof triples over identical public signals.
+
+`.source` records the vector file, the circuits package it belongs to (`package`, from `vectors/index.json`, whose hash entry the script checks against the vector), the circuit template and the layout digest.
 
 ## Generating the MASP-level fixture
 
@@ -97,7 +99,7 @@ script/fixtures/gen_masp_fixture.sh
 RELEASE=/tmp/rel CIRCUITS=../circuits script/fixtures/gen_masp_fixture.sh
 ```
 
-`RELEASE` is the directory of release assets and defaults to `../circuits/build/prototype-0.17.0`. The wasm is taken from beside the keys when present, and from `../circuits/build/<circuit>_js/` otherwise.
+`RELEASE` is the directory of release assets and defaults to `../circuits/build/prototype-0.18.0`. The wasm is taken from beside the keys when present, and from `../circuits/build/<circuit>_js/` otherwise.
 
 Before writing, the generator asserts that each verification key matches the vendored Solidity verifier, that every proof verifies under snarkjs, and that its public signals equal the `[y, digest, z]` computed as `PubInputs.sol` computes them. Witnesses are deterministic; proofs are not.
 

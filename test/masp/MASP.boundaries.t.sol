@@ -3,6 +3,7 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import { BabyJubJub } from "../../src/BabyJubJub.sol";
 import { MASP } from "../../src/MASP.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
@@ -153,11 +154,44 @@ contract MASPBoundariesTest is MockPoolTestBase {
         masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);
     }
 
-    /// Clue R of (BASE8_X, 0) is off-curve and rejected.
+    function _expectBadClueWitness(AuxValidation.Output[6] memory aux) internal {
+        PubInputs.Transact memory pi = _pi();
+        PubInputs.SpendTree memory tpi = _spendTree(pi);
+        vm.prank(relayer);
+        vm.expectRevert(AuxValidation.BadClueWitness.selector);
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);
+    }
+
+    /// Clue R of (BASE8_X, 0) is off-curve, so no witness doubles to it.
     function test_clueRZeroZeroRejected() public {
         AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
         aux[0].clueRy = 0;
+        _expectBadClueWitness(aux);
+    }
+
+    /// A clue witness of (GEN_X, 0) is off-curve and rejected.
+    function test_clueQOffCurveRejected() public {
+        AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
+        aux[0].clueQy = 0;
         _expectOffCurve(aux);
+    }
+
+    /// A clue of order `8L` is on-curve and not low-order, but outside the
+    /// prime-order subgroup: `[8]Q` never reaches it. `GEN` is such a point;
+    /// the witness tried is `GEN` itself.
+    function test_clueRMixedOrderRejected() public {
+        AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
+        aux[0].clueRx = SpendFixture.GEN_X;
+        aux[0].clueRy = SpendFixture.GEN_Y;
+        _expectBadClueWitness(aux);
+    }
+
+    /// An on-curve witness for a different subgroup point is rejected.
+    function test_clueQForAnotherPointRejected() public {
+        AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
+        aux[0].clueQx = BabyJubJub.BASE8_X;
+        aux[0].clueQy = BabyJubJub.BASE8_Y;
+        _expectBadClueWitness(aux);
     }
 
     /// Ephemeral key of (BASE8_X, 0) is off-curve and rejected.
@@ -167,12 +201,25 @@ contract MASPBoundariesTest is MockPoolTestBase {
         _expectOffCurve(aux);
     }
 
-    /// A coordinate >= P is rejected by the `BabyJubJub.isOnCurve` range guard.
+    /// A clue coordinate >= P is rejected by the `BabyJubJub.isEightfold`
+    /// range guard, including the non-canonical alias of a valid coordinate.
     function test_clueRCoordOverPRejected() public {
         AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
         aux[1].clueRx = type(uint256).max;
         aux[2].clueRx = type(uint256).max;
         aux[3].clueRx = type(uint256).max;
+        _expectBadClueWitness(aux);
+
+        aux = _aux(_validCt(2), _validCt(2));
+        aux[0].clueRx = BabyJubJub.BASE8_X + BabyJubJub.P;
+        _expectBadClueWitness(aux);
+    }
+
+    /// A witness coordinate >= P is rejected by the `BabyJubJub.isOnCurve`
+    /// range guard.
+    function test_clueQCoordOverPRejected() public {
+        AuxValidation.Output[6] memory aux = _aux(_validCt(2), _validCt(2));
+        aux[0].clueQx = SpendFixture.GEN_X + BabyJubJub.P;
         _expectOffCurve(aux);
     }
 

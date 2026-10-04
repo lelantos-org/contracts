@@ -524,5 +524,9 @@ contract BatchedGroth16VerifierTest is Test {
         string memory uj = vm.readFile(TUB_PROOFS);
         assertEq(vm.parseJsonString(tj, ".source.template"), "Transact(11, 4, 6)", "transact template");
         assertEq(vm.parseJsonString(uj, ".source.template"), "TreeUpdateBatch(11, 8)", "tree-update template");
+        // Both fixtures are proved from one circuits package.
+        assertEq(
+            vm.parseJsonString(tj, ".source.package"), vm.parseJsonString(uj, ".source.package"), "circuits package"
+        );
     }
 }

@@ -22,9 +22,10 @@ contract AuxDigestHarness {
 contract AuxDigestDiffTest is Test {
     AuxDigestHarness internal h = new AuxDigestHarness();
 
-    function _aux(uint256[24] memory w, bytes[6] memory ct) internal pure returns (AuxValidation.Output[6] memory aux) {
+    function _aux(uint256[36] memory w, bytes[6] memory ct) internal pure returns (AuxValidation.Output[6] memory aux) {
         for (uint256 j; j < 6; ++j) {
-            aux[j] = AuxValidation.Output(w[4 * j], w[4 * j + 1], w[4 * j + 2], w[4 * j + 3], ct[j]);
+            uint256 b = 6 * j;
+            aux[j] = AuxValidation.Output(w[b], w[b + 1], w[b + 2], w[b + 3], w[b + 4], w[b + 5], ct[j]);
         }
     }
 
@@ -38,14 +39,14 @@ contract AuxDigestDiffTest is Test {
         (ok2, r2) = address(h).staticcall(cd);
     }
 
-    function testFuzz_auxDigest_matchesRef(uint256[24] memory w, bytes[6] memory ct) public view {
+    function testFuzz_auxDigest_matchesRef(uint256[36] memory w, bytes[6] memory ct) public view {
         AuxValidation.Output[6] memory aux = _aux(w, ct);
         assertEq(h.fast(aux), h.ref(aux));
     }
 
     /// Two heads sharing one tail, and bytes past the canonical encoding.
     function testFuzz_auxDigest_sharedTailAndTrailingBytes(
-        uint256[24] memory w,
+        uint256[36] memory w,
         bytes[6] memory ct,
         uint8 share,
         bytes32 trailing
@@ -64,7 +65,7 @@ contract AuxDigestDiffTest is Test {
 
     /// Non-zero bytes in the padding of the last ciphertext, which sits at the
     /// end of the encoding. Neither path may let them reach the digest.
-    function testFuzz_auxDigest_dirtyPadding(uint256[24] memory w, bytes[6] memory ct, uint8 len, bytes1 dirt)
+    function testFuzz_auxDigest_dirtyPadding(uint256[36] memory w, bytes[6] memory ct, uint8 len, bytes1 dirt)
         public
         view
     {

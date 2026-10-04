@@ -366,17 +366,20 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
 
     // --- small-subgroup rejection ------------------------------------------
 
-    /// `AuxValidation` rejects low-order points (order dividing 8) on the clue
-    /// and ephemeral keys. `BabyJubJub.isLowOrder` is fuzzed directly in
-    /// `test/fuzz/BabyJubJub.fuzz.t.sol`; this pins the revert wiring in the
-    /// spend path.
+    /// `AuxValidation` rejects the identity clue and low-order ephemeral keys
+    /// (order dividing 8). `BabyJubJub.isEightfold` and `isLowOrder` are fuzzed
+    /// directly in `test/fuzz/BabyJubJub.fuzz.t.sol`; this pins the revert
+    /// wiring in the spend path.
     function test_revert_LowOrderPoint_clue() public {
         PubInputs.Transact memory pi = _pi();
         PubInputs.SpendTree memory tpi = _spendTree(pi);
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
-        // Identity (0, 1) is on-curve and order 1.
+        // The identity (0, 1) is in the prime-order subgroup and is its own
+        // witness: `[8]O == O`.
         aux[0].clueRx = 0;
         aux[0].clueRy = 1;
+        aux[0].clueQx = 0;
+        aux[0].clueQy = 1;
         vm.prank(RELAYER);
         vm.expectRevert(AuxValidation.LowOrderPoint.selector);
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);

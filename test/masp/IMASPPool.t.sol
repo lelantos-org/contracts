@@ -47,7 +47,7 @@ contract IMASPPoolTest is MASPTestBase {
     /// the refund cap.
     function test_signature_depositAuthorized() public pure {
         string memory request = "(uint256,uint64,uint64,address,address,bytes32,uint64,uint64,bytes32)";
-        string memory aux = "(uint256,uint256,uint256,uint256,bytes)";
+        string memory aux = "(uint256,uint256,uint256,uint256,uint256,uint256,bytes)";
         assertEq(
             IMASPPool.depositAuthorized.selector,
             bytes4(keccak256(bytes(string.concat("depositAuthorized(", request, ",", aux, ",", aux, ")")))),
@@ -98,7 +98,16 @@ contract IMASPPoolTest is MASPTestBase {
         // newRoot, startIndex, anchorIndex, digest.
         string memory spendTree = "(bytes32,uint64,uint8,uint256)";
         return string.concat(
-            name, "(", proof, ",", transact, ",", proof, ",", spendTree, ",(uint256,uint256,uint256,uint256,bytes)[6])"
+            name,
+            "(",
+            proof,
+            ",",
+            transact,
+            ",",
+            proof,
+            ",",
+            spendTree,
+            ",(uint256,uint256,uint256,uint256,uint256,uint256,bytes)[6])"
         );
     }
 

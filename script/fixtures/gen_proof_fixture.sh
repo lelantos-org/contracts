@@ -65,13 +65,14 @@ CIRCUITS="$(cd "${CIRCUITS:-$HERE/../circuits}" && pwd)"
 RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of circuits release assets}" && pwd)"
 
 VECTOR="$CIRCUITS/vectors/$VECTOR_NAME"
+INDEX="$CIRCUITS/vectors/index.json"
 SNARKJS="$CIRCUITS/node_modules/.bin/snarkjs"
 ZKEY="$RELEASE/$ZKEY_NAME"
 WASM="$RELEASE/$WASM_NAME"
 VKEY="$RELEASE/$VKEY_NAME"
 OUT="$HERE/test/fixtures/$OUT_NAME"
 
-for f in "$VECTOR" "$ZKEY" "$WASM" "$VKEY" "$SNARKJS" "$HERE/$VERIFIER_SOL"; do
+for f in "$VECTOR" "$INDEX" "$ZKEY" "$WASM" "$VKEY" "$SNARKJS" "$HERE/$VERIFIER_SOL"; do
     [ -e "$f" ] || { echo "missing: $f" >&2; exit 1; }
 done
 
@@ -127,11 +128,17 @@ json.dump(w, open('$TMP/in_$i.json', 'w'))
         > "$TMP/calldata_$i.txt"
 done
 
-python3 - "$VECTOR" "$VECTOR_NAME" "$TMP" "$COUNT" "$OUT" <<'PY'
-import json, re, sys
+python3 - "$VECTOR" "$VECTOR_NAME" "$TMP" "$COUNT" "$OUT" "$INDEX" <<'PY'
+import hashlib, json, re, sys
 
 vector_path, vector_name, tmp, count, out_path = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]
 vector = json.load(open(vector_path))
+
+# The manifest names the package version the vector belongs to; its hash
+# entry ties that stamp to these exact bytes.
+index = json.load(open(sys.argv[6]))
+sha = hashlib.sha256(open(vector_path, 'rb').read()).hexdigest()
+assert index['files'][vector_name]['sha256'] == sha, f'{vector_name} does not match vectors/index.json'
 
 entries = []
 for i in range(count):
@@ -162,6 +169,7 @@ json.dump({
     'schema': 'lelantos.contracts.proof-fixture/2',
     'source': {
         'vector': vector_name,
+        'package': index['generator'],
         'generator': vector['circuit']['id'],
         'template': vector['circuit']['template'],
         'layoutDigest': vector['circuit']['layoutDigest'],

@@ -5,7 +5,8 @@ import { Test } from "forge-std/Test.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 
 /// Fuzz suite for `BabyJubJub.isLowOrder`, which decides `[8]P == O` from the
-/// coordinates alone (`x == 0`, `y == 0` or `y^2 == a*x^2`).
+/// coordinates alone (`x == 0`, `y == 0` or `y^2 == a*x^2`), and for
+/// `BabyJubJub.isEightfold`, which decides `R == [8]Q` by projective doubling.
 ///
 /// Ground truth is an independent affine implementation of the twisted Edwards
 /// group law (complete addition + modexp inversion). Points are sampled by
@@ -81,6 +82,52 @@ contract BabyJubJubFuzzTest is Test {
         (uint256 x, uint256 y) = _refMul(k, G_X, G_Y);
         uint256 negX = x == 0 ? 0 : P - x;
         assertEq(BabyJubJub.isLowOrder(x, y), BabyJubJub.isLowOrder(negX, y), "verdict not negation-invariant");
+    }
+
+    /// Differential: for any two points of the full group, `isEightfold`
+    /// agrees with the affine reference `[8]Q == R`.
+    function testFuzz_isEightfold_matchesAffineReference(uint256 kq, uint256 kr) public view {
+        (uint256 qx, uint256 qy) = _refMul(bound(kq, 0, FULL_ORDER - 1), G_X, G_Y);
+        (uint256 rx, uint256 ry) = _refMul(bound(kr, 0, FULL_ORDER - 1), G_X, G_Y);
+        (uint256 ex, uint256 ey) = _refMul(8, qx, qy);
+        assertEq(BabyJubJub.isEightfold(qx, qy, rx, ry), ex == rx && ey == ry, "isEightfold disagrees with reference");
+    }
+
+    /// Completeness: every prime-order point `R` is accepted with the witness
+    /// `Q = [8^-1 mod L]R`, and with that witness shifted by any torsion point.
+    function testFuzz_isEightfold_acceptsSubgroupWithWitness(uint256 k, uint8 j) public view {
+        k = bound(k, 0, L - 1);
+        (uint256 rx, uint256 ry) = _refMul(k, BabyJubJub.BASE8_X, BabyJubJub.BASE8_Y);
+        // `[k]G` is a witness for `[k]BASE8 = [8k]G`; adding `[j*L]G` moves it
+        // through the eight preimages of `R` under multiplication by 8.
+        (uint256 qx, uint256 qy) = _refMul(k + bound(uint256(j), 0, 7) * L, G_X, G_Y);
+        assertTrue(BabyJubJub.isOnCurve(qx, qy), "reference produced off-curve witness");
+        assertTrue(BabyJubJub.isEightfold(qx, qy, rx, ry), "subgroup point rejected with a valid witness");
+    }
+
+    /// Soundness: a point outside the prime-order subgroup is rejected for
+    /// every on-curve witness. `R = [k]G` with `8` not dividing `k` is such a
+    /// point; the witness ranges over the full group.
+    function testFuzz_isEightfold_rejectsOutsideSubgroup(uint256 k, uint256 kq) public view {
+        k = bound(k, 0, FULL_ORDER - 1);
+        vm.assume(k % 8 != 0);
+        (uint256 rx, uint256 ry) = _refMul(k, G_X, G_Y);
+        (uint256 qx, uint256 qy) = _refMul(bound(kq, 0, FULL_ORDER - 1), G_X, G_Y);
+        assertFalse(BabyJubJub.isEightfold(qx, qy, rx, ry), "point outside the subgroup accepted");
+        // The witness an honest sender would derive for the subgroup part.
+        (qx, qy) = _refMul(k / 8, G_X, G_Y);
+        assertFalse(BabyJubJub.isEightfold(qx, qy, rx, ry), "point outside the subgroup accepted");
+    }
+
+    /// A coordinate of `R` at or above `P` is rejected, including the alias
+    /// `x + P` of an accepted coordinate.
+    function testFuzz_isEightfold_rejectsNonCanonicalR(uint256 k) public view {
+        k = bound(k, 1, L - 1);
+        (uint256 rx, uint256 ry) = _refMul(k, BabyJubJub.BASE8_X, BabyJubJub.BASE8_Y);
+        (uint256 qx, uint256 qy) = _refMul(k, G_X, G_Y);
+        assertTrue(BabyJubJub.isEightfold(qx, qy, rx, ry));
+        assertFalse(BabyJubJub.isEightfold(qx, qy, rx + P, ry), "aliased x accepted");
+        assertFalse(BabyJubJub.isEightfold(qx, qy, rx, ry + P), "aliased y accepted");
     }
 
     // -----------------------------------------------------------------------

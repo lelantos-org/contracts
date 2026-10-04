@@ -24,7 +24,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
     address internal constant SWAP_DRIVER = address(0xD21E);
     /// `test_intentHash_crossLanguageVector`'s expected hash.
     uint256 internal constant INTENT_VECTOR =
-        21_702_110_874_988_732_878_282_240_820_387_414_370_167_849_366_391_701_560_116_504_902_614_029_013_783;
+        20_568_246_496_086_653_981_650_821_090_611_381_092_259_931_261_982_909_181_487_420_188_972_474_156_030;
 
     MockERC20 internal tokenC;
 
@@ -151,9 +151,12 @@ contract SwapWrapperBindingTest is SwapTestBase {
         a.deposit_d.feeAssetId = 2;
         a.deposit_d.feeIn = 5;
         a.deposit_d.feeInner = bytes32(uint256(6));
-        a.aux_d = AuxValidation.Output({ clueRx: 10, clueRy: 11, ephPubX: 12, ephPubY: 13, ciphertext: hex"0102" });
-        a.fee_aux_d =
-            AuxValidation.Output({ clueRx: 14, clueRy: 15, ephPubX: 16, ephPubY: 17, ciphertext: hex"030405" });
+        a.aux_d = AuxValidation.Output({
+            clueRx: 10, clueRy: 11, clueQx: 40, clueQy: 41, ephPubX: 12, ephPubY: 13, ciphertext: hex"0102"
+        });
+        a.fee_aux_d = AuxValidation.Output({
+            clueRx: 14, clueRy: 15, clueQx: 42, clueQy: 43, ephPubX: 16, ephPubY: 17, ciphertext: hex"030405"
+        });
         a.refund_d.chainId = 31_337;
         a.refund_d.publicAssetId = 1;
         a.refund_d.publicIn = 995;
@@ -163,9 +166,12 @@ contract SwapWrapperBindingTest is SwapTestBase {
         a.refund_d.feeAssetId = 1;
         a.refund_d.feeIn = 22;
         a.refund_d.feeInner = bytes32(uint256(0x17));
-        a.refund_aux_d = AuxValidation.Output({ clueRx: 27, clueRy: 28, ephPubX: 29, ephPubY: 30, ciphertext: hex"06" });
-        a.refund_fee_aux_d =
-            AuxValidation.Output({ clueRx: 31, clueRy: 32, ephPubX: 33, ephPubY: 34, ciphertext: hex"0708" });
+        a.refund_aux_d = AuxValidation.Output({
+            clueRx: 27, clueRy: 28, clueQx: 44, clueQy: 45, ephPubX: 29, ephPubY: 30, ciphertext: hex"06"
+        });
+        a.refund_fee_aux_d = AuxValidation.Output({
+            clueRx: 31, clueRy: 32, clueQx: 46, clueQy: 47, ephPubX: 33, ephPubY: 34, ciphertext: hex"0708"
+        });
         assertEq(SwapIntent.hash(a), INTENT_VECTOR, "cross-language vector");
     }
 

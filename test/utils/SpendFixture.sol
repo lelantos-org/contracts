@@ -29,6 +29,11 @@ uint256 constant SPEND_OUTPUTS = 6;
 /// Not covered: `merkleRoot`, the public amounts, and the party addresses.
 /// These are usually the subject of a test, so callers set them explicitly.
 library SpendFixture {
+    /// circomlib `Generator`, of order `8L`. `[8]·GEN = BASE8`, so it is the
+    /// subgroup witness `clueQ` for a clue at `BASE8`.
+    uint256 internal constant GEN_X = 995203441582195749578291179787384436505546430278305826713579947235728471134;
+    uint256 internal constant GEN_Y = 5472060717959818805561601436314318772137091100104008585924551046643952123905;
+
     /// Fills `nullifier` and `outCm` with consecutive values from each seed.
     ///
     /// Nullifiers must be pairwise distinct or `MASP` rejects the spend with
@@ -80,10 +85,10 @@ library SpendFixture {
         tpi.anchorIndex = anchorIndex;
     }
 
-    /// One aux payload per output, each carrying `ciphertext` and a clue and
-    /// ephemeral point that are on-curve and in the prime-order subgroup, as
-    /// `AuxValidation.validate` checks. For tests whose subject is not the aux
-    /// payload.
+    /// One aux payload per output, each carrying `ciphertext`, a clue and
+    /// ephemeral point in the prime-order subgroup, and the clue's subgroup
+    /// witness, as `AuxValidation.validate` checks. For tests whose subject is
+    /// not the aux payload.
     function uniformAux(bytes memory ciphertext)
         internal
         pure
@@ -92,6 +97,8 @@ library SpendFixture {
         for (uint256 k; k < aux.length; ++k) {
             aux[k].clueRx = BabyJubJub.BASE8_X;
             aux[k].clueRy = BabyJubJub.BASE8_Y;
+            aux[k].clueQx = GEN_X;
+            aux[k].clueQy = GEN_Y;
             aux[k].ephPubX = BabyJubJub.BASE8_X;
             aux[k].ephPubY = BabyJubJub.BASE8_Y;
             aux[k].ciphertext = ciphertext;
@@ -110,6 +117,8 @@ library SpendFixture {
     function validAuxOutput() internal pure returns (AuxValidation.Output memory aux) {
         aux.clueRx = BabyJubJub.BASE8_X;
         aux.clueRy = BabyJubJub.BASE8_Y;
+        aux.clueQx = GEN_X;
+        aux.clueQy = GEN_Y;
         aux.ephPubX = BabyJubJub.BASE8_X;
         aux.ephPubY = BabyJubJub.BASE8_Y;
         aux.ciphertext = hex"0001";

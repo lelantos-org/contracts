@@ -6,6 +6,7 @@ import { GuardAsserts } from "./GuardAsserts.sol";
 
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
+import { SpendFixture } from "../utils/SpendFixture.sol";
 
 /// Exposes the library's per-output validation as an external call, so a
 /// rejection can be observed as a revert rather than unwinding the test.
@@ -18,10 +19,10 @@ contract AuxValidationHarness {
 /// Symbolic proofs for the aux payload's shape checks.
 ///
 /// `AuxValidation.validate` checks, in order: ciphertext length bounds, the
-/// clue-bits prefix mask, then Baby-Jubjub on-curve and small-subgroup membership.
-/// Only the first two are proved here: the curve checks are `mulmod` chains over a
-/// 254-bit prime that the bundled solvers do not finish. The points are held
-/// concrete at the prime-order generator, which constant-folds the curve checks.
+/// clue-bits prefix mask, then the Baby-Jubjub checks on the clue and ephemeral
+/// points. Only the first two are proved here: the curve checks are `mulmod`
+/// chains over a 254-bit prime that the bundled solvers do not finish. The points
+/// are held concrete at the prime-order generator, which constant-folds them.
 /// `test/fuzz/BabyJubJub.fuzz.t.sol` covers the curve checks differentially.
 ///
 /// The proofs state the accept/reject boundary in both directions, so an
@@ -33,11 +34,13 @@ contract AuxValidationSymbolicTest is GuardAsserts {
         h = new AuxValidationHarness();
     }
 
-    /// A payload whose points are the Baby-Jubjub prime-order generator: on-curve
-    /// and outside the small subgroup, so both curve checks pass concretely.
+    /// A payload whose points are the Baby-Jubjub prime-order generator, with its
+    /// subgroup witness, so the curve checks pass concretely.
     function _payload(bytes memory ciphertext) internal pure returns (AuxValidation.Output memory o) {
         o.clueRx = BabyJubJub.BASE8_X;
         o.clueRy = BabyJubJub.BASE8_Y;
+        o.clueQx = SpendFixture.GEN_X;
+        o.clueQy = SpendFixture.GEN_Y;
         o.ephPubX = BabyJubJub.BASE8_X;
         o.ephPubY = BabyJubJub.BASE8_Y;
         o.ciphertext = ciphertext;

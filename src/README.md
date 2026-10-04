@@ -53,7 +53,7 @@ The two spend proofs are independent. The contract binds them; see [Spend](#spen
 | [libs/PubInputs.sol](libs/PubInputs.sol) | Public-input structs and their compression. |
 | [libs/AuxValidation.sol](libs/AuxValidation.sol) | Bounds and curve checks on per-output payloads. |
 | [SnarkCompression.sol](SnarkCompression.sol) | Horner evaluation over the BN254 scalar field. |
-| [BabyJubJub.sol](BabyJubJub.sol) | On-curve and low-order checks on the twisted Edwards curve. |
+| [BabyJubJub.sol](BabyJubJub.sol) | On-curve, low-order and prime-order-subgroup checks on the twisted Edwards curve. |
 | [verifiers/Verifier.sol](verifiers/Verifier.sol) | snarkJS codegen for `4x6` (`Groth16Verifier`). Not deployed; source of the `VK1_*` constants and the differential-test oracle. |
 | [verifiers/TreeUpdateBatchVerifier.sol](verifiers/TreeUpdateBatchVerifier.sol) | snarkJS codegen for `tree_update_batch` (`TreeUpdateBatchGroth16Verifier`). |
 | [verifiers/VerifyingKeys.sol](verifiers/VerifyingKeys.sol) | Verifying-key constants from the two codegen files, and the `BATCH_DOMAIN` transcript separator. |
@@ -168,14 +168,19 @@ Implementation properties:
 
 ### AuxValidation and BabyJubJub
 
-Each output note carries a fuzzy-message-detection payload: a clue point `R`, an ephemeral public key `E`, and a ciphertext prefixed by two bytes of clue bits. `AuxValidation.validate` enforces:
+Each output note carries a fuzzy-message-detection payload: a clue point `R` with a subgroup witness `Q`, an ephemeral public key `E`, and a ciphertext prefixed by two bytes of clue bits. `AuxValidation.validate` enforces:
 
 - `2 ≤ len(ciphertext) ≤ 256`;
 - the 2-byte prefix fits the 14-bit mask `0x3FFF`;
-- `R` and `E` are on the Baby-Jubjub curve;
-- neither is a low-order point.
+- `Q` is on the Baby-Jubjub curve and `[8]Q == R`, so `R` is in the prime-order subgroup;
+- `R` is not the identity;
+- `E` is on the curve and is not a low-order point.
 
-`BabyJubJub.isLowOrder` decides `[8]P == O` from the coordinates of an on-curve point: `x == 0` (orders 1 and 2), `y == 0` (order 4), or `y² == a·x²` (order 8). `BabyJubJub.fuzz.t.sol` checks the predicate against `[8]P` computed with the affine group law.
+The group is `Z_8 × Z_L`, so `[8]Q` is in the prime-order subgroup for every on-curve `Q`, and the wallet's `Q = [8⁻¹ mod L]R` exists for every `R` in it. `BabyJubJub.isEightfold` computes `[8]Q` by three projective doublings and compares it with `R` by cross-multiplication. `Q` is not emitted in `NotePayload` or `DepositEscrowed` and is not a word of the challenge `z`; it is bound by the aux digest on a spend and by `piHash` on an authorized deposit.
+
+`E` gets no subgroup check: a point of order `2L`, `4L` or `8L` passes, and trial decryption clears the cofactor of `E` off-chain. `BabyJubJub.isLowOrder` decides `[8]P == O` from the coordinates of an on-curve point: `x == 0` (orders 1 and 2), `y == 0` (order 4), or `y² == a·x²` (order 8).
+
+`BabyJubJub.fuzz.t.sol` checks both predicates against `[8]P` computed with the affine group law.
 
 ## Flows
 

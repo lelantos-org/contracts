@@ -68,7 +68,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     ///
     /// Update the constant only when the wallet signature shape is meant to
     /// change, in coordination with off-chain signers and circuits.
-    bytes32 internal constant PI_HASH_GOLDEN = 0x2c7bff043d212aef7358f0d0747b808c85ba429479efc47e3b6ccfa8c59ba5af;
+    bytes32 internal constant PI_HASH_GOLDEN = 0x030058819cc1757b096ad82a79ef0a7d881ecc0eabcaaa6d0bba8f10d3211f3d;
 
     function test_piHash_isStableForFixedFixture() public pure {
         PubInputs.DepositRequest memory d = _fixtureDeposit();
@@ -146,6 +146,8 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     function _fixtureAux() private pure returns (AuxValidation.Output memory aux) {
         aux.clueRx = 0x111;
         aux.clueRy = 0x112;
+        aux.clueQx = 0x115;
+        aux.clueQy = 0x116;
         aux.ephPubX = 0x113;
         aux.ephPubY = 0x114;
         aux.ciphertext = hex"deadbeef";
@@ -157,6 +159,8 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     function _fixtureFeeAux() private pure returns (AuxValidation.Output memory aux) {
         aux.clueRx = 0x221;
         aux.clueRy = 0x222;
+        aux.clueQx = 0x225;
+        aux.clueQy = 0x226;
         aux.ephPubX = 0x223;
         aux.ephPubY = 0x224;
         aux.ciphertext = hex"feedface";
