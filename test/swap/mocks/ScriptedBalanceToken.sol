@@ -5,7 +5,7 @@ pragma solidity 0.8.36;
 /// the next value of `script`, then the last value forever. Transfers and
 /// approvals move nothing and report success.
 ///
-/// It models the `tokenIn` of the audit's sweep, where every amount `swap`
+/// It models the `tokenIn` of a scripted-balance sweep, where every amount `swap`
 /// measures in `tokenIn` is whatever the caller scripted: `[0, 1, 1, 0, 0]`
 /// passes the withdraw floor, both refund pull bounds and the leftover check
 /// while the pool pulls a real token.
@@ -13,7 +13,7 @@ pragma solidity 0.8.36;
 /// The cursor is storage, so a `STATICCALL` read, which is how `IERC20.balanceOf`
 /// is called, reverts instead of advancing; a contract in the wild keys the same
 /// sequence off state the swap changes (the wrapper's balances of the withdrawn
-/// and the swept token). The regression tests need neither: `_validate` rejects
+/// and the swept token). The tests that use it need neither: `_validate` rejects
 /// the token before its first read.
 contract ScriptedBalanceToken {
     uint256[] internal script;

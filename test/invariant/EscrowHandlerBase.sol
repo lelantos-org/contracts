@@ -27,8 +27,8 @@ import { TestConstants } from "../utils/TestConstants.sol";
 /// them. That replay and the id selection live here; what each suite shadows
 /// (lifecycle buckets, per-token books) lives behind the hooks.
 ///
-/// `submit` stays in each handler: its fuzzed signature differs, and it is the
-/// first selector of each suite's `targetSelector` set.
+/// Each handler defines its own `submit`: its fuzzed signature differs, and it
+/// is the first selector of each suite's `targetSelector` set.
 abstract contract EscrowHandlerBase is Test {
     MASP public masp;
     address public permit2;
@@ -38,8 +38,8 @@ abstract contract EscrowHandlerBase is Test {
     uint64 public constant ASSET_ID = TestConstants.ASSET_ID;
     uint256 public constant SCALE = TestConstants.SCALE;
     uint16 public constant FEE_BPS = TestConstants.FEE_BPS;
-    /// Not `TestConstants.RECIPIENT`: the recipient is part of the escrow
-    /// digest, and these suites have always escrowed to this address.
+    /// The recipient every deposit escrows to, bound by the escrow digest.
+    /// Distinct from `TestConstants.RECIPIENT`.
     address internal constant ESCROW_RECIPIENT = address(0xb0b);
 
     /// All deposit ids ever submitted (pending or cleared).
@@ -52,7 +52,9 @@ abstract contract EscrowHandlerBase is Test {
     /// fields (payer, fbps, submittedAt, fee note) are constants or come from
     /// the hooks.
     mapping(uint256 => uint48) public preimagePublicIn;
-    mapping(uint256 => bytes32) public preimageCm0;
+    /// The principal note's `inner`, which is what the deposit escrows and the
+    /// flush hands the circuit in `cms`.
+    mapping(uint256 => bytes32) public preimageInner;
 
     uint256 internal _nonce;
 
@@ -73,7 +75,7 @@ abstract contract EscrowHandlerBase is Test {
     function _submittedAt(uint256 id) internal view virtual returns (uint32);
 
     /// The batch's new root. The SNARK is mocked, so any in-field value works;
-    /// each suite keeps its own choice so root-tracking ghosts are unchanged.
+    /// each suite chooses its own.
     function _newRoot(uint256 id) internal view virtual returns (bytes32);
 
     /// Ghost updates after a landed `flushBatch` of `id` with `newRoot`.
@@ -94,7 +96,7 @@ abstract contract EscrowHandlerBase is Test {
 
     // ============== Submit helpers ===========================================
 
-    /// The fixture request for `publicIn`, with an out commitment unique to the
+    /// The fixture request for `publicIn`, with an `inner` unique to the
     /// current nonce. Callers set any relayer fee fields before `_escrow`.
     function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory) {
         return DepositFixture.request(ASSET_ID, publicIn, payer, ESCROW_RECIPIENT, bytes32(uint256(0x1000 + _nonce)));
@@ -113,7 +115,7 @@ abstract contract EscrowHandlerBase is Test {
         feeAt[id] = fee;
         // forge-lint: disable-next-line(unsafe-typecast)
         preimagePublicIn[id] = uint48(d.publicIn);
-        preimageCm0[id] = d.outCm;
+        preimageInner[id] = d.inner;
     }
 
     // ============== Fuzz targets =============================================
@@ -131,7 +133,7 @@ abstract contract EscrowHandlerBase is Test {
 
         PubInputs.TreeUpdateBatch memory tpi =
             DepositFixture.batch(masp.currentRoot(), _newRoot(id), masp.committedCount(), 1);
-        DepositFixture.setDepositLeaves(tpi, 0, preimageCm0[id], ASSET_ID, uint64(preimagePublicIn[id]));
+        DepositFixture.setDepositLeaves(tpi, 0, preimageInner[id], ASSET_ID, uint64(preimagePublicIn[id]));
         (tpi.leafAsset[1], tpi.leafPublicIn[1]) = _feeLeaf(id);
 
         MASP.DepositMeta[] memory meta = DepositFixture.metas(1, payer, _submittedAt(id), FEE_BPS);
@@ -149,7 +151,6 @@ abstract contract EscrowHandlerBase is Test {
 
         vm.roll(block.number + masp.cancelDelay());
 
-        uint256[2] memory zCv;
         (uint64 feeAsset, uint64 feeIn) = _feeLeaf(id);
         PubInputs.FeeNote memory note = DepositFixture.feeNote();
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -157,14 +158,13 @@ abstract contract EscrowHandlerBase is Test {
         note.feeAssetId = feeAsset;
         uint32 submittedAt = _submittedAt(id);
 
-        // The payer is `vm.etch`ed with MockERC1271 so Permit2's ERC-1271
-        // check passes at submit. That gives it code, and MASP restricts
-        // cancel to the payer itself whenever `payer.code.length != 0` (a
-        // contract payer must observe its own refund). The prank satisfies
-        // that restriction; without it every cancel reverts `PayerNotSender`.
-        // The prank sits directly before the pool call so nothing consumes it.
+        // The payer has code: MockERC1271 is etched there so Permit2's
+        // ERC-1271 check passes at submit. MASP accepts a cancel for a payer
+        // with code only from the payer itself, so without the prank every
+        // cancel reverts `PayerNotSender`. The prank sits directly before the
+        // pool call so nothing consumes it.
         vm.prank(payer);
-        masp.cancelDeposit(id, preimagePublicIn[id], preimageCm0[id], zCv, ASSET_ID, FEE_BPS, payer, submittedAt, note);
+        masp.cancelDeposit(id, preimagePublicIn[id], preimageInner[id], ASSET_ID, FEE_BPS, payer, submittedAt, note, 0);
 
         _onCancelled(id);
     }
@@ -198,7 +198,7 @@ abstract contract EscrowHandlerBase is Test {
 
 /// Shared `setUp` for the escrow invariant suites: a single-asset pool on the
 /// real verifier stack, a permissive ERC-1271 payer, and tree-update proofs
-/// accepted, the only `flushBatch` dependency that needs a depth-10 proof.
+/// accepted, the only `flushBatch` dependency that needs a depth-11 proof.
 ///
 /// Each suite deploys its own handler after `_setUpPool` and registers it with
 /// `_targetHandler`, keeping the fuzz surface to the five handler paths.
@@ -237,9 +237,9 @@ abstract contract EscrowInvariantTestBase is Test {
         Stubs.acceptTreeUpdateProofs(tubVerifier, true);
     }
 
-    /// Runs between pool deployment and the stubs. Contracts created here keep
-    /// the addresses they had before this base existed, since the stubs also
-    /// deploy from this contract and advance its nonce.
+    /// Runs between pool deployment and the stubs. The stubs also deploy from
+    /// this contract and advance its nonce, so the address of a contract
+    /// created here does not depend on them.
     function _afterPoolDeployed() internal virtual { }
 
     /// Targets `h`, restricted to its five handler paths. `submitSelector` is

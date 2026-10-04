@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-/// Expected amounts for the pool's percentage fees, as tests restate them.
+/// Expected amounts for the pool's percentage fees.
 ///
-/// Deliberately a restatement rather than a call into `Fees`: a test that
-/// derived its expectation from the code under test could not catch a change to
-/// it. Rounds down, as the pool does.
+/// A restatement rather than a call into `Fees`: a test that derived its
+/// expectation from the code under test could not catch a change to it. Rounds
+/// down, as the pool does.
 library FeeMath {
     uint256 internal constant BPS = 10_000;
 

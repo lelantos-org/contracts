@@ -10,8 +10,7 @@ import { ISwapAdapter } from "../../../src/swap/ISwapAdapter.sol";
 /// `actualOut` of `tokenOut`. Lets tests model happy paths, dust, and
 /// slippage reverts without a real DEX.
 contract MockSwapAdapter is ISwapAdapter {
-    /// Amount of `tokenOut` the next `swap` call will push back. Tests
-    /// set this before invoking the wrapper.
+    /// Amount of `tokenOut` the next `swap` call pushes back.
     uint256 public nextActualOut;
     /// If true, the next call returns without sending any `tokenOut`,
     /// simulating a faulty venue.

@@ -29,11 +29,11 @@ interface ISeedableRouter {
 
 /// Test/anvil swap stack: deploys the UniV3 mocks (`MockQuoterV2`,
 /// `MockSwapRouter02`) and the UniV4 mocks (`MockV4Quoter`,
-/// `MockUniversalRouter`), both adapters and `SwapWrapper`, then seeds the
+/// `MockUniversalRouter`), both adapters and `SwapWrapper`, seeds the
 /// linear-rate tables across the four canonical fee tiers, then deploys the
-/// `BundlerFactory` over MASP, the native adapter and the wrapper, and
-/// optionally the relayer's `Bundler`. Run after `DeployTest.s.sol`, whose KEY=value output
-/// supplies the env vars below.
+/// `GenericCallWrapper`, the `BundlerFactory` over MASP, the native adapter and
+/// both wrappers, and optionally the relayer's `Bundler`. Run after
+/// `DeployTest.s.sol`, whose KEY=value output supplies the env vars below.
 ///
 /// Required env (populated from DeployTest output):
 ///   MASP                — MASP address
@@ -51,8 +51,8 @@ interface ISeedableRouter {
 ///   BUNDLER_OWNER       — transfers that Bundler to this owner; unset leaves
 ///                          the broadcaster owning it
 ///
-/// Assumes the 3-asset fixture (test/fixtures/asset_registry.json). For
-/// a different asset count update `_swapRate` accordingly.
+/// Assumes the 3-asset fixture (test/fixtures/asset_registry.json). A different
+/// asset count requires updating `run` and `_swapRate`.
 contract DeployTestSwap is BaseSwapDeploy {
     uint256 private constant GAS_ESTIMATE = 80_000;
 
@@ -135,11 +135,8 @@ contract DeployTestSwap is BaseSwapDeploy {
     }
 
     /// Seeds one venue's rate tables for every directed pair across the four
-    /// canonical fee tiers.
-    ///
-    /// Both venues' mocks expose the same two `setRate` shapes, so one
-    /// implementation serves both. It is called once per venue because holding
-    /// all four mock handles at once exceeds the stack limit.
+    /// canonical fee tiers. Called once per venue because holding all four mock
+    /// handles at once exceeds the stack limit.
     function _seedVenue(ISeedableQuoter quoter, ISeedableRouter router, address[] memory tokens) private {
         uint24[4] memory fees = [uint24(100), uint24(500), uint24(3000), uint24(10000)];
         for (uint256 i; i < tokens.length; ++i) {

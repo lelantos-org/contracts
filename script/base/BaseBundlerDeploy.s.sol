@@ -12,8 +12,7 @@ import { BundlerFactory } from "../../src/bundler/BundlerFactory.sol";
 /// The factory fixes the contracts every Bundler may call, so it is deployed
 /// after all of them exist: MASP → NativeAdapter → SwapWrapper →
 /// GenericCallWrapper → BundlerFactory → Bundler. The swap scripts deploy both
-/// wrappers, so they deploy
-/// the factory too.
+/// wrappers, so they deploy the factory too.
 abstract contract BaseBundlerDeploy is Script {
     /// `nativeAdapter`, `swapWrapper` and `genericCallWrapper` may be zero on a
     /// chain without them.

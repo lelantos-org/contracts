@@ -87,7 +87,6 @@ contract TimelockRolesTest is GovTestBase {
         timelock.schedule(address(masp), 0, "", bytes32(0), bytes32(0), TIMELOCK_DELAY);
     }
 
-    /// Governance can revoke the guardian's veto by proposal.
     function test_governanceCanRevokeTheGuardiansVeto() public {
         bytes32 cancellerRole = timelock.CANCELLER_ROLE();
         (address[] memory t, uint256[] memory v, bytes[] memory c) =

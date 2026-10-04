@@ -25,17 +25,17 @@
 //     any signature passes.
 //   - Merkle roots. `committedCount` is modelled as leaf accounting; the root
 //     ring is modelled separately in spec/commitment_tree.qnt.
-//   - Value commitments, ciphertexts, clue keys. Not relevant to the state
-//     machine.
+//   - Note contents (`inner`, and the leaf the batch circuit builds from it),
+//     ciphertexts, clue keys. Not relevant to the state machine.
 //   - Yield assets, the spend path, upgrades, pausing, multi-asset batches and
 //     multi-deposit batches. One plain asset, one deposit per flush.
 //   - The delayed commit of a cancel-delay raise. `setCancelDelay` models a
 //     lengthening as leaving the live delay unchanged, which is what the
 //     contract does at the call; the queued value, its 30-day notice and
 //     `commitExitTerms` (timestamp-driven, where this model counts blocks)
-//     are covered by test/masp/MASP.deposit.t.sol and MASP.upgrade.t.sol.
-//     Once the delay is shortened, the model therefore never lengthens it
-//     again.
+//     are covered by test/masp/MASP.deposit.t.sol and
+//     test/upgrade/MASP.upgrade.t.sol. Once the delay is shortened, the model
+//     therefore never lengthens it again.
 //   - Fee rounding. `_computeAmounts` floors `inAmt * fbps / BPS`. The asset's
 //     scale is 1e10, a multiple of BPS, so the division is exact for every
 //     `publicIn` the model can draw and for any fee rate. A ceil-div in the
@@ -47,7 +47,7 @@
 //     invariants below do not check fee rounding.
 //
 //   - Every rejection `_validateDeposit` performs: zero `publicIn`, zero payer,
-//     recipient or commitment, wrong chain id, unknown or disabled asset,
+//     recipient or `inner`, wrong chain id, unknown or disabled asset,
 //     malformed aux. The driver submits only well-formed deposits, so the model
 //     has no rejected-submit action; the unit suite covers these rejections.
 module masp {
@@ -116,8 +116,7 @@ module masp {
   var guardViolations: int
 
   /// Ghost. Latches when a deposit is flushed or cancelled while its asset is
-  /// disabled. Witnessed below: disabling stops new inflow without stranding
-  /// escrowed deposits, and the witness shows the traces exercise that case.
+  /// disabled; see `wit_settledWhileDisabled`.
   var settledWhileDisabled: bool
 
   /// Ghost. Latches when a deposit is cancelled at a block the default delay
@@ -215,7 +214,7 @@ module masp {
         status: Pending,
       }),
       nextId' = nextId + 1,
-      // Principal and fee both land in the pool; the rest of the ledger by hand.
+      // Principal and fee both land in the pool; the other balances are unchanged.
       poolBalance' = poolBalance + principal + fee,
       accruedFee' = accruedFee,
       treasuryBalance' = treasuryBalance,

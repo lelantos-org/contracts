@@ -5,7 +5,7 @@ import { SnarkCompression } from "../../src/SnarkCompression.sol";
 import { GenericCallWrapper } from "../../src/generic/GenericCallWrapper.sol";
 
 /// Test-side `pi_w.intentHash`, written over a `memory` payload independently of
-/// `GenericCallWrapper._intentHash`, which reads calldata.
+/// `GenericCallWrapper.intentHash`, which reads calldata.
 library GenericIntent {
     function hash(GenericCallWrapper.GenericArgs memory a) internal pure returns (uint256) {
         return uint256(

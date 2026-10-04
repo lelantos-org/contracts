@@ -31,7 +31,7 @@ contract EscrowFeeHandler is EscrowHandlerBase {
     mapping(uint256 => uint64) public relayerFeeIn;
     /// id → the asset the relayer note is paid in: `ASSET_ID` or `FEE_ASSET_ID`.
     mapping(uint256 => uint64) public relayerFeeAsset;
-    /// id → still pending?
+    /// id → whether the escrow is still pending.
     mapping(uint256 => bool) public pending;
     /// id → the block the escrow digest binds as `submittedAt`.
     mapping(uint256 => uint32) public preimageSubmittedAt;
@@ -52,7 +52,6 @@ contract EscrowFeeHandler is EscrowHandlerBase {
         feeToken = ft;
     }
 
-    /// Handler: submit a fresh deposit.
     function submit(uint64 publicIn, uint64 feeIn, bool crossAsset) external {
         publicIn = uint64(bound(publicIn, 1, 1_000));
         // Non-zero: a zero-value fee note would let solvency hold regardless of
@@ -112,10 +111,10 @@ contract EscrowFeeHandler is EscrowHandlerBase {
         return bytes32(uint256(masp.committedCount()) + 1);
     }
 
-    /// The note as escrowed. A zero-value note declares asset 0:
-    /// `tree_update_batch.circom` step 6a canonicalises the asset of a leaf
-    /// whose Pedersen binding cannot see it, and `_drainDeposit` requires the
-    /// match.
+    /// The note as escrowed. A zero-value note declares asset 0, "no asset":
+    /// submit requires it (`FeeAssetMustBeZero`) and the escrow digest holds it
+    /// as `FeeNote.feeAssetId`, which `_drainDeposit` rebuilds from the fee
+    /// leaf's `leafAsset`.
     function _feeLeaf(uint256 id) internal view override returns (uint64 assetId, uint64 feeIn) {
         return (relayerFeeIn[id] == 0 ? 0 : relayerFeeAsset[id], relayerFeeIn[id]);
     }
@@ -158,8 +157,9 @@ contract MASPEscrowFeeInvariantTest is EscrowInvariantTestBase {
         _targetHandler(handler, handler.submit.selector);
     }
 
-    /// The relayer fee token, registered as asset 2 under its own scale. Here
-    /// rather than after `_setUpPool` so its address is unchanged.
+    /// The relayer fee token, registered as asset 2 under its own scale.
+    /// Deployed here rather than after `_setUpPool` so its address does not
+    /// depend on the stubs' deployments.
     function _afterPoolDeployed() internal override {
         feeToken = new MockERC20("F", "F", 6);
         masp.addAsset(2, IERC20(address(feeToken)), 1e6, TestConstants.FEE_BPS, TestConstants.FEE_BPS);

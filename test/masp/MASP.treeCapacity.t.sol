@@ -14,7 +14,7 @@ import { MASPSpendHarness, deploySpendHarness } from "../utils/MASPSpendHarness.
 import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
 import { singleAsset } from "../utils/PoolDeployer.sol";
 
-/// The commitment tree's hard capacity (audit finding #3).
+/// The commitment tree's hard capacity.
 ///
 /// The tree holds `MAX_LEAVES = 4^11` leaves and never rolls over. Every
 /// `transfer` and `withdraw` appends `TRANSACT_OUT = 6` leaves, whatever their
@@ -37,7 +37,8 @@ contract MASPTreeCapacityTest is MockPoolTestBase {
     /// Codeless, so its escrow may be cancelled by anyone.
     address internal constant PAYER = address(0xEA0A);
     address internal constant BYSTANDER = address(0xdead);
-    bytes32 internal constant FEE_CM = bytes32(uint256(0xfee));
+    bytes32 internal constant DEPOSIT_INNER = bytes32(uint256(0x111));
+    bytes32 internal constant FEE_INNER = bytes32(uint256(0xfee));
 
     /// `masp` as its harness type, for `seedRoot`.
     MASPSpendHarness harness;
@@ -72,7 +73,8 @@ contract MASPTreeCapacityTest is MockPoolTestBase {
         returns (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi)
     {
         pi = _transact(SPEND_PAYER, RELAYER, seed, seed + 0x100);
-        pi.publicAssetId = ASSET_ID;
+        // A transfer names no asset.
+        pi.publicAssetId = publicOut == 0 ? 0 : ASSET_ID;
         pi.publicOut = publicOut;
         tpi = SpendFixture.spendTree(bytes32(seed + 0x200), masp.committedCount(), uint8(masp.rootIndex()));
     }
@@ -97,8 +99,8 @@ contract MASPTreeCapacityTest is MockPoolTestBase {
         d.publicIn = PUBLIC_IN;
         d.payer = PAYER;
         d.recipient = RECIPIENT;
-        d.outCm = bytes32(uint256(0x111));
-        d.feeCm = FEE_CM;
+        d.inner = DEPOSIT_INNER;
+        d.feeInner = FEE_INNER;
         id = masp.depositAuthorized(d, SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
         vm.stopPrank();
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -204,13 +206,13 @@ contract MASPTreeCapacityTest is MockPoolTestBase {
         (uint256 refunded,) = masp.cancelDeposit(
             id,
             uint48(PUBLIC_IN),
-            bytes32(uint256(0x111)),
-            [uint256(0), 0],
+            DEPOSIT_INNER,
             ASSET_ID,
             0,
             PAYER,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: FEE_CM, feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeInner: FEE_INNER }),
+            0
         );
 
         assertEq(refunded, uint256(PUBLIC_IN) * SCALE, "whole pull refunded");

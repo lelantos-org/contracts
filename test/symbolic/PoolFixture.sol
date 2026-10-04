@@ -34,8 +34,9 @@ import { deployPoolUniform, singleAsset } from "../utils/PoolDeployer.sol";
 ///   The spend verifier returns `true` so it is never the cause of a failure;
 ///   `initialize` probes it, so the address must have code.
 ///
-/// Every proof built on this either rejects before reaching a verifier or
-/// concerns state the verifier does not affect.
+/// Every proof built on this rejects before reaching a verifier, concerns state
+/// the verifier does not affect, or runs a concrete fixture to acceptance to
+/// anchor the rejections, which says nothing about the proof it carries.
 function deployMockedPool(IERC20 asset, uint16 feeBps, address permit2, address treasury, address owner)
     returns (MASP)
 {
@@ -90,15 +91,12 @@ abstract contract PoolFixture is GuardAsserts {
     /// advanced.
     bytes32 internal constant EMPTY_ROOT = 0x1cf92e62b512433b35f0064d537576b0184cad5fa7ab64201cd8084ee2dc171f;
 
-    /// The concrete fields of the escrow preimage `_submit` writes. `cm` is
-    /// supplied by the caller and is expected to be symbolic; see `_submit`.
+    /// The concrete fields of the escrow preimage `_submit` writes. `inner`,
+    /// the owner half of the depositor's note, is supplied by the caller and is
+    /// expected to be symbolic; see `_submit`.
     uint48 internal constant PUBLIC_IN = 100;
-    uint256 internal constant CV_DEP_X = 0x11;
-    uint256 internal constant CV_DEP_Y = 0x22;
     uint48 internal constant FEE_IN = 7;
-    bytes32 internal constant FEE_CM = bytes32(uint256(0xfee5));
-    uint256 internal constant FEE_CV_DEP_X = 0x33;
-    uint256 internal constant FEE_CV_DEP_Y = 0x44;
+    bytes32 internal constant FEE_INNER = bytes32(uint256(0xfee5));
 
     MASP internal masp;
     MockERC20 internal token;
@@ -120,20 +118,18 @@ abstract contract PoolFixture is GuardAsserts {
 
     // --- deposit fixtures ---------------------------------------------------
 
-    /// A deposit request that passes every guard, with `cm` supplied by the
+    /// A deposit request that passes every guard, with `inner` supplied by the
     /// caller.
-    function _request(bytes32 cm) internal view returns (PubInputs.DepositRequest memory d) {
+    function _request(bytes32 inner) internal view returns (PubInputs.DepositRequest memory d) {
         d.chainId = block.chainid;
         d.publicAssetId = ASSET_ID;
         d.publicIn = PUBLIC_IN;
         d.payer = address(this);
         d.recipient = RECIPIENT;
-        d.outCm = cm;
-        d.cvDep = [CV_DEP_X, CV_DEP_Y];
+        d.inner = inner;
         d.feeIn = FEE_IN;
         d.feeAssetId = ASSET_ID;
-        d.feeCm = FEE_CM;
-        d.feeCvDep = [FEE_CV_DEP_X, FEE_CV_DEP_Y];
+        d.feeInner = FEE_INNER;
     }
 
     /// A concrete, valid aux payload: the Baby-Jubjub prime-order generator in
@@ -149,43 +145,31 @@ abstract contract PoolFixture is GuardAsserts {
 
     /// Submits the escrow a proof starts from, recording its block.
     ///
-    /// `cm` must be symbolic. Halmos models `keccak256` as an uninterpreted
+    /// `inner` must be symbolic. Halmos models `keccak256` as an uninterpreted
     /// function with an injectivity axiom, which relates uninterpreted hash terms
     /// to each other but not to a concretely computed hash. With a fully concrete
     /// preimage, `escrowed[id]` holds a literal constant and the solver can choose
     /// a symbolic preimage whose uninterpreted hash equals it, producing a
     /// spurious counterexample. With one field symbolic, both sides are
     /// uninterpreted terms and the injectivity axiom applies.
-    function _submit(bytes32 cm) internal returns (uint256 id) {
+    function _submit(bytes32 inner) internal returns (uint256 id) {
         submittedAt = uint32(block.number);
         AuxValidation.Output[6] memory aux = _aux();
-        id = masp.depositAuthorized(_request(cm), aux[0], aux[1]);
+        id = masp.depositAuthorized(_request(inner), aux[0], aux[1]);
     }
 
     /// The fee note matching what `_submit` escrowed.
     function _submittedFeeNote() internal pure returns (PubInputs.FeeNote memory) {
-        return PubInputs.FeeNote({
-            feeIn: FEE_IN, feeAssetId: ASSET_ID, feeCm: FEE_CM, feeCvDep: [FEE_CV_DEP_X, FEE_CV_DEP_Y]
-        });
+        return PubInputs.FeeNote({ feeIn: FEE_IN, feeAssetId: ASSET_ID, feeInner: FEE_INNER });
     }
 
-    /// Cancels with the preimage `_submit` escrowed under `cm`.
-    function _cancelSubmitted(uint256 id, bytes32 cm) internal returns (bool ok) {
+    /// Cancels with the preimage `_submit` escrowed under `inner`.
+    function _cancelSubmitted(uint256 id, bytes32 inner) internal returns (bool ok) {
         (ok,) = address(masp)
             .call(
                 abi.encodeCall(
                     MASP.cancelDeposit,
-                    (
-                        id,
-                        PUBLIC_IN,
-                        cm,
-                        [CV_DEP_X, CV_DEP_Y],
-                        ASSET_ID,
-                        FEE_BPS,
-                        address(this),
-                        submittedAt,
-                        _submittedFeeNote()
-                    )
+                    (id, PUBLIC_IN, inner, ASSET_ID, FEE_BPS, address(this), submittedAt, _submittedFeeNote(), 0)
                 )
             );
     }

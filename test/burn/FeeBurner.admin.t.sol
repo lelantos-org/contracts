@@ -126,7 +126,7 @@ contract FeeBurnerAdminTest is FeeBurnerTestBase {
     }
 
     /// An enabled lot needs a non-zero `minLot`: without one, any dust fill is
-    /// ratchet-eligible and the donate-and-clear loop is back.
+    /// ratchet-eligible, which enables the donate-and-clear loop.
     function test_revert_BadMinLot_zeroMinLotWhenEnabled() public {
         vm.prank(timelockOwner);
         vm.expectRevert(FeeBurner.BadMinLot.selector);

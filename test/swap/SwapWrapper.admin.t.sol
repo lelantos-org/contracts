@@ -15,8 +15,6 @@ import { SwapWrapperUnitBase } from "./SwapWrapperUnitBase.sol";
 /// treasury setter, constructor zero-address checks, `prepareToken`, and the
 /// same-token guard.
 contract SwapWrapperAdminTest is SwapWrapperUnitBase {
-    // -------- admin -----------------------------------------------------
-
     function test_onlyOwnerCanAllowAdapter() public {
         vm.prank(address(0xBAD));
         vm.expectRevert();
@@ -73,7 +71,8 @@ contract SwapWrapperAdminTest is SwapWrapperUnitBase {
     }
 
     function test_prepareTokenSetsBothAllowances() public {
-        // tokenA has no Permit2 allowance until prepareToken runs.
+        // `setUp` already armed tokenA, so this call is a repeat; `prepareToken`
+        // is idempotent.
         wrapper.prepareToken(IERC20(address(tokenA)));
         assertEq(tokenA.allowance(address(wrapper), address(permit2)), type(uint256).max);
         (uint160 cap,,) = permit2.allowance(address(wrapper), address(tokenA), address(pool));

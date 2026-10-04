@@ -102,8 +102,8 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
         // Expiry (unix seconds). Past it the venue leg fails `SwapExpired` and
         // the swap refunds; it is also forwarded to the adapter.
         uint256 deadline;
-        // Where a cancelled output escrow refunds. Must be an account that can
-        // move tokens, never the driver when that is a contract.
+        // Where a cancelled escrow refunds. Must be an account that can move
+        // tokens, never the driver when that is a contract.
         address refundTo;
         // --- leg 1: withdraw A from MASP into the wrapper ---
         IMASPPool.Proof p_w;
@@ -118,10 +118,10 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
         AuxValidation.Output aux_d;
         // The relayer leaf's payload. Not optional and not zeroable: MASP runs
         // it through `AuxValidation` like any other, so a zeroed struct reverts
-        // `CiphertextTooShort` and `deposit_d.feeCm == 0` reverts `ZeroCm`. To
-        // pay no flush relayer, set `deposit_d.feeIn` to zero and
-        // `deposit_d.feeAssetId` to 0, and still supply a well-formed payload;
-        // the leaf is minted either way.
+        // `CiphertextTooShort` and `deposit_d.feeInner == 0` reverts
+        // `ZeroInner`. To pay no flush relayer, set `deposit_d.feeIn` and
+        // `deposit_d.feeAssetId` to zero and still supply a well-formed
+        // payload; the leaf is minted either way.
         //
         // A valued relayer note is in B: `deposit_d.feeAssetId` must equal
         // `deposit_d.publicAssetId`. The wrapper holds only what the venue
@@ -144,9 +144,8 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
     }
 
     /// Gas held back from the venue leg so a failed one can still be refunded:
-    /// the refund escrow, the leftover checks and the event. Should the venue
-    /// run out of gas instead, `swap` reverts `VenueOutOfGas` rather than refund
-    /// a swap that more gas would have completed.
+    /// the refund escrow, the leftover checks and the event. A venue leg that
+    /// runs out of gas reverts `VenueOutOfGas` instead; see `_tryVenueLeg`.
     uint256 internal constant REFUND_GAS_RESERVE = 400_000;
 
     constructor(IMASPPool pool, IAllowanceTransfer permit2, address owner_, address treasury_)
@@ -158,12 +157,10 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
         emit TreasurySet(treasury_);
     }
 
-    /// Who a canceled escrow refunds to, and what the pool pulled for it.
-    /// `MASP.cancelDeposit` returns the coin to the digest-bound payer, this
-    /// wrapper, so without a record the refund would have no owner. The owner is
-    /// the intent-bound `refundTo`. The token is not stored: it is the registry
-    /// token of the deposit's `publicAssetId`, read from its `DepositEscrowed`
-    /// event.
+    /// Who a cancelled escrow refunds to, the intent-bound `refundTo`, and what
+    /// the pool pulled for it; see `MaspEscrowSatellite.Escrow`. The token is
+    /// not stored: it is the registry token of the deposit's `publicAssetId`,
+    /// read from its `DepositEscrowed` event.
     function escrows(uint256 depositId) external view returns (address refundTo, uint256 amount) {
         Escrow storage e = _escrows[depositId];
         return (e.refundTo, e.amount);
@@ -311,13 +308,13 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
         // in `_cancelAndVerify`, and this wrapper cannot pay itself, so either
         // would strand the escrow.
         if (a.refundTo == address(0) || a.refundTo == address(this)) revert InvalidRefundTo();
-        // Every amount below is measured as a balance delta in `tokenIn` or
-        // `tokenOut`, so each must be the token the pool actually moves on that
-        // leg. `tokenIn` is outside the intent, but `pi_w.publicAssetId` is a
-        // proof input, so binding it to that asset's registry token fixes it.
-        // Without these checks a token with a scripted `balanceOf` passes every
-        // pull bound and the leftover check, while `refund_d` escrows whatever
-        // real token the wrapper holds into the caller's note.
+        // Every amount in `swap` is measured as a balance delta in `tokenIn` or
+        // `tokenOut`, so each must be the token the pool moves on that leg.
+        // `tokenIn` is outside the intent, but `pi_w.publicAssetId` is a proof
+        // input, so binding it to that asset's registry token fixes it. Without
+        // these checks a token with a scripted `balanceOf` passes every pull
+        // bound and the leftover check, while `refund_d` escrows whatever real
+        // token the wrapper holds into the caller's note.
         address inToken = POOL.asset(a.pi_w.publicAssetId).token;
         if (a.tokenIn != inToken) revert TokenInMismatch();
         if (a.refund_d.publicAssetId != a.pi_w.publicAssetId && POOL.asset(a.refund_d.publicAssetId).token != inToken) {
@@ -334,13 +331,11 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
         if (a.pi_w.intentHash != _intentHash(a)) revert IntentMismatch();
     }
 
-    /// The value a swap's withdraw proof must carry as `pi_w.intentHash`:
-    /// `keccak256(abi.encode(refundTo, tokenOut, minOut, adapter, deadline,
-    /// deposit_d, aux_d, fee_aux_d, refund_d, refund_aux_d, refund_fee_aux_d))`
-    /// reduced into the BN254 scalar field, so every off-chain challenge
-    /// implementation handles it as a field element. `DepositRequest` encodes
-    /// in place, `feeAssetId` included, so its field order is part of this
-    /// preimage.
+    /// The value a swap's withdraw proof must carry as `pi_w.intentHash`: the
+    /// keccak of the ABI encoding below, reduced into the BN254 scalar field so
+    /// every off-chain challenge implementation handles it as a field element.
+    /// `DepositRequest` encodes in place, `feeAssetId` included, so its field
+    /// order is part of this preimage.
     function _intentHash(SwapArgs calldata a) private pure returns (uint256) {
         return uint256(
             keccak256(
@@ -377,10 +372,9 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
     /// V3 path is 3–5 frames deep (`venueLeg`, adapter, router, pool, token
     /// callback), and misclassifying such an out-of-gas as a market failure
     /// would let the driver, who picks the gas limit, force a refund. 1/8
-    /// covers about eight frames. The cost is that a venue that
-    /// reverts on its own after spending over 7/8 of its budget reverts the
-    /// swap instead of refunding it; the sender retries with more gas and gets
-    /// the refund then.
+    /// covers about eight frames. The cost is that a venue that reverts on its
+    /// own after spending over 7/8 of its budget reverts the swap instead of
+    /// refunding it; the sender retries with more gas and gets the refund then.
     function _tryVenueLeg(SwapArgs calldata a, uint256 amountIn)
         private
         returns (bool swapped, uint256 actualOut, bytes4 reason)
@@ -442,11 +436,10 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
 
     // -------- escrow recovery -------------------------------------------
 
-    /// Cancels an escrow this wrapper created and returns the refund to the
-    /// intent-bound `refundTo`. Anyone may call; the destination is the
-    /// recorded `refundTo`, not the caller. The digest preimage comes from the
-    /// deposit's `DepositEscrowed` event, less `payer`, which is always this
-    /// wrapper.
+    /// Cancels an escrow this wrapper created and pays the refund to its
+    /// recorded, intent-bound `refundTo`. Anyone may call. The digest preimage
+    /// comes from the deposit's `DepositEscrowed` event, less `payer`, which is
+    /// always this wrapper.
     ///
     /// `feeNote` is the relayer leaf's half of that preimage. The wrapper cannot
     /// reconstruct it: MASP binds it at submit from caller-supplied calldata and
@@ -464,15 +457,15 @@ contract SwapWrapper is MaspEscrowSatellite, OwnableInit {
     function cancelEscrow(
         uint256 depositId,
         uint48 publicIn,
-        bytes32 cm,
-        uint256[2] calldata cvDep,
+        bytes32 inner,
         uint64 publicAssetId,
         uint16 fbps,
         uint32 submittedAt,
-        PubInputs.FeeNote calldata feeNote
+        PubInputs.FeeNote calldata feeNote,
+        uint256 pulled
     ) external nonReentrant {
         (IERC20 token, address refundTo, uint256 amount) = _cancelAndVerify(
-            depositId, publicIn, cm, cvDep, publicAssetId, fbps, submittedAt, feeNote
+            depositId, publicIn, inner, publicAssetId, fbps, submittedAt, feeNote, pulled
         );
 
         token.safeTransfer(refundTo, amount);

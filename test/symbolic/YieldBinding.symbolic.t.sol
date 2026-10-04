@@ -98,12 +98,13 @@ contract YieldBindingSymbolicTest is GuardAsserts {
     /// configuration calls; a new function that writes yield or registry state
     /// must be added there by hand.
     function check_yieldVenueBindingIsPermanent(uint64 id, address otherVenue) public {
-        vm.assume(id != PLAIN_ID);
+        // Id 0 is "no asset" and cannot be registered; see
+        // `check_addYieldAsset_rejectsZeroId`.
+        vm.assume(id != PLAIN_ID && id != 0);
 
         (bool added,) = _addYieldAsset(id, address(venue));
         assertTrue(added, "venue bound");
 
-        // A second registration of the same id, pointing anywhere else.
         (bool rebound,) = _addYieldAsset(id, otherVenue);
         assertFalse(rebound, "id cannot be re-registered");
 
@@ -126,7 +127,7 @@ contract YieldBindingSymbolicTest is GuardAsserts {
         address(masp).call(abi.encodeCall(AssetRegistry.setAssetDisabled, (YIELD_ID, true)));
         vm.stopPrank();
 
-        // A raised `perfBps` is only queued; land it too.
+        // A raised `perfBps` is only queued, so it is committed as well.
         vm.warp(block.timestamp + ExitTerms.DELAY);
         address(masp).call(abi.encodeCall(MASP.commitExitTerms, (YIELD_ID)));
 
@@ -178,6 +179,8 @@ contract YieldBindingSymbolicTest is GuardAsserts {
     /// ids on one venue would both count its position in `gross`.
     function check_addYieldAsset_rejectsVenueBoundToAnotherId(uint64 first, uint64 second) public {
         vm.assume(first != PLAIN_ID && second != PLAIN_ID && first != second);
+        // Neither is id 0, which the registry refuses before any venue check.
+        vm.assume(first != 0 && second != 0);
 
         (bool added,) = _addYieldAsset(first, address(venue));
         assertTrue(added, "venue bound");
@@ -186,6 +189,17 @@ contract YieldBindingSymbolicTest is GuardAsserts {
 
         _assertRejected(ok, ret, YieldOps.VenueAlreadyBound.selector);
         assertFalse(masp.isYieldAsset(second), "second id not bound");
+    }
+
+    /// Id 0 cannot be bound to a venue either: the yield entry point registers
+    /// through the same `_addAsset`, which refuses it before any venue is read.
+    /// Zero means "no asset" to the circuits, so it has neither custody nor an
+    /// index.
+    function check_addYieldAsset_rejectsZeroId() public {
+        (bool ok, bytes memory ret) = _addYieldAsset(0, address(venue));
+
+        _assertRejected(ok, ret, AssetRegistry.ZeroAssetId.selector);
+        assertFalse(masp.isYieldAsset(0), "nothing bound on a rejected registration");
     }
 
     /// A zero venue is rejected, so the yield entry point cannot register a plain

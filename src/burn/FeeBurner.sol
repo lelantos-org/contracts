@@ -19,8 +19,8 @@ interface IFeeSweeper {
 /// The burner is the address `MASP.treasury` and `SwapWrapper.treasury` point at.
 /// All three fee paths — `FeeConfig.sweep`, `YieldOps.sweepNormalized` and the
 /// wrapper's slippage-dust push — are permissionless `safeTransfer`s to that
-/// address, so no protocol contract requires modification and this contract holds
-/// no allowances.
+/// address, so the protocol contracts need no burner-specific code and this
+/// contract holds no allowances.
 ///
 /// ## Auction rather than swap
 ///
@@ -146,8 +146,8 @@ contract FeeBurner is OwnableInit, ReentrancyGuardTransient {
     /// Current asking price for `token`, in GOV wei per base unit, scaled by
     /// `PRICE_SCALE`. Zero for an unconfigured or disabled lot.
     ///
-    /// Pure function of stored lot state and `block.timestamp`. It reads nothing
-    /// external, which is what makes the auction unsandwichable.
+    /// Depends only on stored lot state and `block.timestamp`; see the contract
+    /// comment for why no external state is read.
     function priceOf(IERC20 token) public view returns (uint256) {
         // `_priceOf` only reads its argument; the storage-to-memory copy carries
         // no write that could fail to reach storage.
@@ -190,10 +190,9 @@ contract FeeBurner is OwnableInit, ReentrancyGuardTransient {
     /// `maxGovIn` bounds what the bidder pays. The price decays with time and
     /// rises only when an earlier fill ratchets it, which this bound covers.
     ///
-    /// The ratchet is weighted by fill size: a size-blind ratchet would let
-    /// repeated dust fills raise the price and restart the clock, preventing a lot
-    /// from clearing. Weighting by fill fraction makes a dust fill move the price
-    /// proportionally.
+    /// The ratchet is weighted by fill fraction, so a dust fill moves the price
+    /// proportionally. A size-blind ratchet would let repeated dust fills raise
+    /// the price and restart the clock, preventing a lot from clearing.
     ///
     /// Follows CEI: the lot is re-priced before any transfer, since `token` is a
     /// governance-registered ERC-20 that may re-enter.
@@ -218,8 +217,7 @@ contract FeeBurner is OwnableInit, ReentrancyGuardTransient {
         // Dust floor, with an escape so the final remainder is always sellable.
         if (amountOut < l.minLot && amountOut != bal) revert BelowMinLot(amountOut, l.minLot);
 
-        // Rounds toward the protocol, matching `YieldOps.sweepNormalized`
-        // ("rounding points away from the treasury").
+        // Rounds up, so the bidder never pays less than the exact price.
         govIn = Math.mulDiv(amountOut, price, PRICE_SCALE, Math.Rounding.Ceil);
         // Unreachable under the current bounds: rounding up means any non-zero
         // `amountOut` at a non-zero price costs at least 1 wei, and an enabled
@@ -310,8 +308,8 @@ contract FeeBurner is OwnableInit, ReentrancyGuardTransient {
         if (address(token) == address(GOV)) revert CannotAuctionGov();
         if (enabled && (startPrice == 0 || minPrice == 0 || minPrice > startPrice)) revert BadLotPrices();
         // A zero `minLot` lets any dust fill ratchet the price; see `buy`. Size it
-        // well above what a donate-and-buy loop is worth: each round must now buy
-        // at least `minLot` at a doubling price.
+        // well above what a donate-and-buy loop is worth: each round of the loop
+        // must buy at least `minLot` at a doubling price.
         if (enabled && minLot == 0) revert BadMinLot();
 
         lots[token] = Lot({
@@ -368,13 +366,12 @@ contract FeeBurner is OwnableInit, ReentrancyGuardTransient {
     // ============== Internals ================================================
 
     function _setDecayParams(uint32 halfLife_, uint8 maxHalvings_, uint16 restartMultBps_) private {
-        // `halfLife == 0` divides by zero in `_priceOf`; the ratchet must not
-        // lower the price, and an unbounded multiplier could overflow a seed
-        // into uselessness.
+        // `halfLife == 0` divides by zero in `_priceOf`.
         if (halfLife_ == 0) revert BadDecayParams();
         if (maxHalvings_ == 0 || maxHalvings_ > 32) revert BadDecayParams();
-        // Ceiling is 5x. `restartMultBps` is a uint16, so a bound above 65_535
-        // would be dead code.
+        // Bounds as explained at the `restartMultBps` declaration. The ceiling
+        // is 5x; `restartMultBps` is a uint16, so a bound above 65_535 would be
+        // dead code.
         if (restartMultBps_ < BPS || restartMultBps_ > 50_000) revert BadDecayParams();
         halfLife = halfLife_;
         maxHalvings = maxHalvings_;
@@ -387,7 +384,6 @@ contract FeeBurner is OwnableInit, ReentrancyGuardTransient {
     /// inconsistent.
     function _setBurnPolicy(uint16 burnBps_, address treasury_) private {
         if (burnBps_ > BPS) revert BadBurnBps();
-        // Anything not burned must have somewhere to go.
         if (burnBps_ < BPS && treasury_ == address(0)) revert ZeroAddress();
         burnBps = burnBps_;
         secondaryTreasury = treasury_;

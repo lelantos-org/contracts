@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
-/// Polynomial evaluation for SNARK public-input compression. Folds N Groth16
-/// public inputs into two, `z` and `y = p(z)`.
+/// Polynomial evaluation for SNARK public-input compression. Folds N logical
+/// public inputs into `z` and `y = p(z)`, which reach the verifier beside the
+/// circuit's commitment to the coefficients, `digest`.
 ///
 /// The Schwartz-Zippel bound ("cheating succeeds with probability at most
 /// `deg(p) / R`") requires the coefficient vector fixed before `z` is drawn.
-/// That does not hold here: `z` is derived from calldata the prover authored,
-/// so the prover reads it before choosing a witness. The compression is binding
-/// because the circuit pins every coefficient it evaluates, leaving the prover
-/// no free variable to solve `p(z) = y` with. `PubInputs` establishes that; see
-/// its `compress` overloads.
+/// `z` is derived from calldata the prover authored, so on its own the
+/// evaluation does not meet that: the prover reads `z` before choosing a
+/// witness. It is met through `digest`: the circuit outputs a Poseidon
+/// commitment to its coefficients, and the calldata copy of that word is part
+/// of the preimage of `z`, so the witness is committed before the challenge.
+/// `PubInputs` establishes that; see `TRANSACT_COEFFS` there.
 library SnarkCompression {
     /// BN254 scalar field order (matches `Groth16Verifier.r`).
     uint256 internal constant R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -51,11 +53,11 @@ library SnarkCompression {
     {
         y = acc;
         // MULMOD and ADDMOD cost 8 gas each, so loop control dominates: the
-        // body is unrolled by two and the field check reverts in place. Every
-        // length the pool passes is even (46 for `4x6`, 52 for
-        // `tree_update_batch`), so the odd-length prologue below is unused on
-        // those paths. The entry point is generic, and without the prologue an
-        // odd-length run would read the word before `dataPtr`.
+        // body is unrolled by two and the field check reverts in place. The
+        // pool passes 13 for `4x6`, so the odd-length prologue below runs on
+        // every spend; 36 for a flush batch and 10 for a spend's batch image
+        // skip it. Without the prologue an odd-length run would read the word
+        // before `dataPtr`.
         uint256 errSel = uint256(uint32(CoefficientOutOfField.selector)) << 224;
         assembly ("memory-safe") {
             let r := R

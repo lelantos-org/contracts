@@ -113,7 +113,6 @@ contract NativeAdapterTest is NativeAdapterTestBase {
         assertEq(expiration, type(uint48).max, "allowance never expires");
     }
 
-    /// MASP does not accept raw native.
     function test_pool_rejectsRawNative() public {
         vm.deal(address(this), 1 ether);
         (bool ok,) = address(masp).call{ value: 1 }("");

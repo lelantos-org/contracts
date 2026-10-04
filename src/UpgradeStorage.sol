@@ -8,7 +8,7 @@ pragma solidity 0.8.36;
 /// layout across upgrades.
 library UpgradeStorage {
     /// `keccak256(abi.encode(uint256(keccak256("lelantos.storage.DelayedUpgrade")) - 1)) & ~bytes32(uint256(0xff))`
-    /// Re-derived in `UpgradeStorage.t.sol`.
+    /// Re-derived in `NamespaceSlots.t.sol`.
     bytes32 internal constant SLOT = 0xfae014a5d49f1423ef3edefa98c6ee7aa2d26ee322477f34a126074d398a3b00;
 
     /// Occupies one slot: 20 + 5 + 5 = 30 bytes. The pool reads this slot on

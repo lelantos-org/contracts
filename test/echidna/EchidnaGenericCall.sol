@@ -238,7 +238,7 @@ contract EchidnaGenericCall {
         PubInputs.FeeNote memory feeNote;
         // Units are bounded to 1e6 by every handler that books an escrow.
         // forge-lint: disable-next-line(unsafe-typecast)
-        try wrapper.cancelEscrow(id, uint48(e.units), bytes32(0), [uint256(0), 0], e.assetId, 0, 0, feeNote) {
+        try wrapper.cancelEscrow(id, uint48(e.units), bytes32(0), e.assetId, 0, 0, feeNote, 0) {
             if (settled) {
                 settledCancelAccepted = true;
                 return;
@@ -566,7 +566,7 @@ contract EchidnaGenericCall {
         a.pi_w.relayer = address(wrapper);
         a.pi_w.payer = address(this);
         a.refund_d = _request(ASSET_A, _refundUnits(w));
-        a.refund_d.outCm = bytes32(uint256(2));
+        a.refund_d.inner = bytes32(uint256(2));
     }
 
     function _output(uint64 assetId, uint64 units) internal view returns (GenericCallWrapper.Output memory o) {

@@ -12,17 +12,21 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 /// every builder returns a memory struct the caller can modify before use.
 ///
 /// Every deposit here carries the relayer fee note the pool always mints: zero
-/// value, so asset 0, and commitment `FEE_CM`. A test pricing the relayer fee
-/// sets `feeIn`, `feeAssetId` and the fee leaf itself.
+/// value, so asset 0, and inner commitment `FEE_INNER`. A test pricing the
+/// relayer fee sets `feeIn`, `feeAssetId` and the fee leaf itself.
+///
+/// The `bytes32` a deposit carries is its note's `inner`, not a note
+/// commitment: the batch circuit builds the leaf from the public amount and
+/// `inner`. These fixtures use arbitrary words, since no test here opens one.
 ///
 /// Cheatcode-free, so the Halmos and Echidna targets can use it too.
 library DepositFixture {
-    /// The fee note commitment every fixture deposit carries.
-    bytes32 internal constant FEE_CM = bytes32(uint256(0xfee));
+    /// The fee note `inner` every fixture deposit carries.
+    bytes32 internal constant FEE_INNER = bytes32(uint256(0xfee));
 
     /// A deposit of `publicIn` units of `assetId` on this chain, with a
     /// zero-value relayer fee note.
-    function request(uint64 assetId, uint64 publicIn, address payer, address recipient, bytes32 outCm)
+    function request(uint64 assetId, uint64 publicIn, address payer, address recipient, bytes32 inner)
         internal
         view
         returns (PubInputs.DepositRequest memory d)
@@ -32,8 +36,8 @@ library DepositFixture {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = recipient;
-        d.outCm = outCm;
-        d.feeCm = FEE_CM;
+        d.inner = inner;
+        d.feeInner = FEE_INNER;
     }
 
     /// A Permit2 signature for a payer carrying a permissive ERC-1271 stub
@@ -53,10 +57,11 @@ library DepositFixture {
     /// The fee-note half of the escrow preimage for a fixture deposit, as
     /// `cancelDeposit` takes it.
     function feeNote() internal pure returns (PubInputs.FeeNote memory note) {
-        note.feeCm = FEE_CM;
+        note.feeInner = FEE_INNER;
     }
 
-    /// `n` identical `DepositMeta` entries.
+    /// `n` identical `DepositMeta` entries for plain-asset deposits, which
+    /// carry no refund cap.
     function metas(uint256 n, address payer, uint32 submittedAt, uint16 fbps)
         internal
         pure
@@ -64,7 +69,7 @@ library DepositFixture {
     {
         m = new MASP.DepositMeta[](n);
         for (uint256 i; i < n; ++i) {
-            m[i] = MASP.DepositMeta({ payer: payer, submittedAt: submittedAt, fbps: fbps });
+            m[i] = MASP.DepositMeta({ payer: payer, submittedAt: submittedAt, fbps: fbps, pulled: 0 });
         }
     }
 
@@ -88,38 +93,24 @@ library DepositFixture {
     }
 
     /// Writes deposit `i`'s two leaves: the principal note, then the zero-value
-    /// relayer fee note. The fee leaf's asset is 0 because the circuit
-    /// canonicalises the asset of a leaf whose Pedersen binding cannot see it,
-    /// and `flushBatch` requires the match.
+    /// relayer fee note. The fee leaf's asset is 0, "no asset", which is what
+    /// submit requires of a zero-value note and so what the escrow digest
+    /// holds; `flushBatch` requires the match.
     function setDepositLeaves(
         PubInputs.TreeUpdateBatch memory tpi,
         uint256 i,
-        bytes32 cm,
-        uint256[2] memory cvDep,
+        bytes32 inner,
         uint64 assetId,
         uint64 publicIn
     ) internal pure {
         uint256 slot = i * PubInputs.LEAVES_PER_DEPOSIT;
-        tpi.cms[slot] = cm;
-        tpi.cvDeps[slot] = cvDep;
+        tpi.cms[slot] = inner;
         tpi.leafAsset[slot] = assetId;
         tpi.leafPublicIn[slot] = publicIn;
         tpi.isDeposit[slot] = 1;
-        tpi.cms[slot + 1] = FEE_CM;
+        tpi.cms[slot + 1] = FEE_INNER;
         tpi.leafAsset[slot + 1] = 0;
         tpi.leafPublicIn[slot + 1] = 0;
         tpi.isDeposit[slot + 1] = 1;
-    }
-
-    /// `setDepositLeaves` for a deposit with no value commitment.
-    function setDepositLeaves(
-        PubInputs.TreeUpdateBatch memory tpi,
-        uint256 i,
-        bytes32 cm,
-        uint64 assetId,
-        uint64 publicIn
-    ) internal pure {
-        uint256[2] memory zero;
-        setDepositLeaves(tpi, i, cm, zero, assetId, publicIn);
     }
 }

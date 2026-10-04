@@ -40,7 +40,6 @@ contract FeeBurnerPriceTest is FeeBurnerTestBase {
         assertEq(burner.priceOf(IERC20(address(token))), floorFromHalvings, "decayed past the halving clamp");
     }
 
-    /// When the floor is the tighter clamp, the floor binds.
     function test_priceClampsAtMinPriceWhenItBindsFirst() public {
         uint256 highFloor = SEED_PRICE / 2;
         vm.prank(timelockOwner);

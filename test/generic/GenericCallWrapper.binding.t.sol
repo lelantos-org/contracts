@@ -112,9 +112,9 @@ contract GenericCallWrapperBindingTest is GenericCallTestBase {
         _expectMismatch(a);
     }
 
-    function test_tamper_outputCommitment() public {
+    function test_tamper_outputInner() public {
         GenericCallWrapper.GenericArgs memory a = _bound();
-        a.outputs[0].deposit.outCm = bytes32(uint256(0xBAD));
+        a.outputs[0].deposit.inner = bytes32(uint256(0xBAD));
         _expectMismatch(a);
     }
 
@@ -126,7 +126,7 @@ contract GenericCallWrapperBindingTest is GenericCallTestBase {
 
     function test_tamper_outputFeeNote() public {
         GenericCallWrapper.GenericArgs memory a = _bound();
-        a.outputs[0].deposit.feeCm = bytes32(uint256(0xBAD));
+        a.outputs[0].deposit.feeInner = bytes32(uint256(0xBAD));
         _expectMismatch(a);
     }
 

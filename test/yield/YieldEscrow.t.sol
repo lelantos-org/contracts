@@ -10,30 +10,10 @@ import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
 
 import { YieldTestBase } from "../utils/YieldTestBase.sol";
-import { PoolSlots } from "../utils/PoolSlots.sol";
 
 /// The escrow half of the index: what flush and cancel do to the books.
 contract YieldEscrowTest is YieldTestBase {
     uint64 internal constant N = 1_000_000;
-
-    function _feeNote(uint256 seed) internal pure returns (PubInputs.FeeNote memory) {
-        return PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(seed + 1), feeCvDep: [uint256(0), 0] });
-    }
-
-    function _cancel(uint256 id, uint64 publicIn, uint256 seed, uint32 submittedAt) internal {
-        masp.cancelDeposit(
-            id, uint48(publicIn), bytes32(seed), [uint256(0), 0], YIELD_ID, FEE_BPS, payer, submittedAt, _feeNote(seed)
-        );
-    }
-
-    /// Slot of `MASP._escrowPulled`, taken from the shared map and pinned by
-    /// `StorageLayout.t.sol`. The mapping is private, so the cap is read from
-    /// raw storage.
-    uint256 internal constant SLOT_ESCROW_PULLED = PoolSlots.ESCROW_PULLED;
-
-    function _pulledCap(uint256 id) internal view returns (uint256) {
-        return uint256(vm.load(address(masp), keccak256(abi.encode(id, SLOT_ESCROW_PULLED))));
-    }
 
     /// Settles escrow `id` of `YIELD_ID` into a note, as a relayer's flush would.
     function _flush(uint256 id, uint64 publicIn, uint256 seed, uint32 submittedAt) internal {
@@ -52,7 +32,7 @@ contract YieldEscrowTest is YieldTestBase {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: submittedAt, fbps: FEE_BPS });
+        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: submittedAt, fbps: FEE_BPS, pulled: pulledOf[id] });
 
         masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
     }
@@ -118,24 +98,44 @@ contract YieldEscrowTest is YieldTestBase {
         assertLt(refunded, pulled, "and carries its share of the loss");
     }
 
-    /// The cap is recorded only for a yield escrow, and cleared on both exits
-    /// from the pending state, so no stale cap outlives its escrow.
-    function test_cancel_capIsClearedByFlushAndByCancel() public {
+    /// The cap is the amount pulled at submit, published in `DepositEscrowed`
+    /// and nowhere else: a yield escrow reports its pull, a plain one zero.
+    /// `pulledOf` holds what each deposit's log carried.
+    function test_cap_isThePullAndIsPublishedInTheEvent() public {
+        (uint256 yieldId, uint256 yieldPull) = _deposit(YIELD_ID, N, 0x101);
+        (uint256 plainId,) = _deposit(PLAIN_ID, N, 0x501);
+
+        assertGt(yieldPull, 0, "a yield escrow always pulls");
+        assertEq(pulledOf[yieldId], yieldPull, "the event carries the pull");
+        assertEq(pulledOf[plainId], 0, "a plain escrow carries no cap");
+    }
+
+    /// The digest binds the cap, so neither exit accepts another value: a
+    /// canceller cannot raise its own refund ceiling, lower someone else's, or
+    /// drop the cap altogether.
+    function test_revert_cap_isBoundByTheDigest() public {
         uint32 submittedAt = uint32(vm.getBlockNumber());
-        (uint256 flushed, uint256 flushedPull) = _deposit(YIELD_ID, N, 0x101);
-        (uint256 canceled, uint256 canceledPull) = _deposit(YIELD_ID, N / 2, 0x301);
-        (uint256 plain,) = _deposit(PLAIN_ID, N, 0x501);
-
-        assertEq(_pulledCap(flushed), flushedPull, "cap records the pull at submit");
-        assertEq(_pulledCap(canceled), canceledPull, "cap records the pull at submit");
-        assertEq(_pulledCap(plain), 0, "a plain escrow records no cap");
-
-        _flush(flushed, N, 0x101, submittedAt);
-        assertEq(_pulledCap(flushed), 0, "flush clears the cap");
-
+        (uint256 id, uint256 pulled) = _deposit(YIELD_ID, N, 0x101);
+        _earn(1_000 * SCALE);
         vm.roll(block.number + 7_201);
-        _cancel(canceled, N / 2, 0x301, submittedAt);
-        assertEq(_pulledCap(canceled), 0, "cancel clears the cap");
+
+        uint256[3] memory wrong = [pulled + 1, pulled - 1, uint256(0)];
+        for (uint256 k; k < wrong.length; ++k) {
+            // What the caller hands back in place of the submitted cap.
+            pulledOf[id] = wrong[k];
+
+            vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+            this.attemptCancel(id, N, 0x101, submittedAt);
+
+            vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+            this.attemptFlush(id, N, 0x101, submittedAt);
+        }
+        assertTrue(masp.escrowed(id) != bytes32(0), "escrow survives every rejected exit");
+
+        pulledOf[id] = pulled;
+        uint256 before = token.balanceOf(payer);
+        _cancel(id, N, 0x101, submittedAt);
+        assertEq(token.balanceOf(payer) - before, pulled, "the submitted cap settles it");
     }
 
     /// Round trip of a deposit made deliberately unflushable: escrowed, left in
@@ -183,26 +183,7 @@ contract YieldEscrowTest is YieldTestBase {
         YieldIndex.YieldState memory before = masp.yieldState(YIELD_ID);
         assertEq(before.accruedFeeNormalized, 0, "nothing accrued to the treasury before flush");
 
-        PubInputs.TreeUpdateBatch memory tpi;
-        tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xfeedbeef));
-        tpi.startIndex = masp.committedCount();
-        tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
-        tpi.cms[0] = bytes32(uint256(0x101));
-        tpi.cms[1] = bytes32(uint256(0x102));
-        tpi.leafAsset[0] = YIELD_ID;
-        tpi.leafPublicIn[0] = N;
-        tpi.isDeposit[0] = 1;
-        tpi.leafAsset[1] = 0;
-        tpi.leafPublicIn[1] = 0;
-        tpi.isDeposit[1] = 1;
-
-        uint256[] memory ids = new uint256[](1);
-        ids[0] = id;
-        MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: submittedAt, fbps: FEE_BPS });
-
-        masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
+        _flush(id, N, 0x101, submittedAt);
 
         YieldIndex.YieldState memory afterFlush = masp.yieldState(YIELD_ID);
         uint256 nFee = (uint256(N) * FEE_BPS) / 10_000;
@@ -263,5 +244,10 @@ contract YieldEscrowTest is YieldTestBase {
     /// External so `vm.expectRevert` has a call boundary to catch.
     function attemptCancel(uint256 id, uint64 publicIn, uint256 seedValue, uint32 submittedAt) external {
         _cancel(id, publicIn, seedValue, submittedAt);
+    }
+
+    /// External so `vm.expectRevert` has a call boundary to catch.
+    function attemptFlush(uint256 id, uint64 publicIn, uint256 seedValue, uint32 submittedAt) external {
+        _flush(id, publicIn, seedValue, submittedAt);
     }
 }

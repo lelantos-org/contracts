@@ -105,7 +105,7 @@ abstract contract BaseGovernanceDeploy is Script {
 
         _assertRoles(s, p, deployer);
 
-        // Last step: every step above is recoverable; this one is not.
+        // Runs last because it is the only unrecoverable step.
         s.timelock.renounceRole(s.timelock.DEFAULT_ADMIN_ROLE(), deployer);
 
         require(!s.timelock.hasRole(s.timelock.DEFAULT_ADMIN_ROLE(), deployer), "deployer still admin");

@@ -11,22 +11,21 @@ import { AuxValidation } from "../../../src/libs/AuxValidation.sol";
 
 /// Test-only MASP stub. Skips Groth16 verification and tree mutation,
 /// reproducing only the side effects `SwapWrapper` orchestrates against:
-///   - `withdraw` pushes `nextWithdrawAmount` NET of the configured `feeBps`
+///   - `withdraw` pushes `nextWithdrawAmount` net of the configured `feeBps`
 ///     (mirroring MASP's unshield fee) to `pi.recipient` (= the wrapper).
 ///   - `depositAuthorized` pulls `d.publicIn * scale + fee` of
 ///     the configured token from `d.payer` via Permit2.
 ///
-/// The harness is responsible for pre-funding the mock with token A so
-/// `withdraw` has something to push, and for registering the per-asset
-/// scale + token mapping it expects.
+/// The harness pre-funds the mock with token A so `withdraw` has something
+/// to push, and registers each asset's token and scale.
 contract MockMASPSwap is IMASPPool {
     IAllowanceTransfer public immutable PERMIT2;
 
-    /// assetId ⇒ ERC20 token address.
     mapping(uint64 assetId => address token) public assetToken;
     /// assetId ⇒ scale factor (real-units per public-units).
     mapping(uint64 assetId => uint256 scale) public assetScale;
-    /// Fee bps applied at deposit submit, mirroring MASP's `_computeAmounts`.
+    /// Fee bps charged by both `withdraw` and `depositAuthorized`, mirroring
+    /// MASP's `_unshieldLeg` and `_computeAmounts`.
     uint16 public feeBps;
 
     /// Gross token-A amount for the next `withdraw`; the mock pushes this
@@ -50,7 +49,9 @@ contract MockMASPSwap is IMASPPool {
 
     function asset(uint64 id) external view returns (AssetEntry memory a) {
         a.token = assetToken[id];
-        a.scale = assetScale[id];
+        // Test scales are far inside the registry's `uint48` bound.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        a.scale = uint48(assetScale[id]);
     }
 
     event MockWithdraw(address indexed recipient, address token, uint256 amount);
@@ -120,7 +121,7 @@ contract MockMASPSwap is IMASPPool {
         emit MockDeposit(id, d.payer, token, total);
     }
 
-    /// Clear an escrow without refunding, as `flushBatch` does.
+    /// Clears an escrow without refunding, as `flushBatch` does.
     function simulateFlush(uint256 id) external {
         delete escrowTotal[id];
     }
@@ -145,19 +146,19 @@ contract MockMASPSwap is IMASPPool {
         return escrowTotal[id] == 0 ? bytes32(0) : bytes32(id + 1);
     }
 
-    /// Refunds the escrowed total to `payer` and returns it, as MASP does. The digest and
-    /// delay checks are the pool's business, not the wrapper's, so the stub
-    /// skips them.
+    /// Refunds the escrowed total to `payer` and returns it, as MASP does. The
+    /// digest and delay checks are the pool's business, not the wrapper's, so
+    /// the stub skips them, apart from the asset id.
     function cancelDeposit(
         uint256 id,
         uint48,
         bytes32,
-        uint256[2] calldata,
         uint64 publicAssetId,
         uint16,
         address payer,
         uint32,
-        PubInputs.FeeNote calldata
+        PubInputs.FeeNote calldata,
+        uint256
     ) external returns (uint256 reported, uint256 feeRefunded) {
         uint256 total = escrowTotal[id];
         require(total != 0, "MockMASPSwap: not pending");

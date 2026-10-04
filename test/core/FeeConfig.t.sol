@@ -29,7 +29,7 @@ contract FeeConfigTest is Test {
 
     function setUp() public {
         token = new MockERC20("T", "T", 18);
-        fc = new FeeConfigHarness(TREASURY, OWNER); // rates live per asset, not here
+        fc = new FeeConfigHarness(TREASURY, OWNER);
         // Pre-funds the harness so sweep transfers succeed.
         token.mint(address(fc), 1_000_000 ether);
     }

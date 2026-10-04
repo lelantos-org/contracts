@@ -21,13 +21,16 @@ import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 /// constructor that deploys the pool and its mocks, and helpers shared by more
 /// than one handler module. See `EchidnaMasp.sol` for the target as a whole.
 ///
-/// Split out of `EchidnaMasp.sol` for size only. All state lives here, in its
-/// original declaration order, so the storage layout and the constructor's
-/// deployment order (and hence every created address) are unchanged.
+/// Separate from `EchidnaMasp.sol` for size only. All state is declared here,
+/// so this contract alone fixes the storage layout and the constructor's
+/// deployment order (and hence every created address).
 abstract contract EchidnaMaspBase {
     uint64 internal constant ASSET_ID = 1;
     uint256 internal constant SCALE = 1e10;
     uint16 internal constant FEE_BPS = 25;
+    /// The relayer note's `inner` every deposit escrows. The digest binds it,
+    /// so flush and cancel resupply it.
+    bytes32 internal constant FEE_INNER = bytes32(uint256(0xfee));
 
     MASP public masp;
     /// The same contract as `masp`, at its proxy-side type: `pauseSpends` and
@@ -59,7 +62,9 @@ abstract contract EchidnaMaspBase {
     /// Off-chain preimage shadow. The escrow slot stores only a digest, so
     /// flush and cancel have to resupply every field it was built from.
     mapping(uint256 => uint48) internal preimagePublicIn;
-    mapping(uint256 => bytes32) internal preimageCm0;
+    /// The depositor note's `inner`, the owner half the batch circuit hashes
+    /// into the leaf.
+    mapping(uint256 => bytes32) internal preimageInner;
     mapping(uint256 => uint32) internal preimageSubmittedAt;
 
     /// Sum of `principal + fee + relayerFee` over ids still `Pending`.
@@ -114,7 +119,7 @@ abstract contract EchidnaMaspBase {
     /// removed from shielded principal; the pool's balance falls by the net
     /// and the difference stays behind as accrued fee.
     uint256 internal ghostWithdrawnGross;
-    /// Net actually transferred to `RECIPIENT`, summed.
+    /// Net transferred to `RECIPIENT`, summed.
     uint256 internal ghostWithdrawnNet;
     /// Withdraw fees accrued, summed. Also folded into `ghostAccrued`.
     uint256 internal ghostWithdrawFees;
@@ -126,7 +131,7 @@ abstract contract EchidnaMaspBase {
 
     /// Monotonic source of never-before-used nullifiers; see
     /// `_nextNullifierSeed`. Started high so it cannot collide with the small
-    /// commitment seeds the deposit path uses.
+    /// `inner` seeds the deposit path uses.
     uint256 internal nullifierCursor = 1 << 128;
 
     uint256 public withdrawCount;
@@ -153,13 +158,14 @@ abstract contract EchidnaMaspBase {
     /// assertion instead of leaving the eviction properties on the wrong slot.
     uint256 internal constant ROOT_HISTORY = 64;
 
-    /// The most recently evicted roots, newest last, capped so the property
-    /// that reads them does bounded work regardless of run length.
+    /// The most recently evicted roots, kept in a ring of `EVICTED_TRACKED` so
+    /// the property that reads them does bounded work regardless of run length.
     ///
     /// `CommitmentTree` keeps `ROOT_HISTORY` roots in a ring, each push
-    /// overwrites the oldest, and spends name their anchor by slot. These
-    /// handlers push past the wrap at pool level, exercising the eviction
-    /// branch and whether a spend can prove inclusion in a forgotten tree.
+    /// overwrites the oldest, and spends name their anchor by slot. The
+    /// root-ring handlers push past the wrap at pool level, exercising the
+    /// eviction branch and whether a spend can prove inclusion in a forgotten
+    /// tree.
     uint256 internal constant EVICTED_TRACKED = 16;
     bytes32[EVICTED_TRACKED] internal evictedRoots;
     uint256 internal evictedCount;
@@ -168,11 +174,11 @@ abstract contract EchidnaMaspBase {
     bool internal evictedRootAccepted;
     uint256 public evictedRootAttempts;
 
-    // --- guardian pause ---
+    // --- admin pause ---
 
-    /// Timestamp the single guardian pause runs until, 0 before it is used.
-    /// `DelayedUpgradeProxy` allows exactly one pause until governance clears
-    /// the flag, so this is set at most once.
+    /// Timestamp the admin pause runs until, 0 before it is used. The
+    /// `pauseSpends` handler trips the pause once per sequence, so this is set
+    /// at most once.
     uint256 public pausedUntil;
 
     /// Set if a paused pool accepted a deposit or a spend.
@@ -189,6 +195,11 @@ abstract contract EchidnaMaspBase {
     bool internal unknownRootAccepted;
     uint256 public nullifierReuseAttempts;
     uint256 public unknownRootAttempts;
+
+    /// Set if a `transfer` whose request names an asset was accepted. A
+    /// transfer withdraws nothing, so its `publicAssetId` must be 0.
+    bool internal namedAssetTransferAccepted;
+    uint256 public namedAssetTransferAttempts;
 
     uint256 internal nonce;
 
@@ -219,7 +230,7 @@ abstract contract EchidnaMaspBase {
             singleAsset(IERC20(address(token)), ASSET_ID, SCALE);
 
         // The proxy admin is this contract rather than `TEST_PROXY_ADMIN`: the
-        // guardian pause is `onlyAdmin` and Echidna cannot impersonate an
+        // admin pause is `onlyAdmin` and Echidna cannot impersonate an
         // address, so this contract must be the admin to reach `pauseSpends`.
         bytes memory initData = poolInitCalldata(
             tub,

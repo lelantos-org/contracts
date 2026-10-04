@@ -3,18 +3,29 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { MASP } from "../../src/MASP.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 
+import { DepositFixture } from "../utils/DepositFixture.sol";
 import { MASPTestBase } from "../utils/MASPTestBase.sol";
 
-/// The registry is add-only with a per-asset `disabled` flag. There is no
-/// destructive `setAssets`, so the owner cannot strand funds by removing an
-/// asset the pool still holds notes for.
+/// The registry is add-only with a per-asset `disabled` flag. No entry can be
+/// removed, so the owner cannot strand funds by removing an asset the pool
+/// still holds notes for.
 contract MASPAssetsTest is MASPTestBase {
+    /// Submits a fixture deposit of `assetId`. The registry is consulted
+    /// before any token moves, so the payer is unfunded and the signature a
+    /// placeholder. `masp.deposit` is the only external call, so an expectation
+    /// set just before applies to the deposit itself.
+    function _deposit(uint64 assetId) internal {
+        PubInputs.DepositRequest memory d =
+            DepositFixture.request(assetId, 100, payer, address(0xb0b), bytes32(uint256(0x1)));
+        AuxValidation.Output[6] memory aux = _emptyAux();
+        masp.deposit(d, DepositFixture.sig(0), aux[0], aux[1]);
+    }
+
     function test_addAssetRegistersEntry() public {
         MockERC20 newTok = new MockERC20("New", "NEW", 18);
 
@@ -53,6 +64,36 @@ contract MASPAssetsTest is MASPTestBase {
         vm.prank(OWNER);
         vm.expectRevert(AssetRegistry.ZeroScale.selector);
         masp.addAsset(3, IERC20(address(newTok)), 0, 0, 0);
+    }
+
+    /// Asset id 0 is reserved: it means "no asset" to the circuits, which is
+    /// what a transfer's `publicAssetId` and a zero-value fee note carry, and
+    /// they refuse value under it. An otherwise valid registration of it is
+    /// refused, and the id stays unregistered.
+    function test_addAssetRevertsZeroAssetId() public {
+        MockERC20 newTok = new MockERC20("X", "X", 18);
+        vm.prank(OWNER);
+        vm.expectRevert(AssetRegistry.ZeroAssetId.selector);
+        masp.addAsset(0, IERC20(address(newTok)), 1, 0, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(0)));
+        masp.asset(0);
+    }
+
+    /// The yield registration goes through the same check, before any venue
+    /// binding is attempted.
+    function test_addYieldAssetRevertsZeroAssetId() public {
+        MockERC20 newTok = new MockERC20("X", "X", 18);
+        vm.prank(OWNER);
+        vm.expectRevert(AssetRegistry.ZeroAssetId.selector);
+        masp.addYieldAsset(0, IERC20(address(newTok)), 1, 0, 0, address(0xbeef), 0, 0);
+    }
+
+    /// Because asset 0 cannot be registered, a deposit naming it is always a
+    /// deposit of an unknown asset.
+    function test_depositOfAssetZeroReverts() public {
+        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(0)));
+        _deposit(0);
     }
 
     function test_addAssetEmitsRegistered() public {
@@ -95,39 +136,12 @@ contract MASPAssetsTest is MASPTestBase {
         vm.prank(OWNER);
         masp.setAssetDisabled(ASSET_ID, true);
 
-        PubInputs.DepositRequest memory d;
-        d.chainId = block.chainid;
-        d.publicAssetId = ASSET_ID;
-        d.publicIn = 100;
-        d.payer = address(0xface);
-        d.recipient = address(0xb0b);
-        d.outCm = bytes32(uint256(0x1));
-        d.feeCm = bytes32(uint256(0xfee));
-
-        AuxValidation.Output[6] memory aux = _emptyAux();
-        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
-
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.AssetDisabled.selector, ASSET_ID));
-        masp.deposit(d, sig, aux[0], aux[1]);
+        _deposit(ASSET_ID);
     }
 
     function test_unknownAssetSubmitReverts() public {
-        PubInputs.DepositRequest memory d;
-        d.chainId = block.chainid;
-        d.publicAssetId = 99;
-        d.publicIn = 100;
-        d.payer = address(0xface);
-        d.recipient = address(0xb0b);
-        d.outCm = bytes32(uint256(0x1));
-        d.feeCm = bytes32(uint256(0xfee));
-
-        AuxValidation.Output[6] memory aux = _emptyAux();
-        MASP.Permit2Sig memory sig = MASP.Permit2Sig({
-            nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
-        });
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(99)));
-        masp.deposit(d, sig, aux[0], aux[1]);
+        _deposit(99);
     }
 }

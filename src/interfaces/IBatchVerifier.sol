@@ -11,25 +11,25 @@ pragma solidity 0.8.36;
 /// transposed proofs are rejected.
 ///
 /// Invariant: `pub1` and `pub2` must be derived from the request calldata by
-/// `PubInputs.compress` and `PubInputs.compressSpend`, as `[y, z]` in that
-/// order. Public inputs supplied by any other means break soundness, which
-/// rests on `z` being derived from the complete instance.
+/// `PubInputs.compress` and `PubInputs.compressSpend`, as `[y, digest, z]` in
+/// that order. Public inputs supplied by any other means break soundness, which
+/// rests on `z` being derived from the complete instance, digest word included.
 ///
 /// Every parameter is a static type, so the ABI lays the call out as a selector
-/// followed by exactly twenty contiguous words. The implementation hashes that
-/// region verbatim as its transcript and rejects any other calldata length:
-/// over-long input by its own `calldatasize` pin, truncated input by solc's
-/// dispatcher.
+/// followed by exactly twenty-two contiguous words. The implementation hashes
+/// that region verbatim as its transcript and rejects any other calldata
+/// length: over-long input by its own `calldatasize` pin, truncated input by
+/// solc's dispatcher.
 interface IBatchVerifier {
     /// Returns true when both proofs verify; false on a rejected proof, an
     /// out-of-field public input, a malformed point, or calldata longer than
-    /// `4 + 20 * 32`.
+    /// `4 + 22 * 32`.
     ///
     /// Two conditions revert instead of returning false, both fail-closed:
     ///
-    ///   - Truncated calldata. Every parameter is static, so solc's dispatcher
-    ///     validates the calldata size before the implementation's
-    ///     `calldatasize` pin runs. Only over-long calldata reaches the pin.
+    ///   - Truncated calldata. solc's dispatcher rejects it before the
+    ///     implementation's `calldatasize` pin runs, so only over-long calldata
+    ///     reaches the pin.
     ///   - Insufficient gas for the precompiles. The implementation forwards
     ///     `gas()`, so a starved call fails the ECMUL or the pairing and the
     ///     failure bubbles up.
@@ -43,10 +43,10 @@ interface IBatchVerifier {
         uint256[2] calldata a1,
         uint256[2][2] calldata b1,
         uint256[2] calldata c1,
-        uint256[2] calldata pub1,
+        uint256[3] calldata pub1,
         uint256[2] calldata a2,
         uint256[2][2] calldata b2,
         uint256[2] calldata c2,
-        uint256[2] calldata pub2
+        uint256[3] calldata pub2
     ) external view returns (bool);
 }

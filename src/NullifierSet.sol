@@ -11,7 +11,6 @@ abstract contract NullifierSet {
     error DoubleSpend();
     error DuplicateNullifier();
 
-    /// Whether `nf` has been spent.
     function spent(bytes32 nf) external view returns (bool) {
         uint256 n = uint256(nf);
         return (_spentBuckets[n >> 8] >> (n & 0xff)) & 1 != 0;

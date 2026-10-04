@@ -8,25 +8,24 @@ import { IVerifier } from "./interfaces/IVerifier.sol";
 /// ERC-7201 slot.
 ///
 /// Written by `DelayedUpgradeProxy` in its own context and read by the pool
-/// under `delegatecall`, exactly as `UpgradeStorage` is. The namespaced slot
-/// keeps them clear of the pool's sequential layout, so the pair can be
-/// installed by the proxy without the proxy holding a copy of that layout.
+/// under `delegatecall`, as `UpgradeStorage` is. The namespaced slot keeps them
+/// clear of the pool's sequential layout, so the pair can be installed by the
+/// proxy without the proxy holding a copy of that layout.
 ///
 /// ## Why the proxy owns this
 ///
 /// The verifiers decide what the pool accepts as a valid proof, so replacing
 /// them is the same power as replacing the implementation: either can make the
-/// pool honour notes that were never legitimately created. A swap therefore gets
-/// the treatment an upgrade gets, and gets it from the same contract — the admin
-/// queues it, the window is `UPGRADE_DELAY`, a pause defers it by the pause
-/// duration, and the commit is permissionless once the window has run.
+/// pool honour notes that were never legitimately created. A swap is therefore
+/// handled as an upgrade is, and by the same contract: the admin queues it, the
+/// window is `UPGRADE_DELAY`, a pause defers it by the pause duration, and the
+/// commit is permissionless once the window has run.
 ///
-/// Matching the upgrade window is deliberate rather than conservative.
-/// Governance can already change what the pool accepts by upgrading the
-/// implementation, which takes `UPGRADE_DELAY`, so a shorter window here would
-/// be a route around the guarantee the proxy exists to provide, and a longer one
-/// would buy nothing governance could not undo by taking the upgrade path
-/// instead.
+/// The window equals the upgrade window by design. Governance can already
+/// change what the pool accepts by upgrading the implementation, which takes
+/// `UPGRADE_DELAY`, so a shorter window here would bypass the guarantee the
+/// proxy exists to provide, and a longer one would add nothing, since
+/// governance could take the upgrade path instead.
 ///
 /// ## Why both move together
 ///
@@ -103,10 +102,11 @@ library VerifierStorage {
         // interface, not a verdict.
         // slither-disable-next-line uninitialized-local
         uint256[2] memory g1;
+        uint256[3] memory pub;
         // slither-disable-next-line uninitialized-local
         uint256[2][2] memory g2;
         // slither-disable-next-line unused-return
-        try IBatchVerifier(spend).verifyBatch(g1, g2, g1, g1, g1, g2, g1, g1) returns (bool) { }
+        try IBatchVerifier(spend).verifyBatch(g1, g2, g1, pub, g1, g2, g1, pub) returns (bool) { }
         catch {
             revert BadSpendVerifier();
         }

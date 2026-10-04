@@ -15,7 +15,7 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 /// which must run after this script.
 ///
 /// Tokens are registered at ids 1..N from `test/fixtures/asset_registry.json`
-/// (produced by `circuits/just gen-asset-registry`). A registry slot whose
+/// (maintained by hand; see `test/fixtures/README.md`). A registry slot whose
 /// `symbols` entry matches the chain's wrapped-native symbol (env
 /// `WRAPPED_NATIVE_SYMBOL`, default `WETH`) is deployed as `MockWETH9`, giving
 /// it the real `deposit() payable` / `withdraw(uint256)` ABI, and is handed to
@@ -65,7 +65,7 @@ contract DeployTest is BaseDeploy {
         // bakes in a separator bound to the address that produced the captured
         // runtime bytecode, which fails EIP-712 verification with InvalidSigner.
         // Permit2 pins solc 0.8.17 and MASP 0.8.36, so the bytecode is fetched
-        // precompiled and deployed with `create`.
+        // precompiled (see `Permit2Import.sol`) and deployed with `create`.
         permit2Addr = vm.envOr("PERMIT2", address(0));
         if (permit2Addr == address(0) || permit2Addr.code.length == 0) {
             bytes memory permit2Code = vm.getCode("Permit2.sol:Permit2");

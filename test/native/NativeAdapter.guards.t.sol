@@ -17,9 +17,9 @@ import { SpendFixture } from "../utils/SpendFixture.sol";
 import { DepositFixture } from "../utils/DepositFixture.sol";
 
 /// `NativeAdapter` guards that a well-behaved MASP cannot trigger: a deposit that
-/// pulls nothing, and a cancel that delivers other than it reports. Both would mis-credit an
-/// escrow record, so they are exercised against a stand-in pool. Also covers
-/// constructor argument checks.
+/// pulls nothing, and a cancel that delivers other than it reports. Both would
+/// mis-credit an escrow record, so they are exercised against a stand-in pool.
+/// Also covers constructor argument checks.
 contract NativeAdapterGuardsTest is Test {
     uint64 internal constant ASSET_WETH = 2;
     uint256 internal constant AMOUNT = 1 ether;
@@ -94,8 +94,7 @@ contract NativeAdapterGuardsTest is Test {
     /// deposit cannot escrow refunds held here for other depositors into their
     /// own note.
     function test_revert_PullExceedsValue() public {
-        // Funds the adapter with wrapped coin not received from this call.
-        // `MockWETH9.mint` stands in for a third-party cancel refund.
+        // Wrapped coin held by the adapter that did not arrive with this call.
         uint256 parked = 5 ether;
         weth.mint(address(adapter), parked);
 
@@ -189,7 +188,7 @@ contract NativeAdapterGuardsTest is Test {
         assertEq(refundTo, address(0), "record cleared");
     }
 
-    /// Exact refund on the funded branch pays the recorded funder in native.
+    /// A refund equal to the recorded amount pays the recorded funder in native.
     function test_cancelNative_fundedBranchPaysOut() public {
         uint256 id = _deposit();
         pool.setRefundAmount(AMOUNT);
@@ -215,14 +214,7 @@ contract NativeAdapterGuardsTest is Test {
     /// checks none of it.
     function _cancel(uint256 id) internal {
         adapter.cancelNative(
-            id,
-            1,
-            bytes32(uint256(0x1)),
-            [uint256(0), 0],
-            ASSET_WETH,
-            25,
-            uint32(vm.getBlockNumber()),
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            id, 1, bytes32(uint256(0x1)), ASSET_WETH, 25, uint32(vm.getBlockNumber()), DepositFixture.feeNote(), 0
         );
     }
 }

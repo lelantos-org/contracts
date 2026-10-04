@@ -121,7 +121,7 @@ contract GenericCallWrapperSymbolicTest is GuardAsserts {
         _assertRejected(ok, ret, GenericCallWrapper.TokenInMismatch.selector);
     }
 
-    /// No yield asset is escrowed, as an output, for any id.
+    /// No yield asset is escrowed as an output, for any id.
     function check_validate_rejectsEveryYieldOutput(uint64 id) public {
         pool.setYieldAsset(id, true);
         GenericCallWrapper.GenericArgs memory a = _args();

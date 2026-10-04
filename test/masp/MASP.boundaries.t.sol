@@ -3,7 +3,7 @@ pragma solidity 0.8.36;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import { AssetRegistry } from "../../src/AssetRegistry.sol";
+import { MASP } from "../../src/MASP.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
@@ -11,9 +11,9 @@ import { FixtureLoader } from "../utils/FixtureLoader.sol";
 import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
 import { noAssets } from "../utils/PoolDeployer.sol";
 
-/// Boundary tests for `AuxValidation.validate`. The fuzz suite covers the
-/// interior; the exact endpoints (MIN, MAX, MIN-1, MAX+1, every clueBits
-/// upper-bit pattern) have named tests.
+/// Boundary tests for `AuxValidation.validate`. `fuzz/MASPAux.fuzz.t.sol`
+/// covers the interior; the exact endpoints (MIN, MAX, MIN-1, MAX+1, every
+/// clueBits upper-bit pattern) have named tests.
 contract MASPBoundariesTest is MockPoolTestBase {
     uint16 internal constant CLUE_BITS_MASK = 0x3FFF;
 
@@ -42,14 +42,16 @@ contract MASPBoundariesTest is MockPoolTestBase {
         ct = new bytes(len);
     }
 
-    /// With valid aux, `transfer` reaches the asset lookup and reverts
-    /// `UnknownAsset(0)` (the registry is empty), showing aux validation passed.
+    /// With valid aux, `transfer` reaches proof verification and reverts
+    /// `ProofRejected` (the mock verifier rejects by default), showing aux
+    /// validation passed. A transfer names no asset, so the empty registry is
+    /// not consulted on the way.
     function _expectAuxAccepted(bytes memory c0, bytes memory c1) internal {
         PubInputs.Transact memory pi = _pi();
         PubInputs.SpendTree memory tpi = _spendTree(pi);
         AuxValidation.Output[6] memory aux = _aux(c0, c1);
         vm.prank(relayer);
-        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(0)));
+        vm.expectRevert(MASP.ProofRejected.selector);
         masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);
     }
 

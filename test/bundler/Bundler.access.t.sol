@@ -17,8 +17,6 @@ import { BundlerTestBase } from "./BundlerTestBase.sol";
 /// and selector allowlist, operator rotation, stray native, and reentrancy.
 /// Fixture and call builders in `BundlerTestBase`.
 contract BundlerAccessTest is BundlerTestBase {
-    // --- access control and call validation --------------------------------
-
     function test_execute_revert_NotOperator() public {
         Bundler.Call[] memory calls = new Bundler.Call[](1);
         calls[0] = _transferCall(bundler, 0x100, _root(1), masp.committedCount());

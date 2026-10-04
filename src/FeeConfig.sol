@@ -13,9 +13,7 @@ import { OwnableInit } from "./OwnableInit.sol";
 /// never holds escrowed funds.
 ///
 /// There is no pool-wide rate: every asset carries its own deposit and withdraw
-/// rates in its `AssetRegistry` entry, set at registration and mutable only
-/// through `setAssetFee`. A stored `0` means exactly 0, so no owner action can
-/// re-rate an asset not named in the call.
+/// rates in its `AssetRegistry` entry; see `AssetRegistry.AssetEntry`.
 abstract contract FeeConfig is OwnableInit, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 

@@ -9,8 +9,7 @@ import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
 /// Test-only WETH9 reimplementation with an EIP-2612 permit extension.
 ///
 /// Matches canonical WETH9 behaviour: `deposit()` mints 1:1 from `msg.value`,
-/// and `withdraw()` burns and returns native coin via a raw `call`. It also
-/// implements `IERC20Permit`.
+/// and `withdraw()` burns and returns native coin via a raw `call`.
 ///
 /// Canonical mainnet WETH9 does not support EIP-2612, so production flows must
 /// not depend on the permit extension; the pool pulls deposits through Permit2.

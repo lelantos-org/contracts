@@ -43,7 +43,8 @@ struct ExactInputSingleParams {
 /// Command and action opcodes, transcribed from the deployed UniversalRouter
 /// (`Commands.sol`, `v4-periphery/src/libraries/Actions.sol`) rather than
 /// imported, which would add v4-core and v4-periphery as submodules for one
-/// adapter. `UniV4Adapter.fork.t.sol` checks them against the live routers.
+/// adapter. `UniV4Adapter.fork.t.sol` checks them against the deployed Base
+/// router.
 library V4Commands {
     uint8 internal constant V4_SWAP = 0x10;
     uint8 internal constant SWAP_EXACT_IN_SINGLE = 0x06;

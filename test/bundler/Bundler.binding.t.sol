@@ -5,7 +5,7 @@ import { MASP } from "../../src/MASP.sol";
 import { Bundler } from "../../src/bundler/Bundler.sol";
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { SwapIntent } from "../swap/SwapIntent.sol";
-import { PubInputs } from "../../src/libs/PubInputs.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
 
 import { BundlerTestBase } from "./BundlerTestBase.sol";
 
@@ -13,8 +13,6 @@ import { BundlerTestBase } from "./BundlerTestBase.sol";
 /// fail through another, and an operator cannot rewrite a bound swap. Fixture
 /// and call builders in `BundlerTestBase`.
 contract BundlerBindingTest is BundlerTestBase {
-    // --- submitter binding across Bundlers ---------------------------------
-
     function test_spendBoundToAnotherBundler_fails() public {
         Bundler other = _createBundler(OTHER_OWNER);
 
@@ -87,14 +85,7 @@ contract BundlerBindingTest is BundlerTestBase {
 
         vm.roll(uint256(submittedAt) + masp.cancelDelay());
         wrapper.cancelEscrow(
-            depositId,
-            990,
-            bytes32(uint256(0x400) + 0x100),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: FEE_CM, feeCvDep: [uint256(0), 0] })
+            depositId, 990, bytes32(uint256(0x400) + 0x100), ASSET_B, FEE_BPS, submittedAt, DepositFixture.feeNote(), 0
         );
 
         assertEq(tokenB.balanceOf(SWAP_REFUND_TO), amount, "refund reached refundTo");
@@ -109,7 +100,7 @@ contract BundlerBindingTest is BundlerTestBase {
         uint256 depositId = masp.nextDepositId();
         SwapWrapper.SwapArgs memory a = SwapIntent.bind(_swapArgs(bundler, 0x400, _root(1), masp.committedCount()));
         a.deposit_d.recipient = OPERATOR;
-        a.deposit_d.outCm = bytes32(uint256(0x0BAD));
+        a.deposit_d.inner = bytes32(uint256(0x0BAD));
         a.minOut = 1;
         Bundler.Call[] memory calls = new Bundler.Call[](1);
         calls[0] = _wrapperCall(a);

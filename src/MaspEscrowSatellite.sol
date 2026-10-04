@@ -159,24 +159,24 @@ abstract contract MaspEscrowSatellite is ReentrancyGuardTransient {
     function _cancelAndVerify(
         uint256 id,
         uint48 publicIn,
-        bytes32 cm,
-        uint256[2] calldata cvDep,
+        bytes32 inner,
         uint64 publicAssetId,
         uint16 fbps,
         uint32 submittedAt,
-        PubInputs.FeeNote calldata feeNote
+        PubInputs.FeeNote calldata feeNote,
+        uint256 pulled
     ) internal returns (IERC20 token, address refundTo, uint256 amount) {
         refundTo = _escrows[id].refundTo;
         if (refundTo == address(0)) revert NoEscrowRecord(id);
         if (POOL.escrowed(id) == bytes32(0)) revert DepositAlreadySettled(id);
 
-        // CEI: the record is cleared before any external call.
+        // CEI: the record is cleared before any state-changing external call.
         delete _escrows[id];
         token = _escrowToken(id, publicAssetId);
 
         uint256 balanceBefore = token.balanceOf(address(this));
         (uint256 reported, uint256 feeRefunded) =
-            POOL.cancelDeposit(id, publicIn, cm, cvDep, publicAssetId, fbps, address(this), submittedAt, feeNote);
+            POOL.cancelDeposit(id, publicIn, inner, publicAssetId, fbps, address(this), submittedAt, feeNote, pulled);
         // Unreachable for an escrow this contract made, since `_escrowMeasured`
         // refuses a relayer note in another asset. Checked so a second token
         // can never arrive unaccounted for.

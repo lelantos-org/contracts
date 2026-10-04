@@ -12,10 +12,19 @@ import { ExitTerms } from "./libs/ExitTerms.sol";
 /// asset blocks new deposits while staying spendable, so notes and escrows can
 /// exit.
 abstract contract AssetRegistry is OwnableInit {
-    /// `token`, `disabled` and both rates share slot 0 (25 of 32 bytes);
-    /// `scale` is slot 1. `_getAsset` loads both slots, so the rates cost
-    /// nothing extra; a field spilling into a third slot would add a cold SLOAD
-    /// to every deposit and withdraw.
+    /// One slot, exactly: `token` (20 bytes), `disabled` (1), both rates (4),
+    /// `isYield` (1) and `scale` (6). `_getAsset` is therefore a single SLOAD,
+    /// and a field spilling into a second slot would add a cold one to every
+    /// deposit, withdraw, flush and cancel.
+    ///
+    /// `scale` is `uint48` to fit: registration rejects anything larger, about
+    /// 2.8e14. Its width also bounds every `units * scale` product, since unit
+    /// counts are held to `uint48` on every path.
+    ///
+    /// `isYield` mirrors the venue binding `YieldIndex` holds for the id, so
+    /// the pool's paths branch on the entry they already loaded instead of
+    /// reading that binding. Both are written once, in the same call, and
+    /// neither can change afterwards; see `MASP.addYieldAsset`.
     ///
     /// Both rates are literal: there is no pool-wide fallback and no unset
     /// sentinel, so a stored `0` charges nothing on that leg, and a fee change
@@ -25,7 +34,8 @@ abstract contract AssetRegistry is OwnableInit {
         bool disabled;
         uint16 depositBps;
         uint16 withdrawBps;
-        uint256 scale;
+        bool isYield;
+        uint48 scale;
     }
 
     mapping(uint64 => AssetEntry) private _assets;
@@ -48,6 +58,8 @@ abstract contract AssetRegistry is OwnableInit {
     error ZeroScale();
     error ScaleTooLarge();
     error LengthMismatch();
+    /// Asset id 0 means "no asset" to the circuits and cannot be registered.
+    error ZeroAssetId();
     error AssetDisabled(uint64 id);
     error AssetFeeTooHigh();
 
@@ -61,28 +73,16 @@ abstract contract AssetRegistry is OwnableInit {
     /// Rates are required rather than defaulted: there is nothing to inherit, so
     /// an omitted rate would register the asset as free.
     ///
-    /// `id` is an arbitrary caller-chosen `uint64` and nothing on-chain
-    /// constrains the id space, but the deposit path does not treat all id sets
-    /// alike. `tree_update_batch.circom` pins a deposit leaf with the single
-    /// equality `cvDep == leafPublicIn * V^leafAsset + rcv*H`, and
-    /// `HashToAssetGen` is a circomlib Pedersen over a 72-bit message, so
-    /// `V^a = m(a)*BASE0` for a publicly computable `m(a)`. The equality
-    /// therefore pins the product `value * m(a)`, not the pair: two registered
-    /// ids collide when `v*m(a) == v'*m(a')` has a solution with both values
-    /// inside the 64-bit range, letting a depositor pay `v` of the cheap asset
-    /// and later spend the leaf as the expensive one. `cms[k]` is
-    /// depositor-chosen and carries no transact proof, so no other check binds
-    /// the asset.
-    ///
-    /// Run `just asset-ids <ids>` in the circuits repo over every id a
-    /// deployment intends to register before registering it. Small sequential
-    /// ids are separated by a wide margin; unstructured or hash-like ids carry
-    /// the collision risk.
+    /// `id` is a caller-chosen `uint64`, and the circuits treat it as an opaque
+    /// label: a deposit leaf is bound to its `(asset, value)` by hash, so no id
+    /// set is safer than another. The one reserved value is 0, which means "no
+    /// asset": a transfer's `publicAssetId` and a zero-value fee note carry it,
+    /// and the circuits refuse value under it. It cannot be registered.
     function addAsset(uint64 id, IERC20 token, uint256 scale, uint16 depositBps, uint16 withdrawBps)
         external
         onlyOwner
     {
-        _addAsset(id, token, scale, depositBps, withdrawBps);
+        _addAsset(id, token, scale, depositBps, withdrawBps, false);
     }
 
     /// Sets this asset's deposit rate and proposes its withdraw rate. Either may
@@ -122,7 +122,6 @@ abstract contract AssetRegistry is OwnableInit {
         emit AssetFeeSet(id, a.depositBps, withdrawBps);
     }
 
-    /// Owner-only update of an asset's `disabled` flag.
     function setAssetDisabled(uint64 id, bool disabled) external onlyOwner {
         AssetEntry storage a = _assets[id];
         if (address(a.token) == address(0)) revert UnknownAsset(id);
@@ -134,12 +133,6 @@ abstract contract AssetRegistry is OwnableInit {
     /// Raw lookup for the transact path; does not revert on a missing asset.
     function _getAsset(uint64 id) internal view returns (AssetEntry memory) {
         return _assets[id];
-    }
-
-    /// Existence check for paths that move no tokens. Reads slot 0 only, where
-    /// `token` sits; `_getAsset` also loads `scale` from slot 1.
-    function _requireAssetKnown(uint64 id) internal view {
-        if (address(_assets[id].token) == address(0)) revert UnknownAsset(id);
     }
 
     /// Bulk registration at initialization, with the same validation as
@@ -158,7 +151,7 @@ abstract contract AssetRegistry is OwnableInit {
             revert LengthMismatch();
         }
         for (uint256 i; i < n;) {
-            _addAsset(ids[i], tokens[i], scales[i], depositBps[i], withdrawBps[i]);
+            _addAsset(ids[i], tokens[i], scales[i], depositBps[i], withdrawBps[i], false);
             unchecked {
                 ++i;
             }
@@ -167,16 +160,27 @@ abstract contract AssetRegistry is OwnableInit {
 
     /// `internal` so a subclass can register an asset and bind extra per-asset
     /// state in the same call; `MASP.addYieldAsset` pairs it with the venue
-    /// binding. The add-only rule below makes such a binding permanent: a second
-    /// registration of `id` reverts here.
-    function _addAsset(uint64 id, IERC20 token, uint256 scale, uint16 depositBps, uint16 withdrawBps) internal {
+    /// binding and passes `isYield`. The add-only rule below makes such a
+    /// binding, and the flag with it, permanent: a second registration of `id`
+    /// reverts here.
+    function _addAsset(uint64 id, IERC20 token, uint256 scale, uint16 depositBps, uint16 withdrawBps, bool isYield)
+        internal
+    {
+        if (id == 0) revert ZeroAssetId();
         if (address(_assets[id].token) != address(0)) revert DuplicateAsset(id);
         if (address(token) == address(0)) revert ZeroToken();
         if (scale == 0) revert ZeroScale();
-        if (scale > 1e18) revert ScaleTooLarge();
+        if (scale > type(uint48).max) revert ScaleTooLarge();
         if (depositBps > Fees.MAX_FEE_BPS || withdrawBps > Fees.MAX_FEE_BPS) revert AssetFeeTooHigh();
         _assets[id] = AssetEntry({
-            token: token, disabled: false, depositBps: depositBps, withdrawBps: withdrawBps, scale: scale
+            token: token,
+            disabled: false,
+            depositBps: depositBps,
+            withdrawBps: withdrawBps,
+            isYield: isYield,
+            // Checked against the field's width above.
+            // forge-lint: disable-next-line(unsafe-typecast)
+            scale: uint48(scale)
         });
         emit AssetRegistered(id, token, scale);
         emit AssetFeeSet(id, depositBps, withdrawBps);

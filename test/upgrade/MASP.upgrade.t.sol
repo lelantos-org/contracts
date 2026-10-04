@@ -8,11 +8,11 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
-import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { ExitTerms } from "../../src/libs/ExitTerms.sol";
 import { MASP } from "../../src/MASP.sol";
 
+import { DepositFixture } from "../utils/DepositFixture.sol";
 import { MASPUpgradeTestBase } from "../utils/MASPUpgradeTestBase.sol";
 import { noAssets } from "../utils/PoolDeployer.sol";
 import { MASPNext } from "../mocks/MASPNext.sol";
@@ -65,7 +65,6 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         assertEq(impl.owner(), address(0), "implementation must stay unowned");
     }
 
-    /// `renounceOwnership` is not declared.
     function test_renounceOwnershipDoesNotExist() public {
         (bool ok,) = address(masp).call(abi.encodeWithSignature("renounceOwnership()"));
         assertFalse(ok, "pool must not expose renounceOwnership");
@@ -103,9 +102,7 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
 
     /// An upgrade preserves the tree, the escrow ledger and accrued fees.
     function test_realPoolStateSurvivesAnUpgrade() public {
-        bytes32 cm = bytes32(uint256(0x111));
-        uint256 id = _deposit(1_000, cm, 0);
-        _flush(id, 1_000, cm);
+        _depositAndFlush(1_000, bytes32(uint256(0x111)));
 
         bytes32 rootBefore = masp.currentRoot();
         uint64 countBefore = masp.committedCount();
@@ -130,7 +127,6 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         assertEq(address(masp.SPEND_VERIFIER()), address(batchVerifier), "verifier wiring lost");
     }
 
-    /// A pending escrow remains cancellable after an upgrade.
     function test_pendingEscrowSurvivesAndStaysCancellable() public {
         uint256 id = _deposit(1_000, bytes32(uint256(0x222)), 0);
         assertTrue(masp.escrowed(id) != bytes32(0));
@@ -144,7 +140,7 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         assertEq(masp.escrowed(id), digestBefore, "escrow digest lost across upgrade");
     }
 
-    // ============== Leak 1: the withdraw-fee ratchet =========================
+    // ============== The withdraw-fee ratchet =================================
 
     function _withdrawBps() internal view returns (uint16 wit) {
         (, wit) = masp.assetFees(ASSET_ID);
@@ -179,7 +175,6 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         assertEq(_withdrawBps(), FEE_BPS);
     }
 
-    /// With nothing queued there is nothing to wait for.
     function test_revert_NoPendingRaise_commitWithNothingQueued() public {
         vm.expectRevert(ExitTerms.NoPendingRaise.selector);
         masp.commitExitTerms(ASSET_ID);
@@ -276,10 +271,9 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         assertEq(_withdrawBps(), 1_000);
     }
 
-    /// The audit ordering: one proposal raises the fee and then queues an
-    /// upgrade, which the old pending-upgrade guard let through. Throughout the
-    /// window, pause included, holders exit at the old rate; the raise cannot
-    /// land before the upgrade could activate.
+    /// One proposal raises the fee and then queues an upgrade. Throughout the
+    /// window, pause included, holders exit at the rate in force before the
+    /// raise; the raise cannot land before the upgrade could activate.
     function test_raiseThenQueueUpgradeCannotChargeTheWindow() public {
         _raiseWithdrawFee(2_000);
         _queue(address(new MASPNext()));
@@ -303,8 +297,8 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         proxy.activateUpgrade();
     }
 
-    /// The cancel-and-requeue ordering fares no better: the raise's notice
-    /// runs from the raise, not from any upgrade.
+    /// Cancelling and re-queueing the upgrade around the raise changes nothing:
+    /// the raise's notice runs from the raise, not from any upgrade.
     function test_cancelRaiseRequeueCannotChargeTheWindow() public {
         _queue(address(new MASPNext()));
         vm.prank(admin);
@@ -318,7 +312,7 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         assertEq(_withdrawBps(), FEE_BPS);
     }
 
-    // ============== Leak 2: pause versus exit ================================
+    // ============== Pause versus exit ========================================
 
     /// A pause halts every proof-dependent entry point, including exits, which
     /// is why the window is extended by the pause duration.
@@ -334,14 +328,14 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
     /// `cancelDeposit` remains available while paused, so escrowed funds stay
     /// recoverable. A cancel verifies no proof.
     function test_cancelDepositStillWorksWhilePaused() public {
-        bytes32 cm = bytes32(uint256(0x444));
+        bytes32 inner = bytes32(uint256(0x444));
         // Uses absolute block numbers. As with `block.timestamp`, the optimizer
         // may fold a local copy of `block.number` and re-read it at the use site,
         // which `vm.roll` invalidates.
         uint32 submittedAt = 100;
         vm.roll(submittedAt);
 
-        uint256 id = _deposit(1_000, cm, 0);
+        uint256 id = _deposit(1_000, inner, 0);
         uint256 payerBefore = token.balanceOf(payer);
 
         vm.prank(admin);
@@ -353,19 +347,7 @@ contract MASPUpgradeTest is MASPUpgradeTestBase {
         // The fixture payer carries an etched ERC-1271 stub, so the pool treats
         // it as a contract payer and only it may cancel its own escrow.
         vm.prank(payer);
-        masp.cancelDeposit(
-            id,
-            1_000,
-            cm,
-            [uint256(0), uint256(0)],
-            ASSET_ID,
-            FEE_BPS,
-            payer,
-            submittedAt,
-            PubInputs.FeeNote({
-                feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), uint256(0)]
-            })
-        );
+        masp.cancelDeposit(id, 1_000, inner, ASSET_ID, FEE_BPS, payer, submittedAt, DepositFixture.feeNote(), 0);
 
         assertGt(token.balanceOf(payer), payerBefore, "refund did not arrive while paused");
         assertEq(masp.escrowed(id), bytes32(0), "escrow not cleared");

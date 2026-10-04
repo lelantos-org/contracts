@@ -48,12 +48,13 @@ contract AssetRegistrySymbolicTest is GuardAsserts, SymTest {
     }
 
     /// Registration succeeds exactly when the inputs satisfy the conjunction of
-    /// the four guards: non-zero token, non-zero scale, scale at most 1e18, and
-    /// both rates within `MAX_FEE_BPS`.
+    /// the five guards: non-zero id, non-zero token, non-zero scale, scale
+    /// within the `uint48` it is stored as, and both rates within `MAX_FEE_BPS`.
     ///
     /// Both directions are checked: an over-strict guard would reject a needed
-    /// asset, and an over-loose one would admit a zero token, a zero scale
-    /// (division by zero in conversions), or a rate above the 20% ceiling.
+    /// asset, and an over-loose one would admit id 0 (which the circuits read as
+    /// "no asset"), a zero token, a zero scale (division by zero in
+    /// conversions), or a rate above the 20% ceiling.
     function check_addAsset_acceptsExactlyValidInputs(
         uint64 id,
         address token,
@@ -61,8 +62,8 @@ contract AssetRegistrySymbolicTest is GuardAsserts, SymTest {
         uint16 depositBps,
         uint16 withdrawBps
     ) public {
-        bool valid = token != address(0) && scale != 0 && scale <= 1e18 && depositBps <= Fees.MAX_FEE_BPS
-            && withdrawBps <= Fees.MAX_FEE_BPS;
+        bool valid = id != 0 && token != address(0) && scale != 0 && scale <= type(uint48).max
+            && depositBps <= Fees.MAX_FEE_BPS && withdrawBps <= Fees.MAX_FEE_BPS;
 
         vm.prank(OWNER);
         (bool ok,) = address(reg)
@@ -71,12 +72,42 @@ contract AssetRegistrySymbolicTest is GuardAsserts, SymTest {
         assertEq(ok, valid);
     }
 
+    /// Asset id 0 cannot be registered, whatever else the call carries, and the
+    /// rejection is `ZeroAssetId` rather than a later guard.
+    ///
+    /// Zero means "no asset" to the circuits: a transfer's `publicAssetId` and a
+    /// zero-value fee note carry it, and `MASP` requires it there. A registered
+    /// id 0 would give those words a token.
+    function check_addAsset_rejectsZeroId(address token, uint256 scale, uint16 depositBps, uint16 withdrawBps) public {
+        vm.prank(OWNER);
+        (bool ok, bytes memory ret) = address(reg)
+            .call(abi.encodeCall(AssetRegistry.addAsset, (0, IERC20(token), scale, depositBps, withdrawBps)));
+
+        _assertRejected(ok, ret, AssetRegistry.ZeroAssetId.selector);
+    }
+
+    /// Id 0 stays unregistered over the whole owner-callable surface: no
+    /// successful call by the owner gives it a token.
+    ///
+    /// `svm.createCalldata` quantifies over the harness ABI, so a registration
+    /// path added later is covered the moment it compiles.
+    function check_zeroIdIsNeverRegistered() public {
+        bytes memory data = svm.createCalldata("AssetRegistryHarness");
+
+        vm.prank(OWNER);
+        (bool success,) = address(reg).call(data);
+        vm.assume(success);
+
+        assertEq(address(reg.getAsset(0).token), address(0));
+    }
+
     /// A successful registration writes exactly the requested entry, enabled,
-    /// for any id.
+    /// for any registrable id.
     function check_addAsset_writesTheRequestedEntry(uint64 id, uint256 scale, uint16 depositBps, uint16 withdrawBps)
         public
     {
-        vm.assume(scale != 0 && scale <= 1e18);
+        vm.assume(id != 0);
+        vm.assume(scale != 0 && scale <= type(uint48).max);
         vm.assume(depositBps <= Fees.MAX_FEE_BPS && withdrawBps <= Fees.MAX_FEE_BPS);
 
         vm.prank(OWNER);
@@ -88,12 +119,16 @@ contract AssetRegistrySymbolicTest is GuardAsserts, SymTest {
         assertEq(a.depositBps, depositBps);
         assertEq(a.withdrawBps, withdrawBps);
         assertFalse(a.disabled);
+        // `addAsset` registers plain custody; only `MASP.addYieldAsset` sets the
+        // flag, with the venue binding.
+        assertFalse(a.isYield);
     }
 
     /// An id can be registered once. A second attempt reverts regardless of its
     /// arguments, so re-adding cannot change the token or scale.
     function check_addAsset_rejectsDuplicateId(uint64 id, address token2, uint256 scale2) public {
-        vm.assume(scale2 != 0 && scale2 <= 1e18);
+        vm.assume(id != 0);
+        vm.assume(scale2 != 0 && scale2 <= type(uint48).max);
 
         vm.startPrank(OWNER);
         reg.addAsset(id, TOKEN, SCALE, 0, 0);
@@ -113,6 +148,8 @@ contract AssetRegistrySymbolicTest is GuardAsserts, SymTest {
     /// `svm.createCalldata` quantifies over the harness ABI, so any added function
     /// that could change an asset is covered without editing the test.
     function check_registeredAssetIsPermanent(uint64 id) public {
+        vm.assume(id != 0);
+
         vm.prank(OWNER);
         reg.addAsset(id, TOKEN, SCALE, 100, 100);
 
@@ -133,7 +170,7 @@ contract AssetRegistrySymbolicTest is GuardAsserts, SymTest {
     function check_setAssetFee_touchesOnlyTheNamedId(uint64 id, uint64 other, uint16 depositBps, uint16 withdrawBps)
         public
     {
-        vm.assume(id != other);
+        vm.assume(id != other && id != 0 && other != 0);
         vm.assume(depositBps <= Fees.MAX_FEE_BPS && withdrawBps <= Fees.MAX_FEE_BPS);
 
         vm.startPrank(OWNER);
@@ -156,7 +193,7 @@ contract AssetRegistrySymbolicTest is GuardAsserts, SymTest {
 
     /// Disabling one asset leaves every other id enabled.
     function check_setAssetDisabled_touchesOnlyTheNamedId(uint64 id, uint64 other) public {
-        vm.assume(id != other);
+        vm.assume(id != other && id != 0 && other != 0);
 
         vm.startPrank(OWNER);
         reg.addAsset(id, TOKEN, SCALE, 0, 0);

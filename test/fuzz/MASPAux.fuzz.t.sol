@@ -19,12 +19,17 @@ import { deployPool, mockVerifierStack, noAssets } from "../utils/PoolDeployer.s
 
 /// Fuzzes aux validation: the length bounds on every output ciphertext and the
 /// clue-bits prefix mask. Aux validation runs before the SNARK call, so a
-/// downstream revert (UnknownAsset / UnknownRoot) shows aux validation passed,
-/// and an aux-specific revert shows it rejected the input.
+/// downstream revert shows aux validation passed, and an aux-specific revert
+/// shows it rejected the input. The downstream revert differs by entry point:
+/// a withdraw resolves its asset next and fails `UnknownAsset` against the
+/// empty registry, while a transfer names no asset, looks none up, and fails
+/// at the verifier with `ProofRejected`.
 contract MASPAuxFuzzTest is Test {
     uint16 internal constant CLUE_BITS_MASK = 0x3FFF;
     uint256 internal constant MIN_LEN = 2;
     uint256 internal constant MAX_LEN = 256;
+    /// Any non-zero id: the registry is empty, and a withdraw must name one.
+    uint64 internal constant UNREGISTERED_ID = 7;
 
     MASP masp;
     address relayer = address(0xAA01);
@@ -61,26 +66,53 @@ contract MASPAuxFuzzTest is Test {
         aux[0].ciphertext = c0;
     }
 
+    /// A payload inside both bounds: the masked clue-bits prefix, then at most
+    /// `MAX_LEN - 2` bytes of `body`.
+    function _validCiphertext(uint16 prefix, bytes memory body) internal pure returns (bytes memory) {
+        return abi.encodePacked(prefix & CLUE_BITS_MASK, _truncate(body, MAX_LEN - 2));
+    }
+
     /// Valid aux: length within [MIN_LEN, MAX_LEN] and the clueBits prefix's top
-    /// two bits zero. Aux validation passes and the transaction reverts later
-    /// on `UnknownAsset` (registry empty).
+    /// two bits zero. Aux validation passes and the withdraw reverts later on
+    /// `UnknownAsset` (registry empty).
+    ///
+    /// A withdraw is used because it is the spend that resolves an asset: it
+    /// names the one it pays out in, and `_preflight` looks it up straight after
+    /// the request guards.
     function testFuzz_ValidAuxReachesAssetLookup(bytes memory body0, bytes memory body1, uint16 prefix0, uint16 prefix1)
         public
     {
-        prefix0 = prefix0 & CLUE_BITS_MASK;
-        prefix1 = prefix1 & CLUE_BITS_MASK;
+        bytes memory ct0 = _validCiphertext(prefix0, body0);
+        bytes memory ct1 = _validCiphertext(prefix1, body1);
 
-        bytes memory b0 = _truncate(body0, MAX_LEN - 2);
-        bytes memory b1 = _truncate(body1, MAX_LEN - 2);
+        PubInputs.Transact memory pi = _basePi();
+        pi.publicAssetId = UNREGISTERED_ID;
+        pi.publicOut = 1;
+        PubInputs.SpendTree memory tpi = _baseTpi(pi);
 
-        bytes memory ct0 = abi.encodePacked(prefix0, b0);
-        bytes memory ct1 = abi.encodePacked(prefix1, b1);
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, UNREGISTERED_ID));
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, _aux(ct0, ct1));
+    }
+
+    /// The same valid aux on a transfer passes validation and reaches the
+    /// verifier. A transfer names no asset (`publicAssetId == 0`) and the pool
+    /// looks none up, so the first thing past the request guards is the proof
+    /// check, which the stub verifier fails.
+    function testFuzz_ValidAuxTransferReachesVerifier(
+        bytes memory body0,
+        bytes memory body1,
+        uint16 prefix0,
+        uint16 prefix1
+    ) public {
+        bytes memory ct0 = _validCiphertext(prefix0, body0);
+        bytes memory ct1 = _validCiphertext(prefix1, body1);
 
         PubInputs.Transact memory pi = _basePi();
         PubInputs.SpendTree memory tpi = _baseTpi(pi);
 
         vm.prank(relayer);
-        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(0)));
+        vm.expectRevert(MASP.ProofRejected.selector);
         masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, _aux(ct0, ct1));
     }
 

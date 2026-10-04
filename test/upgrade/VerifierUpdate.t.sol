@@ -14,7 +14,7 @@ import { MockPoolV1 } from "../mocks/MockPool.sol";
 /// A verifier decides what the pool accepts as a valid proof, so a swap carries
 /// the same authority as an implementation upgrade and is held to the same
 /// window. These tests pin that equivalence: the delay, the pause deferral, the
-/// permissionless commit, and the fact that nothing lands early.
+/// permissionless commit, and that nothing lands early.
 ///
 /// Warps use absolute timestamps: under `via_ir` the optimizer may cache
 /// `block.timestamp`, which `vm.warp` invalidates.
@@ -136,7 +136,7 @@ contract VerifierUpdateTest is Test {
     }
 
     /// A pause already running when the pair is queued defers it by the
-    /// remainder, matching `queueUpgrade`. An expired pause defers nothing.
+    /// remainder, matching `queueUpgrade`.
     function test_queueUnderARunningPauseStartsWhenSpendsReopen() public {
         vm.prank(admin);
         proxy.pauseSpends(5 days);

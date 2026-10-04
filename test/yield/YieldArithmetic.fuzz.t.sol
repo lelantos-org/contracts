@@ -13,9 +13,9 @@ import { YieldTestBase } from "../utils/YieldTestBase.sol";
 /// composition of pricing, fee and rounding across a whole operation, and a
 /// unit-level harness would not detect a leak introduced by their ordering.
 ///
-/// The recurring property is that the pool never rounds in the user's favour. Every
-/// conversion is ceil on the way in and floor on the way out, so any sequence
-/// that returns more than it cost is a leak, and at these magnitudes a
+/// The recurring property is that the pool never rounds in the user's favour.
+/// Every conversion is ceil on the way in and floor on the way out, so any
+/// sequence that returns more than it cost is a leak, and at these magnitudes a
 /// one-unit slip is worth `scale` base units.
 contract YieldArithmeticFuzzTest is YieldTestBase {
     /// Wide enough to cross rounding boundaries, small enough that the pull
@@ -100,7 +100,7 @@ contract YieldArithmeticFuzzTest is YieldTestBase {
             uint256 nFee = Math.ceilDiv(uint256(n) * FEE_BPS, 10_000);
             assertEq(nFee, 1, "sub-threshold deposit rounds to a one-unit fee");
         }
-        // And the fee is still exact, not inflated, once past the boundary.
+        // Past the boundary the fee is still exact, not inflated.
         assertEq(Math.ceilDiv(uint256(threshold + 1) * FEE_BPS, 10_000), 2, "just past the boundary");
         assertEq(Math.ceilDiv(uint256(2 * threshold) * FEE_BPS, 10_000), 2, "exactly two units' worth");
     }
@@ -250,17 +250,7 @@ contract YieldArithmeticFuzzTest is YieldTestBase {
 
         uint256 grossBefore = _gross(YIELD_ID);
         uint256 before = token.balanceOf(payer);
-        masp.cancelDeposit(
-            id,
-            uint48(n),
-            bytes32(uint256(0x101)),
-            [uint256(0), 0],
-            YIELD_ID,
-            FEE_BPS,
-            payer,
-            submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0x102)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancel(id, n, 0x101, submittedAt);
         uint256 refunded = token.balanceOf(payer) - before;
 
         assertLe(refunded, paidIn, "refund exceeded the submit-time pull");

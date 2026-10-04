@@ -88,6 +88,30 @@ contract NativeAdapterWithdrawTest is NativeAdapterTestBase {
         );
     }
 
+    /// Both proofs commit to a digest word the spender supplies, `pi.digest` and
+    /// `tpi.digest`, and the pool hands each to the verifier as given. The
+    /// adapter forwards its own argument bytes, so the pool is called with
+    /// `withdraw` over exactly the words the adapter received.
+    function test_withdrawNative_forwardsDigestWords() public {
+        uint64 publicOut = 7;
+        _armWithdraw(uint256(publicOut) * SCALE);
+        PubInputs.Transact memory pi = _transactPi(ASSET_WETH, publicOut);
+        pi.digest = 0xd16e57;
+        PubInputs.SpendTree memory tpi = _tpi(pi);
+        tpi.digest = 0x7d16e57;
+
+        vm.expectCall(
+            address(masp),
+            abi.encodeCall(
+                MASP.withdraw,
+                (FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux())
+            )
+        );
+        adapter.withdrawNative(
+            FixtureLoader.emptyPoolProof(), pi, FixtureLoader.emptyPoolProof(), tpi, SpendFixture.validAux()
+        );
+    }
+
     /// Bytes past the ABI encoding are forwarded to the pool, whose decoder
     /// ignores them as the adapter's does.
     function test_withdrawNative_trailingCalldata_forwarded() public {

@@ -20,11 +20,11 @@ import { singleAsset } from "../utils/PoolDeployer.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 import { BaseDeployHarness } from "./DeployBase.t.sol";
 
-/// The swap scripts' tail: the wrapper, then the factory over MASP, the native
-/// adapter and the wrapper, then the deployer's Bundler.
+/// The swap scripts' tail: the swap and generic-call wrappers, then the factory
+/// over MASP, the native adapter and both wrappers, then the deployer's Bundler.
 contract BundlerDeployHarness is BaseBundlerDeploy {
-    /// The wrapper is deployed plainly: `_deploySwapStack` predicts its address
-    /// from `tx.origin`'s nonce, which only holds under a broadcast.
+    /// The swap wrapper is deployed plainly: `_deploySwapStack` predicts its
+    /// address from `tx.origin`'s nonce, which only holds under a broadcast.
     function deployBundler(BaseDeploy.MaspCore memory core, address operator, address owner)
         external
         returns (SwapWrapper wrapper, BundlerFactory factory, Bundler bundler)

@@ -33,7 +33,7 @@ contract MockRouter {
         revert RouterFailed();
     }
 
-    /// Reverts with a payload far past the executor's bubbling cap.
+    /// Reverts with a payload far past the executor's `MAX_REASON_BYTES`.
     function bomb() external pure {
         bytes memory junk = new bytes(10_000);
         assembly {
@@ -63,12 +63,12 @@ contract MockDrainer {
 contract MockReentrant {
     function cancel(GenericCallWrapper wrapper, uint256 id, uint64 assetId) external {
         PubInputs.FeeNote memory feeNote;
-        wrapper.cancelEscrow(id, 0, bytes32(0), [uint256(0), 0], assetId, 0, 0, feeNote);
+        wrapper.cancelEscrow(id, 0, bytes32(0), assetId, 0, 0, feeNote, 0);
     }
 
     function cancelOnPool(IMASPPool pool, address payer, uint256 id, uint64 assetId) external {
         PubInputs.FeeNote memory feeNote;
-        pool.cancelDeposit(id, 0, bytes32(0), [uint256(0), 0], assetId, 0, payer, 0, feeNote);
+        pool.cancelDeposit(id, 0, bytes32(0), assetId, 0, payer, 0, feeNote, 0);
     }
 
     function prepare(GenericCallWrapper wrapper, IERC20 token) external {

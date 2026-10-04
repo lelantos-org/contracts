@@ -185,8 +185,8 @@ contract GovernorQuorumVoteWindowTest is GovTestBase {
         governor.castVote(id, AGAINST);
     }
 
-    /// A late Against can still defeat a proposal whose For votes were all in
-    /// before the cutoff, which is the point of the window.
+    /// A late Against defeats a proposal whose For votes were all cast before
+    /// the cutoff: the window exists to leave time for this answer.
     function test_lateAgainstDefeatsEarlierFor() public {
         uint256 id = _proposeCancelDelay("late answer");
         vm.warp(governor.proposalSnapshot(id) + 1);

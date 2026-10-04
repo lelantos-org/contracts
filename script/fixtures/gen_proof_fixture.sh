@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Regenerates a real-Groth16-proof fixture: one proof per vector in a published
-# witness vector from @lelantos-org/circuits.
+# Regenerates a real-Groth16-proof fixture: one proof per vector in a
+# witness-vector file published by @lelantos-org/circuits.
 #
 #   script/fixtures/gen_proof_fixture.sh tree_update_batch
 #   script/fixtures/gen_proof_fixture.sh transact_4x6
@@ -16,22 +16,24 @@
 #   2. A local `build/` may be partially rebuilt, pairing a current r1cs/wasm
 #      with a zkey from a different ceremony.
 #
-# Fetch them first (they are not in the npm tarball):
+# Fetch them first (they are not in the npm tarball), from the release whose
+# verifiers are vendored under src/verifiers/:
 #
-#   gh release download v0.16.0 --repo lelantos-org/circuits -D <dir> \
+#   gh release download v<version> --repo lelantos-org/circuits -D <dir> \
 #     -p '*_final.zkey' -p '*.wasm' -p '*verification_key.json'
 #
 # then point RELEASE at <dir> and CIRCUITS at a circuits checkout (for the
 # vectors and the snarkjs binary):
 #
-#   RELEASE=/path/to/rel0160 CIRCUITS=../circuits \
+#   RELEASE=/path/to/release CIRCUITS=../circuits \
 #     script/fixtures/gen_proof_fixture.sh tree_update_batch
 #
 # Groth16 proving is randomized, so a refresh produces a different but equally
 # valid proof triple over identical public signals. Each proof's public signals
-# are asserted against the vector's (y, z) before writing, and the release
-# verification key is asserted against the corresponding Solidity verifier, so a
-# mismatched artifact set fails here rather than during a test run.
+# are asserted against the vector's (y, digest, z) before writing, and the
+# release verification key is asserted against the corresponding Solidity
+# verifier, so a mismatched artifact set fails here rather than during a test
+# run.
 set -euo pipefail
 
 CIRCUIT="${1:-}"
@@ -60,7 +62,7 @@ esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CIRCUITS="$(cd "${CIRCUITS:-$HERE/../circuits}" && pwd)"
-RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of v0.16.0 release assets}" && pwd)"
+RELEASE="$(cd "${RELEASE:?set RELEASE to a directory of circuits release assets}" && pwd)"
 
 VECTOR="$CIRCUITS/vectors/$VECTOR_NAME"
 SNARKJS="$CIRCUITS/node_modules/.bin/snarkjs"
@@ -103,14 +105,16 @@ COUNT="$(python3 -c "import json;print(len(json.load(open('$VECTOR'))['vectors']
 
 for ((i = 0; i < COUNT; i++)); do
     # The published witness carries logical public inputs the circuit does not
-    # declare as signals (the address words, the FMD clue triples and the aux
-    # digest), which bind through the Fiat-Shamir challenge instead. The
-    # witness calculator rejects an undeclared key ("Too many values for input
-    # signal"), so drop the set the vector lists as challenge-only.
+    # declare as input signals: the address words, the FMD clue triples and the
+    # aux digest, which bind through the Fiat-Shamir challenge, and the
+    # coefficient digest, which the circuit outputs itself. The witness
+    # calculator rejects an undeclared key ("Too many values for input
+    # signal"), so drop the set the vector lists as challenge-only, and the
+    # calldata digest word.
     python3 -c "
 import json
 d = json.load(open('$VECTOR'))
-drop = set(d['circuit'].get('challengeOnly', []))
+drop = set(d['circuit'].get('challengeOnly', [])) | {'digest'}
 w = {k: v for k, v in d['vectors'][$i]['witness'].items() if k not in drop}
 json.dump(w, open('$TMP/in_$i.json', 'w'))
 "
@@ -132,13 +136,15 @@ vector = json.load(open(vector_path))
 entries = []
 for i in range(count):
     words = re.findall(r'0x[0-9a-fA-F]{64}', open(f'{tmp}/calldata_{i}.txt').read())
-    assert len(words) == 10, f'vector {i}: expected 10 calldata words, got {len(words)}'
+    assert len(words) == 11, f'vector {i}: expected 11 calldata words, got {len(words)}'
 
     v = vector['vectors'][i]
-    # snarkjs emits (y, z); the circuit's public signals are the output first,
-    # then the public input. Pin both against the vector's own compression.
-    y, z = int(words[8], 16), int(words[9], 16)
+    # snarkjs emits (y, digest, z): the circuit's two outputs in declaration
+    # order, then the public input. Pin all three against the vector's own
+    # compression.
+    y, digest, z = int(words[8], 16), int(words[9], 16), int(words[10], 16)
     assert y == int(v['compression']['y']), f'vector {i}: y mismatch'
+    assert digest == int(v['compression']['digest']), f'vector {i}: digest mismatch'
     assert z == int(v['compression']['z']), f'vector {i}: z mismatch'
 
     entries.append({
@@ -149,11 +155,11 @@ for i in range(count):
         'a': words[0:2],
         'b': [words[2:4], words[4:6]],
         'c': words[6:8],
-        'pubSignals': words[8:10],
+        'pubSignals': words[8:11],
     })
 
 json.dump({
-    'schema': 'lelantos.contracts.proof-fixture/1',
+    'schema': 'lelantos.contracts.proof-fixture/2',
     'source': {
         'vector': vector_name,
         'generator': vector['circuit']['id'],

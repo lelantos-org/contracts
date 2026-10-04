@@ -27,15 +27,14 @@ contract NullifierHandler is Test {
     }
 
     /// Consumes a random nullifier. With probability ~1/4 it retries an
-    /// already-consumed nullifier instead, so the DoubleSpend branch is
-    /// exercised regularly rather than almost never.
+    /// already-consumed nullifier instead, so the `DoubleSpend` branch is
+    /// exercised regularly.
     function consume(bytes32 nf, uint8 reuseSeed) external {
         if (consumedList.length > 0 && reuseSeed % 4 == 0) {
             nf = consumedList[uint256(uint8(reuseSeed)) % consumedList.length];
         }
 
         if (ghostConsumed[nf]) {
-            // Must revert with DoubleSpend.
             try masp.consumeNullifierExternal(nf) {
                 revert("expected DoubleSpend, got success");
             } catch (bytes memory reason) {

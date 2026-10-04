@@ -127,17 +127,7 @@ contract YieldIndexTest is YieldTestBase {
 
     /// External so `vm.expectRevert` has a call boundary to catch.
     function attemptCancel(uint256 id, uint64 publicIn, uint256 seed, uint32 submittedAt) external {
-        masp.cancelDeposit(
-            id,
-            uint48(publicIn),
-            bytes32(seed),
-            [uint256(0), 0],
-            YIELD_ID,
-            FEE_BPS,
-            payer,
-            submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(seed + 1), feeCvDep: [uint256(0), 0] })
-        );
+        _cancel(id, publicIn, seed, submittedAt);
     }
 
     // ============== Immutability =============================================
@@ -150,6 +140,17 @@ contract YieldIndexTest is YieldTestBase {
         masp.addYieldAsset(
             YIELD_ID, IERC20(address(token)), SCALE, FEE_BPS, FEE_BPS, address(venue), BUFFER_BPS, PERF_BPS
         );
+    }
+
+    /// The pool's paths branch on the registry's `isYield` flag rather than
+    /// reading the venue binding, so the two must agree for every id.
+    function test_isYieldFlagMirrorsTheVenueBinding() public view {
+        assertTrue(masp.asset(YIELD_ID).isYield, "yield id not flagged");
+        assertTrue(masp.asset(FINE_ID).isYield, "second yield id not flagged");
+        assertFalse(masp.asset(PLAIN_ID).isYield, "plain id flagged");
+
+        assertEq(masp.asset(YIELD_ID).isYield, masp.isYieldAsset(YIELD_ID), "flag and binding disagree");
+        assertEq(masp.asset(PLAIN_ID).isYield, masp.isYieldAsset(PLAIN_ID), "flag and binding disagree");
     }
 
     /// A venue pinned to some other pool cannot be bound here.
@@ -202,7 +203,7 @@ contract YieldIndexTest is YieldTestBase {
         assertEq(masp.index(YIELD_ID), idxBefore, "index is blind to unattributed balance");
     }
 
-    /// A donation to the *venue* is indistinguishable from interest and is
+    /// A donation to the venue is indistinguishable from interest and is
     /// treated as such.
     function test_donationToVenueIsTreatedAsYield() public {
         _deposit(YIELD_ID, N, 0x101);

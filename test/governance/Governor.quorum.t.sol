@@ -75,7 +75,6 @@ contract GovernorQuorumTest is GovTestBase {
 
         vm.warp(governor.proposalSnapshot(id) + 1);
 
-        // A large holder acquires tokens after the snapshot and self-delegates.
         address whale = makeAddr("whale");
         _giveVotes(whale, SUPPLY / 4);
 

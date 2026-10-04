@@ -27,6 +27,8 @@ import {
     VK1_IC1Y,
     VK1_IC2X,
     VK1_IC2Y,
+    VK1_IC3X,
+    VK1_IC3Y,
     VK2_DELTA_X1,
     VK2_DELTA_X2,
     VK2_DELTA_Y1,
@@ -37,11 +39,15 @@ import {
     VK2_IC1Y,
     VK2_IC2X,
     VK2_IC2Y,
+    VK2_IC3X,
+    VK2_IC3Y,
     BATCH_DOMAIN
 } from "../../src/verifiers/VerifyingKeys.sol";
 
-/// Pins `VerifyingKeys.sol` against the published verification keys and against
-/// its own derived `BATCH_DOMAIN`.
+/// Pins `VerifyingKeys.sol` against the committed verification keys and
+/// against its own derived `BATCH_DOMAIN`. This shows the constants and the
+/// JSON agree, not that either is a ceremony output: where the keys come from
+/// is recorded in `test/fixtures/README.md`.
 ///
 /// `VerifyingKeys.sol` transcribes constants whose authoritative form lives in
 /// the two snarkjs codegen verifiers. Those are contract-scoped and non-public,
@@ -54,6 +60,10 @@ import {
 contract VerifyingKeysTest is Test {
     string internal constant VK1 = "test/fixtures/verification_key_4x6.json";
     string internal constant VK2 = "test/fixtures/verification_key_tree_update_batch.json";
+
+    /// Points in a key's `IC`: the constant term, then one per public signal
+    /// `[y, digest, z]`.
+    uint256 internal constant IC_POINTS = 4;
 
     string internal vk1;
     string internal vk2;
@@ -93,17 +103,36 @@ contract VerifyingKeysTest is Test {
     }
 
     /// `IC` is G1, so it needs no reordering: `[i][0]` is x, `[i][1]` is y.
-    function _assertIC(string memory json, uint256[6] memory expected, string memory what) internal pure {
-        for (uint256 i; i < 3; ++i) {
+    /// The length is asserted first: a key for another signal count would
+    /// otherwise match on its leading points.
+    function _assertIC(string memory json, uint256[2 * IC_POINTS] memory expected, string memory what) internal view {
+        assertEq(_icLength(json), IC_POINTS, string.concat(what, " IC length"));
+        for (uint256 i; i < IC_POINTS; ++i) {
             string memory base = string.concat(".IC[", vm.toString(i), "]");
             assertEq(expected[2 * i], _u(json, string.concat(base, "[0]")), string.concat(what, " IC.x"));
             assertEq(expected[2 * i + 1], _u(json, string.concat(base, "[1]")), string.concat(what, " IC.y"));
         }
     }
 
+    function _icLength(string memory json) internal view returns (uint256 n) {
+        while (vm.keyExistsJson(json, string.concat(".IC[", vm.toString(n), "]"))) {
+            ++n;
+        }
+    }
+
+    /// Each circuit's `IC` block as `VerifyingKeys.sol` transcribes it, `(x, y)`
+    /// per point.
+    function _ic1() internal pure returns (uint256[2 * IC_POINTS] memory) {
+        return [VK1_IC0X, VK1_IC0Y, VK1_IC1X, VK1_IC1Y, VK1_IC2X, VK1_IC2Y, VK1_IC3X, VK1_IC3Y];
+    }
+
+    function _ic2() internal pure returns (uint256[2 * IC_POINTS] memory) {
+        return [VK2_IC0X, VK2_IC0Y, VK2_IC1X, VK2_IC1Y, VK2_IC2X, VK2_IC2Y, VK2_IC3X, VK2_IC3Y];
+    }
+
     // --- the domain the batched verifier separates its transcript with -------
 
-    /// `BATCH_DOMAIN` is `keccak256(abi.encode(...))` over the thirty key
+    /// `BATCH_DOMAIN` is `keccak256(abi.encode(...))` over the thirty-four key
     /// constants in a fixed order, held as a literal because Solidity cannot
     /// fold that into a compile-time `constant`. Recomputing it here fails the
     /// suite when a key changes without the domain being regenerated.
@@ -130,6 +159,8 @@ contract VerifyingKeysTest is Test {
                 VK1_IC1Y,
                 VK1_IC2X,
                 VK1_IC2Y,
+                VK1_IC3X,
+                VK1_IC3Y,
                 VK2_DELTA_X1,
                 VK2_DELTA_X2,
                 VK2_DELTA_Y1,
@@ -139,7 +170,9 @@ contract VerifyingKeysTest is Test {
                 VK2_IC1X,
                 VK2_IC1Y,
                 VK2_IC2X,
-                VK2_IC2Y
+                VK2_IC2Y,
+                VK2_IC3X,
+                VK2_IC3Y
             )
         );
         assertEq(BATCH_DOMAIN, expected, "BATCH_DOMAIN is stale: recompute it from the current constants");
@@ -179,12 +212,28 @@ contract VerifyingKeysTest is Test {
 
     function test_transactKeysMatchVerificationKey() public view {
         _assertG2(vk1, ".vk_delta_2", [VK1_DELTA_X1, VK1_DELTA_X2, VK1_DELTA_Y1, VK1_DELTA_Y2], "VK1_DELTA");
-        _assertIC(vk1, [VK1_IC0X, VK1_IC0Y, VK1_IC1X, VK1_IC1Y, VK1_IC2X, VK1_IC2Y], "VK1");
+        _assertIC(vk1, _ic1(), "VK1");
     }
 
     function test_treeUpdateKeysMatchVerificationKey() public view {
         _assertG2(vk2, ".vk_delta_2", [VK2_DELTA_X1, VK2_DELTA_X2, VK2_DELTA_Y1, VK2_DELTA_Y2], "VK2_DELTA");
-        _assertIC(vk2, [VK2_IC0X, VK2_IC0Y, VK2_IC1X, VK2_IC1Y, VK2_IC2X, VK2_IC2Y], "VK2");
+        _assertIC(vk2, _ic2(), "VK2");
+    }
+
+    /// Within a key the `IC` points are pairwise distinct, and the two keys
+    /// differ at every point. This is what makes a transposition of
+    /// `[y, digest, z]`, or one circuit's signals under the other's key, a
+    /// different commitment rather than the same one.
+    function test_icPointsAreDistinct() public pure {
+        uint256[2 * IC_POINTS] memory k1 = _ic1();
+        uint256[2 * IC_POINTS] memory k2 = _ic2();
+        for (uint256 i; i < IC_POINTS; ++i) {
+            for (uint256 j = i + 1; j < IC_POINTS; ++j) {
+                assertTrue(k1[2 * i] != k1[2 * j] || k1[2 * i + 1] != k1[2 * j + 1], "VK1 IC points coincide");
+                assertTrue(k2[2 * i] != k2[2 * j] || k2[2 * i + 1] != k2[2 * j + 1], "VK2 IC points coincide");
+            }
+            assertTrue(k1[2 * i] != k2[2 * i] || k1[2 * i + 1] != k2[2 * i + 1], "the two keys share an IC point");
+        }
     }
 
     /// The two circuits have distinct `delta`s. A collision means both keys
@@ -206,13 +255,16 @@ contract VerifyingKeysTest is Test {
 
     // --- provenance ----------------------------------------------------------
 
-    /// Both key files are Groth16 over bn128 with two public inputs.
+    /// Both key files are Groth16 over bn128 with three public inputs,
+    /// `[y, digest, z]`, and so four `IC` points.
     function test_fixtureProvenance() public view {
         assertEq(vm.parseJsonString(vk1, ".protocol"), "groth16", "vk1 protocol");
         assertEq(vm.parseJsonString(vk2, ".protocol"), "groth16", "vk2 protocol");
         assertEq(vm.parseJsonString(vk1, ".curve"), "bn128", "vk1 curve");
         assertEq(vm.parseJsonString(vk2, ".curve"), "bn128", "vk2 curve");
-        assertEq(vm.parseJsonUint(vk1, ".nPublic"), 2, "vk1 nPublic");
-        assertEq(vm.parseJsonUint(vk2, ".nPublic"), 2, "vk2 nPublic");
+        assertEq(vm.parseJsonUint(vk1, ".nPublic"), 3, "vk1 nPublic");
+        assertEq(vm.parseJsonUint(vk2, ".nPublic"), 3, "vk2 nPublic");
+        assertEq(_icLength(vk1), IC_POINTS, "vk1 IC length");
+        assertEq(_icLength(vk2), IC_POINTS, "vk2 IC length");
     }
 }

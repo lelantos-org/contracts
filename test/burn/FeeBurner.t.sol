@@ -8,13 +8,11 @@ import { FeeBurnerTestBase } from "./FeeBurnerTestBase.sol";
 /// Integration of `FeeBurner` with a real pool: fees accrued at flush reach the
 /// burner through the permissionless `sweep` and through `harvest`.
 ///
-/// The auction itself is covered by `FeeBurner.{price,buy,admin}.t.sol`.
+/// The auction itself is covered by `FeeBurner.{price,buy,slippage,admin}.t.sol`.
 contract FeeBurnerTest is FeeBurnerTestBase {
-    // ============== Integration ==============================================
-
-    /// Fees reach the burner without pool changes: `sweep` is permissionless and
-    /// pays `treasury`. Driven through a real deposit and flush, so the accrual
-    /// comes from `FeeConfig._accrueFee` at its production call site.
+    /// `sweep` is permissionless and pays `treasury`, which is how fees reach the
+    /// burner. Driven through a real deposit and flush, so the accrual comes from
+    /// `FeeConfig._accrueFee` at its production call site.
     function test_permissionlessSweepDeliversRealFeesToTheBurner() public {
         uint256 fee = _accrueRealFees(1_000);
         assertGt(fee, 0, "fixture must accrue something");

@@ -8,7 +8,8 @@ import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
 import { YieldTestBase } from "../utils/YieldTestBase.sol";
 
-/// Plain vs indexed cost on the two hot paths. Prints rather than asserts.
+/// Plain vs indexed cost on the two hot paths. Prints each measurement and
+/// asserts loose ceilings on the indexed premium.
 contract YieldGasTest is YieldTestBase {
     uint64 internal constant N = 1_000_000;
 
@@ -77,10 +78,10 @@ contract YieldGasTest is YieldTestBase {
         // per-deposit vault mint or an empty buffer exceeds these by a wide
         // margin.
         //
-        // The shield ceiling includes one fresh `_escrowPulled` write (~22.1k),
-        // the refund cap a yield escrow records at submit and clears at flush or
-        // cancel.
-        assertLt(yieldDep - plainDep, 78_000, "shield premium regressed");
+        // The shield ceiling carries no storage write for the escrow's refund
+        // cap: the digest binds it. Storing it would add a fresh slot
+        // (~22.1k) and exceed this.
+        assertLt(yieldDep - plainDep, 56_000, "shield premium regressed");
         assertLt(yieldBig - plainBig, 30_000, "buffer-exceeding exit premium regressed");
         assertLt(yieldSmall - plainSmall, 15_000, "buffer-served exit premium regressed");
     }

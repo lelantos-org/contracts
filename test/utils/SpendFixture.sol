@@ -23,8 +23,8 @@ uint256 constant SPEND_OUTPUTS = 6;
 /// `BatchMisaligned` or `CiphertextTooShort` in every test file that restates
 /// the rules.
 ///
-/// Everything here is sized from `PubInputs.TRANSACT_OUT` / `.length` rather
-/// than a literal, so an arity change is a single edit in `PubInputs.sol`.
+/// Every loop here runs over an array's `.length` rather than a literal, so an
+/// arity change is an edit to `PubInputs.sol` and to `SPEND_OUTPUTS`.
 ///
 /// Not covered: `merkleRoot`, the public amounts, and the party addresses.
 /// These are usually the subject of a test, so callers set them explicitly.
@@ -61,7 +61,9 @@ library SpendFixture {
     ///
     /// Only `newRoot`, `startIndex` and the anchor slot are left to the caller.
     /// MASP builds the rest of the batch image from `pi` itself
-    /// (`PubInputs.compressSpend`).
+    /// (`PubInputs.compressSpend`). `digest`, the batch circuit's commitment to
+    /// that image, is left zero: these suites stub the verifier, and a test
+    /// about the digest sets it.
     function spendTree(bytes32 newRoot, uint64 startIndex) internal pure returns (PubInputs.SpendTree memory) {
         return spendTree(newRoot, startIndex, 0);
     }

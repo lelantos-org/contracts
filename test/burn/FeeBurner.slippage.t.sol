@@ -11,7 +11,6 @@ import { ReentrantOnTransferERC20 } from "./mocks/ReentrantOnTransferERC20.sol";
 /// Sandwich and flash-loan resistance of the auction.
 ///
 /// `priceOf` reads no external state, so a flash loan has no input to move.
-/// These tests assert that property.
 contract FeeBurnerSlippageTest is FeeBurnerTestBase {
     /// Price is a pure function of stored state and `block.timestamp`, so no
     /// ordering within a block yields a better price.

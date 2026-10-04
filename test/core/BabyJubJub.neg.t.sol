@@ -70,9 +70,9 @@ contract BabyJubJubNegTest is Test {
 
     // -----------------------------------------------------------------------
     // Order-4 / order-8 / mixed-order vectors, computed off-chain with the
-    // affine twisted Edwards group law. They cross-check the projective
-    // `isLowOrder` implementation: an arithmetic error in the doubling
-    // formulas misclassifies at least one of them.
+    // affine twisted Edwards group law. They cross-check `isLowOrder`, which
+    // classifies by coordinates rather than by computing `[8]P`: a wrong
+    // condition for any one order misclassifies at least one of them.
     // -----------------------------------------------------------------------
 
     /// Order-4 points are (±sqrt(1/a), 0): doubling gives (0, P-1), so
@@ -137,12 +137,10 @@ contract BabyJubJubNegTest is Test {
         if (!BabyJubJub.isOnCurve(x, y)) return;
         if (!BabyJubJub.isLowOrder(x, y)) return;
         // On-curve and low-order: one of the 8 small-subgroup points. Only the
-        // analytically known x = 0 cases are asserted; enumerating the rest
-        // requires off-chain computation.
+        // analytically known x = 0 cases are asserted, as a consistency check
+        // on the flag; enumerating the rest requires off-chain computation.
         bool isIdentity = (x == 0 && y == 1);
         bool isOrderTwo = (x == 0 && y == P - 1);
-        // Other small-subgroup points are also low-order; the check below
-        // only confirms the flag is consistent.
         if (isIdentity || isOrderTwo) {
             assertTrue(BabyJubJub.isLowOrder(x, y));
         }

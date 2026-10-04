@@ -1,7 +1,7 @@
 {
   "meta": {
     "spec": "spec/masp.qnt",
-    "specHash": "0xf7de595ff0050224069589667d87bc9fac396e2f15155acdca75f23ae303008c",
+    "specHash": "0x9d4b8ca881f88de5d95a2781b1fbf73a03f518b061e84ce80ae1867348425c1d",
     "module": "masp",
     "quintVersion": "0.32.0",
     "backend": "rust",

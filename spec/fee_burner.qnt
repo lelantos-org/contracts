@@ -49,7 +49,7 @@
 //   - BURN_BPS is 6_667, not 10_000: with 10_000 the split is exact and the
 //     remainder is always zero.
 //   - TIME_JUMPS are mostly not multiples of HALF_LIFE, so `elapsed % period`
-//     is non-zero and the linear interpolation inside a period actually runs.
+//     is non-zero and the linear interpolation inside a period runs.
 //   - AMOUNTS are chosen so `amountOut * BPS % bal != 0`, so the floor in
 //     `fillBps` is observable. `1` and `7` are below MIN_LOT: they build dust
 //     balances, which `buy` clears by drawing the whole balance. `1009` is
@@ -71,7 +71,7 @@
 //   - `minLot` is one constant, MIN_LOT, and `setLot`'s `BadMinLot` rejection
 //     of zero is not modelled. The `BelowMinLot` revert is only a guard here:
 //     replay drives accepted steps, so the rejection itself is a single-call
-//     property left to test/burn/FeeBurner.t.sol.
+//     property left to test/burn/FeeBurner.buy.t.sol.
 //   - `restartMultBps` is held at RESTART_MULT_BPS; `setDecayParams` draws only
 //     the two parameters a lot snapshots. The `restartMultBps == BPS` case is
 //     covered by `test_unitRestartMultiplierNeverReanchors`, and a zero-weight
@@ -444,13 +444,13 @@ module fee_burner {
       // The ratchet never leaves the lot cheaper than its clearing price.
       ratchetViolations' =
         if (nextStart < price) ratchetViolations + 1 else ratchetViolations,
-      // A fill large enough for the ratchet term to survive flooring must leave
-      // the lot above its clearing price. Below that threshold a flat price is
-      // correct, since `floor((restartMultBps - BPS) * fillBps / BPS)` is zero
-      // for a small share, so the condition is on the term rather than on
-      // `fillBps > 0`. Counting exceptions makes a flattened ratchet visible:
-      // `newStart == price` violates no bound.
-      // Only a fill of at least MIN_LOT is eligible at all.
+      // Only a fill of at least MIN_LOT is eligible. One large enough for the
+      // ratchet term to survive flooring must leave the lot above its clearing
+      // price. Below that threshold a flat price is correct, since
+      // `floor((restartMultBps - BPS) * fillBps / BPS)` is zero for a small
+      // share, so the condition is on the term rather than on `fillBps > 0`.
+      // Counting exceptions makes a flattened ratchet visible:
+      // `nextStart == price` violates no bound.
       flatRatchets' =
         if (amt >= MIN_LOT and fillBps * (RESTART_MULT_BPS - BPS) >= BPS and nextStart <= price)
           flatRatchets + 1

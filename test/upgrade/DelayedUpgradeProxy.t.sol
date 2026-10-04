@@ -57,7 +57,6 @@ contract DelayedUpgradeProxyTest is Test {
         assertEq(pool.balanceOf(holder), 1_000e18);
     }
 
-    /// A queued upgrade changes no behaviour until it activates.
     function test_queuedUpgradeDoesNotTakeEffect() public {
         _queue();
         assertEq(pool.version(), 1, "queueing must not switch implementation");
@@ -135,7 +134,6 @@ contract DelayedUpgradeProxyTest is Test {
         assertEq(pool.withdrawBps(), WITHDRAW_BPS, "config lost");
     }
 
-    /// After activation the new terms apply.
     function test_newRulesApplyAfterActivation() public {
         _queue();
         vm.warp(T0 + UPGRADE_DELAY);
@@ -171,7 +169,6 @@ contract DelayedUpgradeProxyTest is Test {
         proxy.queueUpgrade(address(v1));
     }
 
-    /// Re-queueing after a cancel restarts the full window.
     function test_requeueRestartsTheFullWindow() public {
         _queue();
         vm.warp(T0 + 20 days);
@@ -206,7 +203,7 @@ contract DelayedUpgradeProxyTest is Test {
         vm.prank(admin);
         proxy.pauseSpends(5 days);
 
-        // What would have been the original activation moment.
+        // The activation time before the pause deferred it.
         vm.warp(T0 + UPGRADE_DELAY);
         vm.expectRevert();
         proxy.activateUpgrade();
@@ -243,8 +240,8 @@ contract DelayedUpgradeProxyTest is Test {
         vm.stopPrank();
     }
 
-    /// A pause with nothing queued does not set an activation time. What it has
-    /// not yet run is charged to the next queue instead, which starts its window
+    /// A pause with nothing queued does not set an activation time. Its
+    /// unexpired remainder is charged to the next queue, which starts its window
     /// when the pause ends; see `test_queueDuringAPauseStartsTheWindowWhenThePauseEnds`.
     function test_pauseWithNoPendingUpgradeDoesNotSetActivation() public {
         vm.prank(admin);
@@ -306,8 +303,8 @@ contract DelayedUpgradeProxyTest is Test {
         assertEq(activationAt - pausedUntil, UPGRADE_DELAY, "re-queue mid-pause shortened the exit window");
     }
 
-    /// A pause that has already run out defers nothing: the window starts at the
-    /// queue, as it does with no pause at all.
+    /// An expired pause defers nothing: the window starts at the queue, as it
+    /// does with no pause.
     function test_queueAfterThePauseExpiredStartsNow() public {
         vm.prank(admin);
         proxy.pauseSpends(1 days);
@@ -328,8 +325,7 @@ contract DelayedUpgradeProxyTest is Test {
         vm.expectRevert(DelayedUpgradeProxy.PauseNotShorterThanDelay.selector);
         new DelayedUpgradeProxy(address(v1), init, admin, UPGRADE_DELAY, UPGRADE_DELAY);
 
-        // The configuration `Deploy.s.sol` once admitted: a 30-day pause over a
-        // 7-day window.
+        // A pause longer than the window: 30 days over a 7-day window.
         vm.expectRevert(DelayedUpgradeProxy.PauseNotShorterThanDelay.selector);
         new DelayedUpgradeProxy(address(v1), init, admin, 7 days, 30 days);
 
@@ -365,12 +361,10 @@ contract DelayedUpgradeProxyTest is Test {
         proxy.changeProxyAdmin(governance);
         assertEq(proxy.proxyAdmin(), governance);
 
-        // The previous admin is rejected.
         vm.prank(admin);
         vm.expectRevert(DelayedUpgradeProxy.NotProxyAdmin.selector);
         proxy.queueUpgrade(address(v2));
 
-        // The new admin is accepted.
         vm.prank(governance);
         proxy.queueUpgrade(address(v2));
         (address pending,) = proxy.pendingUpgrade();
@@ -457,14 +451,12 @@ contract DelayedUpgradeProxyTest is Test {
             DelayedUpgradeProxy.spendsPausedUntil.selector,
             DelayedUpgradeProxy.verifiers.selector,
             DelayedUpgradeProxy.pendingVerifierUpdate.selector,
-            // Public immutables have no `.selector`; derive them. They were
-            // missing from this list before the verifier selectors were added.
+            // Public immutables have no `.selector`; derive them.
             bytes4(keccak256("UPGRADE_DELAY()")),
             bytes4(keccak256("MAX_PAUSE()"))
         ];
-        // The real pool's selectors, not just the mock's: the verifier
-        // accessors are the ones this proxy's new reserved selectors could
-        // plausibly shadow, and `MASP` is the implementation that matters.
+        // The mock's selectors plus the real pool's verifier accessors, which
+        // the proxy's reserved verifier selectors could plausibly shadow.
         bytes4[8] memory implSelectors = [
             MockPoolV1.initialize.selector,
             MockPoolV1.version.selector,

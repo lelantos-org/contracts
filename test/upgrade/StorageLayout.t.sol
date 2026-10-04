@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.36;
 
+import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { UpgradeStorage } from "../../src/UpgradeStorage.sol";
 import { VerifierStorage } from "../../src/VerifierStorage.sol";
 
@@ -15,9 +16,8 @@ import { MASPNext } from "../mocks/MASPNext.sol";
 /// The compiler cannot detect that across separately compiled implementations,
 /// so it is asserted here. Upgrades may only append after the last slot.
 contract StorageLayoutTest is MASPUpgradeTestBase {
-    // The slot map itself lives in `utils/PoolSlots.sol`, so the suites that
-    // read raw storage cannot drift apart from it. This suite is what pins it
-    // against the live contract.
+    // The slot map lives in `utils/PoolSlots.sol`, shared by every suite that
+    // reads raw storage. This suite pins it against the live contract.
 
     function _slot(uint256 i) internal view returns (uint256) {
         return uint256(vm.load(address(proxy), bytes32(i)));
@@ -33,9 +33,8 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         assertEq(address(uint160(_slot(PoolSlots.PERMIT2))), permit2);
     }
 
-    /// The verifiers are no longer in the sequential layout: they live in the
-    /// `VerifierStorage` namespace, which the proxy writes and the pool reads,
-    /// and the slots they used to occupy now hold what followed them.
+    /// The verifiers are not in the sequential layout: they live in the
+    /// `VerifierStorage` namespace, which the proxy writes and the pool reads.
     function test_verifiersAreInTheirNamespaceAndNotInSequentialStorage() public view {
         // Read from the proxy's storage: `$()` resolves against whatever
         // context it runs in, which here would be the test contract's own.
@@ -54,9 +53,7 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
     /// `rootIndex` and `committedCount` share one slot; unpacking them would
     /// shift every slot below.
     function test_rootIndexAndCommittedCountStillShareOneSlot() public {
-        bytes32 cm = bytes32(uint256(0x111));
-        uint256 id = _deposit(1_000, cm, 0);
-        _flush(id, 1_000, cm);
+        _depositAndFlush(1_000, bytes32(uint256(0x111)));
 
         uint256 packed = _slot(PoolSlots.PACKED_COUNTS);
         uint32 rootIndex = uint32(packed);
@@ -73,6 +70,29 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         assertEq(uint32(_slot(PoolSlots.CANCEL_DELAY)), masp.cancelDelay(), "cancelDelay moved off its slot");
     }
 
+    /// A registry entry is exactly one slot, laid out in declaration order.
+    ///
+    /// Every deposit, withdraw, flush and cancel loads the entry, so a field
+    /// spilling into a second slot would add a cold read to each of them. The
+    /// widths leave no spare byte: `scale` takes the top six.
+    function test_assetEntryOccupiesOneSlot() public view {
+        bytes32 base = keccak256(abi.encode(uint256(ASSET_ID), PoolSlots.ASSETS));
+        uint256 word = uint256(vm.load(address(proxy), base));
+        AssetRegistry.AssetEntry memory a = masp.asset(ASSET_ID);
+
+        assertEq(address(uint160(word)), address(a.token), "token not at offset 0");
+        assertEq(uint8(word >> 160) != 0, a.disabled, "disabled not at offset 20");
+        assertEq(uint16(word >> 168), a.depositBps, "depositBps not at offset 21");
+        assertEq(uint16(word >> 184), a.withdrawBps, "withdrawBps not at offset 23");
+        assertEq(uint8(word >> 200) != 0, a.isYield, "isYield not at offset 25");
+        assertEq(uint48(word >> 208), a.scale, "scale not at offset 26");
+        assertEq(a.scale, SCALE, "scale read back whole");
+
+        assertEq(
+            uint256(vm.load(address(proxy), bytes32(uint256(base) + 1))), 0, "the entry spilled into a second slot"
+        );
+    }
+
     /// The genesis root occupies the first element of `roots`, written by the
     /// initializer.
     function test_genesisRootIsInSlotZero() public view {
@@ -87,9 +107,7 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         uint256 before = uint256(vm.load(address(proxy), UpgradeStorage.SLOT));
         assertEq(before, 0, "upgrade namespace dirty at rest");
 
-        bytes32 cm = bytes32(uint256(0x111));
-        uint256 id = _deposit(1_000, cm, 0);
-        _flush(id, 1_000, cm);
+        _depositAndFlush(1_000, bytes32(uint256(0x111)));
 
         assertEq(
             uint256(vm.load(address(proxy), UpgradeStorage.SLOT)), 0, "pool activity wrote into the upgrade namespace"
@@ -97,9 +115,7 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
     }
 
     function test_upgradeStateDoesNotDisturbPoolStorage() public {
-        bytes32 cm = bytes32(uint256(0x111));
-        uint256 id = _deposit(1_000, cm, 0);
-        _flush(id, 1_000, cm);
+        _depositAndFlush(1_000, bytes32(uint256(0x111)));
 
         uint256[6] memory watched = [
             PoolSlots.PACKED_COUNTS,
@@ -126,11 +142,8 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
         assertTrue(uint256(vm.load(address(proxy), UpgradeStorage.SLOT)) != 0, "namespace should now be populated");
     }
 
-    /// Every slot is unchanged across an upgrade.
     function test_everySlotSurvivesAnUpgrade() public {
-        bytes32 cm = bytes32(uint256(0x111));
-        uint256 id = _deposit(1_000, cm, 0);
-        _flush(id, 1_000, cm);
+        _depositAndFlush(1_000, bytes32(uint256(0x111)));
 
         // Dynamic: an array length must be a literal or a local constant
         // expression, which a library constant is not.
@@ -153,7 +166,6 @@ contract StorageLayoutTest is MASPUpgradeTestBase {
     /// Slots beyond the layout are free, so an appending upgrade cannot alias
     /// state already in use.
     function test_appendedSlotsStartEmpty() public view {
-        assertEq(_slot(PoolSlots.ESCROW_PULLED), 0, "a mapping root holds no value");
         assertEq(_slot(PoolSlots.END), 0, "slot after the layout is not free");
         assertEq(_slot(PoolSlots.END + 1), 0);
     }

@@ -32,8 +32,8 @@ contract GovernorCutoffParamsTest is GovTestBase {
         governor.setQuorumVoteCutoff(2 days);
     }
 
-    /// Even the Timelock cannot call it outside a proposal execution: the
-    /// Governor only accepts calls it has queued for itself.
+    /// The Timelock cannot call it outside a proposal execution: the Governor
+    /// only accepts calls it has queued for itself.
     function test_setQuorumVoteCutoffByTimelockOutsideExecutionReverts() public {
         vm.prank(address(timelock));
         vm.expectRevert();

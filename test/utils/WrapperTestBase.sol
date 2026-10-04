@@ -32,8 +32,8 @@ interface IWrapperTokenPrep {
 ///
 /// `setUp` is a template. The per-domain base supplies the wrapper
 /// (`_deployWrapper`, `_wrapperAddress`) and may add tokens (`_deployExtraTokens`,
-/// `_assets`). Contracts are created in the order the suites used before this
-/// base existed, so every deployed address is unchanged.
+/// `_assets`). Contracts are created in a fixed order (Permit2, tokens A and B,
+/// extra tokens, pool, wrapper), which determines every deployed address.
 abstract contract WrapperTestBase is Test {
     uint64 internal constant ASSET_A = 1;
     uint64 internal constant ASSET_B = 2;
@@ -71,8 +71,7 @@ abstract contract WrapperTestBase is Test {
 
     // --- hooks ---------------------------------------------------------------
 
-    /// Override to deploy tokens beyond A and B. Runs before the pool exists, so
-    /// the pool's address does not depend on how many tokens a suite adds later.
+    /// Override to deploy tokens beyond A and B. Runs before the pool is deployed.
     function _deployExtraTokens() internal virtual { }
 
     /// The assets registered on the pool and armed on the wrapper. Override,
@@ -108,7 +107,7 @@ abstract contract WrapperTestBase is Test {
     // --- payloads --------------------------------------------------------------
 
     /// A note of `publicIn` units of `assetId` for `NOTE_RECIPIENT`, paid by
-    /// `payer`, with commitment 1.
+    /// `payer`, with `inner` 1.
     function _noteRequest(uint64 assetId, uint64 publicIn, address payer)
         internal
         view
@@ -118,9 +117,9 @@ abstract contract WrapperTestBase is Test {
     }
 
     /// The A note a payload withdrawing `withdrawUnits` of A refunds to when its
-    /// calls fail. Commitment 2, so it is distinguishable from the output note.
+    /// calls fail. `inner` 2, so it is distinguishable from the output note.
     function _refundRequest(uint64 withdrawUnits) internal view returns (PubInputs.DepositRequest memory d) {
         d = _noteRequest(ASSET_A, _netOfTwoFees(withdrawUnits), _wrapperAddress());
-        d.outCm = bytes32(uint256(2));
+        d.inner = bytes32(uint256(2));
     }
 }

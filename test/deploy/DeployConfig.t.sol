@@ -76,9 +76,8 @@ contract DeployConfigTest is Test {
         }
     }
 
-    /// The pause ceiling is shorter than the exit window. The proxy constructor
-    /// and `Deploy.s.sol` both refuse a config that is not; checking here fails
-    /// before a broadcast is attempted.
+    /// The pause ceiling is shorter than the exit window; the proxy constructor
+    /// and `Deploy.s.sol` both refuse a config where it is not.
     function test_maxPauseIsShorterThanUpgradeDelay() public view {
         string[8] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
@@ -91,8 +90,8 @@ contract DeployConfigTest is Test {
         }
     }
 
-    /// `tokens` and `scales` are parallel to `ids`. `Deploy.s.sol` requires
-    /// this at broadcast; checking here fails before a broadcast is attempted.
+    /// `tokens` and `scales` are parallel to `ids`, as `Deploy.s.sol` requires
+    /// at broadcast.
     function test_assetArraysAreParallel() public view {
         string[8] memory files = _configs();
         for (uint256 f; f < files.length; ++f) {
@@ -100,6 +99,22 @@ contract DeployConfigTest is Test {
             uint256 n = vm.parseJsonUintArray(j, ".ids").length;
             assertEq(vm.parseJsonAddressArray(j, ".tokens").length, n, string.concat(files[f], ": tokens length"));
             assertEq(vm.parseJsonUintArray(j, ".scales").length, n, string.concat(files[f], ": scales length"));
+        }
+    }
+
+    /// Asset id 0 means "no asset" to the circuits: a transfer and a
+    /// zero-value fee note carry it, and the registry refuses to register it
+    /// (`ZeroAssetId`), which would revert the whole genesis registration.
+    /// `Deploy.s.sol` requires every id non-zero at broadcast and narrows ids
+    /// to `uint64`, so one that does not fit would register as another.
+    function test_noConfigRegistersTheReservedAssetId() public view {
+        string[8] memory files = _configs();
+        for (uint256 f; f < files.length; ++f) {
+            uint256[] memory ids = vm.parseJsonUintArray(vm.readFile(files[f]), ".ids");
+            for (uint256 i; i < ids.length; ++i) {
+                assertTrue(ids[i] != 0, string.concat(files[f], ": asset id 0 is reserved"));
+                assertLe(ids[i], type(uint64).max, string.concat(files[f], ": asset id wider than uint64"));
+            }
         }
     }
 }

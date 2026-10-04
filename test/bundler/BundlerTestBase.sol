@@ -53,8 +53,8 @@ abstract contract BundlerTestBase is Test {
     /// Escrow payer for flushed deposits; carries a permissive ERC-1271 stub.
     address internal constant DEPOSIT_PAYER = TestConstants.ESCROW_PAYER;
     uint64 internal constant DEPOSIT_UNITS = 100;
-    bytes32 internal constant DEPOSIT_CM = bytes32(uint256(0xd0));
-    bytes32 internal constant FEE_CM = DepositFixture.FEE_CM;
+    bytes32 internal constant DEPOSIT_INNER = bytes32(uint256(0xd0));
+    bytes32 internal constant FEE_INNER = DepositFixture.FEE_INNER;
     address internal constant SWAP_REFUND_TO = TestConstants.SWAP_REFUND_TO;
 
     MockERC20 internal tokenA;
@@ -213,12 +213,22 @@ abstract contract BundlerTestBase is Test {
         pi.merkleRoot = anchor;
     }
 
+    /// A transfer names no asset: `publicAssetId` is 0 whenever `publicOut` is.
     function _transferCall(Bundler boundTo, uint256 seed, bytes32 newRoot, uint64 start)
         internal
         view
         returns (Bundler.Call memory)
     {
-        PubInputs.Transact memory pi = _transact(ASSET_A, 0, RECIPIENT, address(boundTo), SPEND_PAYER, seed);
+        return _transferCall(0, boundTo, seed, newRoot, start);
+    }
+
+    /// `_transferCall` naming `assetId`, which the pool refuses unless it is 0.
+    function _transferCall(uint64 assetId, Bundler boundTo, uint256 seed, bytes32 newRoot, uint64 start)
+        internal
+        view
+        returns (Bundler.Call memory)
+    {
+        PubInputs.Transact memory pi = _transact(assetId, 0, RECIPIENT, address(boundTo), SPEND_PAYER, seed);
         PubInputs.SpendTree memory tpi = SpendFixture.spendTree(newRoot, start, anchorIndex);
         MASP.Proof memory p = FixtureLoader.emptyProof();
         return Bundler.Call({
@@ -309,8 +319,8 @@ abstract contract BundlerTestBase is Test {
         a.deposit_d.publicIn = minUnits;
         a.deposit_d.payer = address(wrapper);
         a.deposit_d.recipient = RECIPIENT;
-        a.deposit_d.outCm = bytes32(seed + 0x100);
-        a.deposit_d.feeCm = FEE_CM;
+        a.deposit_d.inner = bytes32(seed + 0x100);
+        a.deposit_d.feeInner = FEE_INNER;
         a.aux_d = SpendFixture.validAux()[0];
         a.fee_aux_d = SpendFixture.validAux()[1];
 
@@ -319,13 +329,13 @@ abstract contract BundlerTestBase is Test {
         a.refund_d.publicIn = uint64((uint256(grossUnits) * (10_000 - 2 * uint256(FEE_BPS))) / 10_000);
         a.refund_d.payer = address(wrapper);
         a.refund_d.recipient = RECIPIENT;
-        a.refund_d.outCm = bytes32(seed + 0x200);
-        a.refund_d.feeCm = FEE_CM;
+        a.refund_d.inner = bytes32(seed + 0x200);
+        a.refund_d.feeInner = FEE_INNER;
         a.refund_aux_d = SpendFixture.validAux()[2];
         a.refund_fee_aux_d = SpendFixture.validAux()[3];
     }
 
-    /// Escrows a `DEPOSIT_UNITS` deposit of `DEPOSIT_CM` through Permit2 from the
+    /// Escrows a `DEPOSIT_UNITS` deposit of `DEPOSIT_INNER` through Permit2 from the
     /// ERC-1271 payer.
     function _escrowDeposit() internal returns (uint256 id) {
         tokenA.mint(DEPOSIT_PAYER, FeeMath.gross(DEPOSIT_UNITS, SCALE, FEE_BPS));
@@ -333,7 +343,7 @@ abstract contract BundlerTestBase is Test {
         tokenA.approve(permit2, type(uint256).max);
 
         PubInputs.DepositRequest memory d =
-            DepositFixture.request(ASSET_A, DEPOSIT_UNITS, DEPOSIT_PAYER, RECIPIENT, DEPOSIT_CM);
+            DepositFixture.request(ASSET_A, DEPOSIT_UNITS, DEPOSIT_PAYER, RECIPIENT, DEPOSIT_INNER);
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         id = masp.deposit(d, DepositFixture.sig(0), aux[0], aux[1]);
     }
@@ -345,7 +355,7 @@ abstract contract BundlerTestBase is Test {
         returns (Bundler.Call memory)
     {
         PubInputs.TreeUpdateBatch memory tpi = DepositFixture.batch(oldRoot, newRoot, start, 1);
-        DepositFixture.setDepositLeaves(tpi, 0, DEPOSIT_CM, ASSET_A, DEPOSIT_UNITS);
+        DepositFixture.setDepositLeaves(tpi, 0, DEPOSIT_INNER, ASSET_A, DEPOSIT_UNITS);
         MASP.DepositMeta[] memory meta = DepositFixture.metas(1, DEPOSIT_PAYER, uint32(block.number), FEE_BPS);
 
         return Bundler.Call({

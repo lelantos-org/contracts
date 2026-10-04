@@ -77,17 +77,18 @@ contract YieldHandler is Test {
     uint16 public maxPerfBps;
 
     // --- conservation ghosts -------------------------------------------------
-    /// Tokens the yield id has taken in, paid out, and earned net of losses.
+    /// Tokens the yield id has taken in and paid out, and what its venue has
+    /// earned and lost.
     uint256 public yieldPaidIn;
     uint256 public yieldPaidOut;
     uint256 public venueEarned;
     uint256 public venueLost;
 
     // --- coverage counters ---------------------------------------------------
-    /// Every handler call is wrapped in `try`, so a path can fail on every
-    /// attempt without signal and the invariants then pass over histories that
-    /// never reach it. `YieldHandlerCoverageTest` drives each path directly and
-    /// asserts its counter moves.
+    /// A caught failure gives no signal, so a path could fail on every attempt
+    /// and the invariants would pass over histories that never reach it.
+    /// `YieldHandlerCoverageTest` drives each path directly and asserts its
+    /// counter moves.
     uint256 public shields;
     uint256 public flushes;
     uint256 public cancels;
@@ -102,7 +103,11 @@ contract YieldHandler is Test {
     uint256 public commits;
 
     // --- monotonicity ghosts -------------------------------------------------
+    /// Set by `lose`, and by `_observe` when the vault strands assets.
     bool public sawLoss;
+    /// Assets in the vault that no share of the venue's claims, as last
+    /// observed. See `_stranded`.
+    uint256 public lastStranded;
     uint256 public lastIndex;
     /// False until a non-empty observation exists to compare against.
     bool public hasBaseline;
@@ -140,7 +145,24 @@ contract YieldHandler is Test {
         return escrows.length;
     }
 
+    /// Assets the vault holds beyond what the venue's shares are worth.
+    ///
+    /// The venue is the vault's only shareholder here, so this is zero while it
+    /// holds any share and the vault's whole balance once it holds none.
+    function _stranded() internal view returns (uint256) {
+        return vault.totalAssetsHeld() - venue.totalAssets();
+    }
+
     function _observe() internal {
+        // A venue draw can strand assets: ERC-4626 `withdraw` rounds the shares
+        // it burns up, so a draw within one share's value of the position burns
+        // every share and leaves the remainder in the vault with no claim on
+        // it. That is a venue loss the pool did not cause and cannot avoid, of
+        // at most one share's value, and it lowers the index as `lose` does.
+        uint256 stranded = _stranded();
+        if (stranded > lastStranded) sawLoss = true;
+        lastStranded = stranded;
+
         YieldIndex.YieldState memory st = masp.yieldState(YIELD_ID);
 
         // An empty asset reports `RAY` by convention: with no units outstanding
@@ -156,7 +178,8 @@ contract YieldHandler is Test {
             hasBaseline = true;
         }
 
-        // The high-water mark is only ever raised by `_accruePerf`.
+        // The high-water mark never falls: `_accruePerf` and `_raiseMark` only
+        // raise it.
         if (st.lastIdx < lastMark) markFell = true;
         lastMark = st.lastIdx;
     }
@@ -181,8 +204,8 @@ contract YieldHandler is Test {
         d.publicIn = n;
         d.payer = payer;
         d.recipient = YIELD_RECIPIENT;
-        d.outCm = bytes32(s);
-        d.feeCm = bytes32(s + 1);
+        d.inner = bytes32(s);
+        d.feeInner = bytes32(s + 1);
         seed++;
 
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
@@ -210,6 +233,12 @@ contract YieldHandler is Test {
 
     // ============== Escrow settlement ========================================
 
+    /// The refund cap `e` was escrowed under, which the digest binds: its pull
+    /// on the yield id, nothing on the plain one.
+    function _cap(Escrow storage e) internal view returns (uint256) {
+        return e.assetId == YIELD_ID ? e.pulled : 0;
+    }
+
     function flush(uint256 pick) external {
         if (escrows.length == 0) return;
         Escrow storage e = escrows[bound(pick, 0, escrows.length - 1)];
@@ -224,8 +253,8 @@ contract YieldHandler is Test {
         tpi.cms[1] = bytes32(e.seed + 1);
         tpi.leafAsset[0] = e.assetId;
         // leafPublicIn[1] stays 0, so the fee leaf's asset must be 0 too:
-        // `tree_update_batch.circom` step 6a canonicalises the asset of a leaf
-        // whose Pedersen binding cannot see it.
+        // submit requires asset 0, "no asset", of a zero-value fee note, and
+        // that is what the escrow digest holds for this leaf.
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[0] = e.publicIn;
         tpi.isDeposit[0] = 1;
@@ -234,7 +263,7 @@ contract YieldHandler is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = e.id;
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: e.submittedAt, fbps: FEE_BPS });
+        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: e.submittedAt, fbps: FEE_BPS, pulled: _cap(e) });
 
         try masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi) {
             e.settled = true;
@@ -254,12 +283,12 @@ contract YieldHandler is Test {
             e.id,
             uint48(e.publicIn),
             bytes32(e.seed),
-            [uint256(0), 0],
             e.assetId,
             FEE_BPS,
             payer,
             e.submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(e.seed + 1), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeInner: bytes32(e.seed + 1) }),
+            _cap(e)
         ) {
             e.settled = true;
             cancels++;
@@ -317,6 +346,10 @@ contract YieldHandler is Test {
         token.approve(address(vault), amt);
         vault.earn(amt);
         venueEarned += amt;
+        // Interest credited while the venue holds no share was never the
+        // venue's, so it is not a loss: re-base rather than let `_observe`
+        // read it as stranded.
+        lastStranded = _stranded();
         _observe();
     }
 

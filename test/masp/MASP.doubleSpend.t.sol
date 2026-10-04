@@ -58,14 +58,12 @@ contract MASPDoubleSpendTest is MockPoolTestBase {
     function test_doubleSpend_secondWithdrawReverts() public {
         bytes32 genesis = masp.currentRoot();
 
-        // First withdraw succeeds.
         (PubInputs.Transact memory pi1, PubInputs.SpendTree memory tpi1) =
             _makeWithdraw(genesis, 0, 0, bytes32(uint256(0xABCD)));
 
         vm.prank(RELAYER);
         masp.withdraw(FixtureLoader.emptyProof(), pi1, FixtureLoader.emptyProof(), tpi1, SpendFixture.validAux());
 
-        // Nullifiers are in the spent bitmap; the root has advanced.
         assertTrue(masp.spent(pi1.nullifier[0]), "nf0 spent after first withdraw");
         assertTrue(masp.spent(pi1.nullifier[1]), "nf1 spent after first withdraw");
 
@@ -97,8 +95,8 @@ contract MASPDoubleSpendTest is MockPoolTestBase {
         assertFalse(masp.spent(unrelated));
     }
 
-    /// Fuzz: any pair of distinct nullifiers survives one withdraw then fails
-    /// on a second withdraw with the same pair.
+    /// Any pair of distinct nullifiers survives one withdraw, then fails on a
+    /// second withdraw with the same pair.
     function testFuzz_doubleSpend(bytes32 nf0, bytes32 nf1) public {
         // PubInputs.compress treats nullifiers as BN254 field elements.
         // Values >= R revert with CoefficientOutOfField before the mocked
@@ -113,7 +111,6 @@ contract MASPDoubleSpendTest is MockPoolTestBase {
         PubInputs.Transact memory pi;
         pi.chainId = block.chainid;
         pi.publicAssetId = ASSET_ID;
-        pi.publicIn = 0;
         pi.publicOut = 1;
         pi.recipient = RECIPIENT;
         pi.payer = PAYER;

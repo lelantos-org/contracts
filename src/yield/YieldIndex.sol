@@ -44,9 +44,10 @@ abstract contract YieldIndex is FeeConfig {
 
     // ============== Views ====================================================
 
-    /// True iff `id` carries a venue. One SLOAD, and the branch test the pool's
-    /// yield-aware paths use.
-    function isYieldAsset(uint64 id) public view returns (bool) {
+    /// True iff `id` carries a venue. External only: the pool's own paths
+    /// branch on `AssetEntry.isYield`, which registration sets alongside the
+    /// venue, and so skip this read.
+    function isYieldAsset(uint64 id) external view returns (bool) {
         return _y.params[id].venue != address(0);
     }
 

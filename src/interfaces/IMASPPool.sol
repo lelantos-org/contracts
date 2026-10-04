@@ -24,7 +24,8 @@ interface IMASPPool {
         bool disabled;
         uint16 depositBps;
         uint16 withdrawBps;
-        uint256 scale;
+        bool isYield;
+        uint48 scale;
     }
 
     function withdraw(
@@ -43,21 +44,22 @@ interface IMASPPool {
         AuxValidation.Output calldata feeAux
     ) external returns (uint256 id);
 
-    /// `feeNote` is the relayer leaf's half of the escrow digest preimage. A
-    /// canceller reads it from the deposit's `DepositEscrowed` event; the pool
-    /// rejects any other value. Returns the refunds paid to `payer`: `total`
-    /// in the deposit asset's token, and `feeRefunded` in the fee asset's token
-    /// when the relayer note was in another asset (zero otherwise).
+    /// `feeNote` is the relayer leaf's half of the escrow digest preimage, and
+    /// `pulled` the escrow's refund cap (zero for a plain asset). A canceller
+    /// reads both from the deposit's `DepositEscrowed` event; the pool rejects
+    /// any other value. Returns the refunds paid to `payer`: `total` in the
+    /// deposit asset's token, and `feeRefunded` in the fee asset's token when
+    /// the relayer note was in another asset (zero otherwise).
     function cancelDeposit(
         uint256 id,
         uint48 publicIn,
-        bytes32 cm,
-        uint256[2] calldata cvDep,
+        bytes32 inner,
         uint64 publicAssetId,
         uint16 fbps,
         address payer,
         uint32 submittedAt,
-        PubInputs.FeeNote calldata feeNote
+        PubInputs.FeeNote calldata feeNote,
+        uint256 pulled
     ) external returns (uint256 total, uint256 feeRefunded);
 
     /// Per-deposit escrow digest; zero once flushed or canceled.

@@ -28,7 +28,7 @@ contract MockQuoterV2 {
 
     error NoPool();
 
-    /// Fixed-output setter, used by e2e tests that pin a specific output.
+    /// Fixed-output setter.
     function set(address tokenIn, address tokenOut, uint24 fee, uint256 amountOut, uint256 gasEstimate) external {
         bytes32 k = _key(tokenIn, tokenOut, fee);
         PoolQuote storage q = quotes[k];

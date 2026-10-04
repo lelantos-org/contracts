@@ -25,8 +25,8 @@ import { BaseDeploy } from "./base/BaseDeploy.s.sol";
 ///     "proxyAdmin":  "0x...",   may queue/cancel/activate upgrades and pause
 ///     "upgradeDelay": 2592000,  30d exit window; immutable once deployed; at
 ///                               most `ExitTerms.DELAY` (30d)
-///     "maxPause":     604800,   7d ceiling on a single guardian pause
-///     "ids":      [1, 2, 3],
+///     "maxPause":     604800,   7d ceiling on a single admin pause
+///     "ids":      [1, 2, 3],       non-zero: id 0 means "no asset" and is refused
 ///     "tokens":   ["0x...", ...], parallel to ids, must have code
 ///     "scales":   ["1e10", "1", "1"]  parallel to ids
 ///   }
@@ -72,7 +72,8 @@ contract Deploy is BaseDeploy {
         // The exit window is immutable once deployed; a zero or very short
         // value makes upgrades effectively immediate.
         require(p.upgradeDelay >= 7 days, "upgradeDelay too short");
-        // Both mirror the proxy constructor, failing the script before broadcast.
+        // The `upgradeDelay` ceiling and the `maxPause < upgradeDelay` bound
+        // mirror the proxy constructor, failing the script before broadcast.
         // Together they also bound `maxPause` below `ExitTerms.DELAY`.
         require(p.upgradeDelay <= ExitTerms.DELAY, "upgradeDelay exceeds the exit-term notice");
         require(p.maxPause > 0, "maxPause unset");
@@ -111,6 +112,9 @@ contract Deploy is BaseDeploy {
         tokenAddrs = new address[](n);
         for (uint256 i; i < n; ++i) {
             _requireCode(tokenList[i], "token has no code");
+            // Asset id 0 means "no asset" to the circuits and cannot be
+            // registered; `initialize` would revert `ZeroAssetId`.
+            require(rawIds[i] != 0, "asset id 0 is reserved");
             p.ids[i] = uint64(rawIds[i]);
             p.tokens[i] = IERC20(tokenList[i]);
             tokenAddrs[i] = tokenList[i];

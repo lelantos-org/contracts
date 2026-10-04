@@ -7,6 +7,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.sol";
 
 import { MASP } from "../../src/MASP.sol";
+import { SnarkCompression } from "../../src/SnarkCompression.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
@@ -56,12 +57,15 @@ contract MASPFlushBatchTest is Test {
 
     // --- helpers -----------------------------------------------------------
 
-    function _request(uint64 publicIn, uint64 assetId, bytes32 cm)
+    /// `inner` is the note's owner half, which is what a deposit escrows and
+    /// what a flush puts in the deposit's `cms` slot. The values here are
+    /// arbitrary words: the tree-update proof is mocked, so nothing opens one.
+    function _request(uint64 publicIn, uint64 assetId, bytes32 inner)
         internal
         view
         returns (PubInputs.DepositRequest memory d)
     {
-        return DepositFixture.request(assetId, publicIn, payer, recipient, cm);
+        return DepositFixture.request(assetId, publicIn, payer, recipient, inner);
     }
 
     function _fund(MockERC20 t, uint64 publicIn) internal {
@@ -70,8 +74,8 @@ contract MASPFlushBatchTest is Test {
         t.approve(address(permit2), type(uint256).max);
     }
 
-    function _submit(uint64 publicIn, uint64 assetId, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
-        PubInputs.DepositRequest memory d = _request(publicIn, assetId, cm);
+    function _submit(uint64 publicIn, uint64 assetId, bytes32 inner, uint256 nonce) internal returns (uint256 id) {
+        PubInputs.DepositRequest memory d = _request(publicIn, assetId, inner);
         return masp.deposit(d, DepositFixture.sig(nonce), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
@@ -86,14 +90,14 @@ contract MASPFlushBatchTest is Test {
         Stubs.acceptTreeUpdateProofs(tubVerifier, ok);
     }
 
-    /// The `feeCm` `_request` seeds on every deposit here.
-    bytes32 internal constant FEE_CM = bytes32(uint256(0xfee));
+    /// The `feeInner` `_request` seeds on every deposit here.
+    bytes32 internal constant FEE_INNER = DepositFixture.FEE_INNER;
 
     /// Builds the batch public inputs for `n` deposits.
     ///
     /// Each deposit owns two adjacent leaves (its principal at `2i` and the
     /// relayer's fee note at `2i + 1`), so `actualCount` is `2n` and the
-    /// deposit's own commitments land on the even slots.
+    /// deposits' own `inner` words, passed in `cms`, land on the even slots.
     function _tpi(uint256 n, bytes32[] memory cms) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xfeedbeef));
@@ -107,13 +111,14 @@ contract MASPFlushBatchTest is Test {
             uint256 slot = i * PubInputs.LEAVES_PER_DEPOSIT;
             if (slot + 1 >= cap) break;
             tpi.cms[slot] = cms[i];
-            tpi.cms[slot + 1] = FEE_CM;
+            tpi.cms[slot + 1] = FEE_INNER;
         }
     }
 
     /// Fills the per-active-slot PIs that `flushBatch` cross-checks against
-    /// the escrow record. cvDep coordinates stay zero: `_request` leaves
-    /// `DepositRequest.cvDep` zero, so the escrow digest is over (0, 0).
+    /// the escrow record: with the slot's `cms` word they are the three inputs
+    /// the circuit hashes into a deposit leaf, and the three the escrow digest
+    /// holds for it.
     function _fillLeafPI(PubInputs.TreeUpdateBatch memory tpi, uint64[] memory assetIds, uint64[] memory publicIns)
         internal
         pure
@@ -136,11 +141,11 @@ contract MASPFlushBatchTest is Test {
 
     function test_happy_N1_advancesRootAndClearsSlot() public {
         _fund(token, 100);
-        bytes32 cm0 = bytes32(uint256(0x111));
-        uint256 id = _submit(100, ASSET_ID, cm0, 0);
+        bytes32 inner0 = bytes32(uint256(0x111));
+        uint256 id = _submit(100, ASSET_ID, inner0, 0);
 
         bytes32[] memory cms = new bytes32[](1);
-        cms[0] = cm0;
+        cms[0] = inner0;
         PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
         uint64[] memory a = new uint64[](1);
         uint64[] memory p = new uint64[](1);
@@ -154,14 +159,12 @@ contract MASPFlushBatchTest is Test {
         _mockSnark(true);
         masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
 
-        // Root advanced.
         assertEq(masp.currentRoot(), tpi.newRoot, "root advanced");
         assertEq(masp.committedCount(), 2, "count += 2 (principal + relayer fee note)");
 
-        // Slot cleared (sentinel check).
         assertEq(masp.escrowed(id), bytes32(0), "slot cleared");
 
-        // Fee accrued at flush (submit accrues nothing).
+        // The fee accrues at flush; submit accrues nothing.
         uint256 expectedFee = (uint256(100) * SCALE * FEE_BPS) / 10_000;
         assertEq(masp.accruedFee(IERC20(address(token))), expectedFee, "fee accrued at flush");
     }
@@ -210,9 +213,9 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](n);
         for (uint256 i = 0; i < n; i++) {
             _fund(token, 100);
-            bytes32 cm = bytes32(2 * i + 1);
-            ids[i] = _submit(100, ASSET_ID, cm, i);
-            cms[i] = cm;
+            bytes32 inner = bytes32(2 * i + 1);
+            ids[i] = _submit(100, ASSET_ID, inner, i);
+            cms[i] = inner;
         }
         PubInputs.TreeUpdateBatch memory tpi = _tpi(n, cms);
 
@@ -287,7 +290,9 @@ contract MASPFlushBatchTest is Test {
         masp.flushBatch(ids, _meta(1), FixtureLoader.emptyProof(), tpi);
     }
 
-    function test_revert_DigestMismatch_cmTampered() public {
+    /// The principal's `cms` word is the escrowed `inner`: a flusher cannot
+    /// insert a different note for the deposit.
+    function test_revert_DigestMismatch_innerTampered() public {
         _fund(token, 100);
         uint256 id = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
 
@@ -322,34 +327,36 @@ contract MASPFlushBatchTest is Test {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
 
-        // Wrong fbps in meta.
         MASP.DepositMeta[] memory m = _meta(1);
         m[0].fbps = FEE_BPS + 1;
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
         masp.flushBatch(ids, m, FixtureLoader.emptyProof(), tpi);
 
-        // Wrong payer in meta.
         m = _meta(1);
         m[0].payer = address(0xbad);
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
         masp.flushBatch(ids, m, FixtureLoader.emptyProof(), tpi);
 
-        // Wrong submittedAt in meta.
         m = _meta(1);
         m[0].submittedAt += 1;
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        masp.flushBatch(ids, m, FixtureLoader.emptyProof(), tpi);
+
+        // A refund cap in meta, where the plain escrow was submitted with none.
+        m = _meta(1);
+        m[0].pulled = 1;
         vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
         masp.flushBatch(ids, m, FixtureLoader.emptyProof(), tpi);
     }
 
     function test_happy_mixedAssetBatch() public {
-        // Two deposits of different assets in the same flush. Per-token
-        // fees accrue independently in the tail loop.
+        // Two deposits of different assets in one flush: each token's fee
+        // accrues independently.
         _fund(token, 100);
         _fund(tokenAlt, 100);
         uint256 id0 = _submit(100, ASSET_ID, bytes32(uint256(1)), 0);
         uint256 id1 = _submit(100, ASSET_ID_ALT, bytes32(uint256(3)), 1);
 
-        // Pre-flush: nothing accrued for either token.
         uint256 inAmt = uint256(100) * SCALE;
         uint256 expectedFee = (inAmt * FEE_BPS) / 10_000;
         assertEq(masp.accruedFee(IERC20(address(token))), 0, "token nothing accrued pre-flush");
@@ -374,7 +381,6 @@ contract MASPFlushBatchTest is Test {
         _mockSnark(true);
         masp.flushBatch(ids, _meta(2), FixtureLoader.emptyProof(), tpi);
 
-        // Both tokens' fees accrued at flush.
         assertEq(masp.accruedFee(IERC20(address(token))), expectedFee, "token fee accrued");
         assertEq(masp.accruedFee(IERC20(address(tokenAlt))), expectedFee, "tokenAlt fee accrued");
         assertEq(masp.committedCount(), 4, "count += 4 (two leaves per deposit)");
@@ -402,11 +408,11 @@ contract MASPFlushBatchTest is Test {
 
     function test_revert_replay_secondFlushReverts() public {
         _fund(token, 100);
-        bytes32 cm0 = bytes32(uint256(0x111));
-        uint256 id = _submit(100, ASSET_ID, cm0, 0);
+        bytes32 inner0 = bytes32(uint256(0x111));
+        uint256 id = _submit(100, ASSET_ID, inner0, 0);
 
         bytes32[] memory cms = new bytes32[](1);
-        cms[0] = cm0;
+        cms[0] = inner0;
         PubInputs.TreeUpdateBatch memory tpi = _tpi(1, cms);
         uint64[] memory a = new uint64[](1);
         uint64[] memory p = new uint64[](1);
@@ -440,14 +446,11 @@ contract MASPFlushBatchTest is Test {
 
     uint64 internal constant FEE_PUBLIC_IN = 100;
     uint64 internal constant FEE_IN = 7;
-    bytes32 internal constant FEE_DEPOSIT_CM = bytes32(uint256(0x111));
-    uint256 internal constant FEE_CVDEP_X = 0xfeed01;
-    uint256 internal constant FEE_CVDEP_Y = 0xfeed02;
+    bytes32 internal constant FEE_DEPOSIT_INNER = bytes32(uint256(0x111));
 
     /// Escrows one deposit carrying a priced relayer note and builds the batch
     /// that flushes it. The returned `tpi` is valid; each test below mutates a
-    /// single fee-leaf field of it, so a passing test pins that field's guard
-    /// alone.
+    /// single field of it, so a passing test pins that field's guard alone.
     function _pricedDeposit() internal returns (uint256 id, PubInputs.TreeUpdateBatch memory tpi) {
         uint256 inAmt = uint256(FEE_PUBLIC_IN) * SCALE;
         // The payer funds the relayer's leg on top of principal and treasury
@@ -456,11 +459,9 @@ contract MASPFlushBatchTest is Test {
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        PubInputs.DepositRequest memory d = _request(FEE_PUBLIC_IN, ASSET_ID, FEE_DEPOSIT_CM);
+        PubInputs.DepositRequest memory d = _request(FEE_PUBLIC_IN, ASSET_ID, FEE_DEPOSIT_INNER);
         d.feeIn = FEE_IN;
         d.feeAssetId = ASSET_ID;
-        d.feeCvDep = [FEE_CVDEP_X, FEE_CVDEP_Y];
-        d.feeRcv = 0xf00d;
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
             nonce: 0, deadline: type(uint256).max, maxTotal: type(uint256).max, maxFee: 0, signature: hex"00"
         });
@@ -474,15 +475,14 @@ contract MASPFlushBatchTest is Test {
     /// test needs a second untampered one: a memory struct is a reference.
     function _feeTpi() internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
         bytes32[] memory cms = new bytes32[](1);
-        cms[0] = FEE_DEPOSIT_CM;
-        tpi = _tpi(1, cms); // seeds cms[1] = FEE_CM
+        cms[0] = FEE_DEPOSIT_INNER;
+        tpi = _tpi(1, cms); // seeds cms[1] = FEE_INNER
         tpi.leafAsset[0] = ASSET_ID;
         tpi.leafPublicIn[0] = FEE_PUBLIC_IN;
         tpi.isDeposit[0] = 1;
         tpi.leafAsset[1] = ASSET_ID;
         tpi.leafPublicIn[1] = FEE_IN;
         tpi.isDeposit[1] = 1;
-        tpi.cvDeps[1] = [FEE_CVDEP_X, FEE_CVDEP_Y];
     }
 
     function _flush(uint256 id, PubInputs.TreeUpdateBatch memory tpi) internal {
@@ -515,7 +515,9 @@ contract MASPFlushBatchTest is Test {
     }
 
     /// The fee leaf must be in deposit mode; a spend-mode fee slot reverts with
-    /// `BadDepositMode`, as the principal leaf does.
+    /// `BadDepositMode`, as the principal leaf does. In spend mode the circuit
+    /// would insert `feeInner` as the leaf itself instead of hashing the
+    /// escrowed asset and amount into it.
     function test_revert_BadDepositMode_feeLeafMarkedSpend() public {
         (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
         tpi.isDeposit[1] = 0;
@@ -540,12 +542,12 @@ contract MASPFlushBatchTest is Test {
         _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
     }
 
-    /// The fee leaf's digest binding prevents this: `flushBatch` is
-    /// permissionless and takes both leaves from calldata, so a flusher able to
-    /// swap `cms[f]` would mint the payer-funded note to itself.
-    function test_revert_DigestMismatch_feeCmTampered() public {
+    /// `flushBatch` is permissionless and takes both leaves from calldata, so
+    /// without the fee leaf's digest binding a flusher could swap the fee
+    /// slot's `cms` word and mint the payer-funded note to itself.
+    function test_revert_DigestMismatch_feeInnerTampered() public {
         (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
-        tpi.cms[1] = bytes32(uint256(0xbad)); // flusher's own commitment
+        tpi.cms[1] = bytes32(uint256(0xbad)); // flusher's own `inner`
         _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
     }
 
@@ -557,16 +559,120 @@ contract MASPFlushBatchTest is Test {
         _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
     }
 
-    /// `feeCvDep` is what pins (asset, value) into the fee leaf in-circuit, so
-    /// it is bound at submit like the principal's `cvDep`. Both coordinates are
-    /// probed: a digest built over only the first would pass the second case.
-    function test_revert_DigestMismatch_feeCvDepTampered() public {
+    // --- principal leaf ------------------------------------------------------
+    //
+    // The circuit builds a deposit leaf as
+    // `Poseidon(TAG_CM, leafAsset * 2^64 + leafPublicIn, cms)`, taking all three
+    // from the batch. Nothing else ties a deposit's note to what was escrowed
+    // for it, so each of the three is bound by the escrow digest: `cms` in
+    // `test_revert_DigestMismatch_innerTampered` above, the other two here.
+
+    /// Inflating the principal's amount would insert a note worth more than
+    /// the payer escrowed.
+    function test_revert_DigestMismatch_principalValueInflated() public {
         (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
-        tpi.cvDeps[1][0] = FEE_CVDEP_X + 1;
+        tpi.leafPublicIn[0] = FEE_PUBLIC_IN + 1;
         _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+    }
+
+    /// Naming another registered asset for the principal would insert a note
+    /// in a token the payer never escrowed.
+    function test_revert_DigestMismatch_principalAssetDiffers() public {
+        (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
+        tpi.leafAsset[0] = ASSET_ID_ALT;
+        _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+    }
+
+    /// The two leaves of a deposit are bound to their own slots: swapping the
+    /// principal's `inner` with the fee note's reconstructs a different digest,
+    /// so neither party can take the other's note.
+    function test_revert_DigestMismatch_innersSwapped() public {
+        (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
+        (tpi.cms[0], tpi.cms[1]) = (tpi.cms[1], tpi.cms[0]);
+        _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+    }
+
+    /// The principal leaf must be in deposit mode. With the flag clear the
+    /// circuit inserts `cms` as the leaf it is, so a depositor who escrowed a
+    /// commitment of its choosing in place of `inner` would hold a note of any
+    /// value for one unit paid. The untampered batch then flushes, so the
+    /// guard, not the fixture, rejected it.
+    function test_revert_BadDepositMode_principalLeafMarkedSpend() public {
+        (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
+        tpi.isDeposit[0] = 0;
+        _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.BadDepositMode.selector));
+
+        _flush(id, _feeTpi());
+        assertEq(masp.escrowed(id), bytes32(0), "the valid batch flushes");
+    }
+
+    // --- the batch digest word -----------------------------------------------
+
+    /// `flushBatch` hands the tree-update verifier `PubInputs.compress(tpi)`:
+    /// `[y, digest, z]`, with the batch's digest word second and exactly as
+    /// calldata carried it. The pool never recomputes that commitment, so
+    /// forwarding it is what lets the proof check it.
+    function test_flush_forwardsBatchDigestToVerifier() public {
+        (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
+        tpi.digest = 0xd16e57;
+        uint256[3] memory pub = this.compressBatch(tpi);
+        assertEq(pub[1], tpi.digest, "digest is the second signal, as given");
+
+        MASP.Proof memory proof = FixtureLoader.emptyProof();
+        vm.expectCall(address(tubVerifier), abi.encodeCall(IVerifier.verifyProof, (proof.a, proof.b, proof.c, pub)));
+        _flush(id, tpi);
+    }
+
+    /// The digest word is hashed into the challenge: the same batch under
+    /// another digest reaches the verifier with a different `z`. A verifier
+    /// that accepts only the first image therefore rejects the second, and the
+    /// flush reverts.
+    function test_revert_TreeUpdateRejected_batchDigestChanged() public {
+        (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
+        tpi.digest = 0xd16e57;
+        uint256[3] memory pub = this.compressBatch(tpi);
+
+        // Accept exactly `pub`, reject everything else.
+        vm.clearMockedCalls();
+        MASP.Proof memory proof = FixtureLoader.emptyProof();
+        _mockSnark(false);
+        vm.mockCall(
+            address(tubVerifier),
+            abi.encodeCall(IVerifier.verifyProof, (proof.a, proof.b, proof.c, pub)),
+            abi.encode(true)
+        );
+
+        PubInputs.TreeUpdateBatch memory other = _feeTpi();
+        other.digest = tpi.digest + 1;
+        uint256[3] memory otherPub = this.compressBatch(other);
+        assertEq(otherPub[1], other.digest, "digest forwarded");
+        assertTrue(otherPub[2] != pub[2], "digest moves z");
+        _expectFlushRevert(id, other, abi.encodeWithSelector(MASP.TreeUpdateRejected.selector));
+
+        _flush(id, tpi);
+        assertEq(masp.escrowed(id), bytes32(0), "the proven image flushes");
+    }
+
+    /// A digest word outside the scalar field does not revert in the pool's
+    /// own compression: it is hashed without being evaluated, unlike a
+    /// coefficient, so it reaches the verifier unreduced and is refused there
+    /// (`test/verifiers/` pins that the real verifiers reject a signal
+    /// `>= R`). The same word as a coefficient never gets that far.
+    function test_revert_TreeUpdateRejected_batchDigestOutOfField() public {
+        (uint256 id, PubInputs.TreeUpdateBatch memory tpi) = _pricedDeposit();
+        // The real verifier, not the accepting mock.
+        vm.clearMockedCalls();
+        tpi.digest = type(uint256).max;
+        _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.TreeUpdateRejected.selector));
 
         tpi = _feeTpi();
-        tpi.cvDeps[1][1] = FEE_CVDEP_Y + 1;
-        _expectFlushRevert(id, tpi, abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        tpi.newRoot = bytes32(type(uint256).max);
+        _expectFlushRevert(id, tpi, abi.encodeWithSelector(SnarkCompression.CoefficientOutOfField.selector));
+    }
+
+    /// External so the batch arrives as calldata, which is what the pool
+    /// compresses.
+    function compressBatch(PubInputs.TreeUpdateBatch calldata tpi) external pure returns (uint256[3] memory) {
+        return PubInputs.compress(tpi);
     }
 }

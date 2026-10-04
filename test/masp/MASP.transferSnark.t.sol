@@ -9,146 +9,178 @@ import { ISignatureTransfer } from "permit2/src/interfaces/ISignatureTransfer.so
 import { MASP } from "../../src/MASP.sol";
 import { IVerifier } from "../../src/interfaces/IVerifier.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
-import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 
 import { IBatchVerifier } from "../../src/interfaces/IBatchVerifier.sol";
-import { MASPSpendHarness, deploySpendHarness } from "../utils/MASPSpendHarness.sol";
-import { realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
+import { SNARK_Q } from "../../src/verifiers/VerifyingKeys.sol";
+import { FeeMath } from "../utils/FeeMath.sol";
+import { MaspFlowFixture } from "../utils/MaspFlowFixture.sol";
+import { deployPoolUniform, realVerifierStack, singleAsset } from "../utils/PoolDeployer.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// End-to-end transfer test with real Groth16 proofs. Bootstraps the tree to a
-/// known state via `MASPSpendHarness.seedRoot`, then invokes `transfer` with
-/// the spend-side fixture (transact_2x2 and tree_update_batch N=1 proofs).
+/// End-to-end spends with real Groth16 proofs. The pool reaches the tree state
+/// the spends were proven against through its own entry points (`deposit`,
+/// then `flushBatch` under the fixture's batch proof), and `transfer` or
+/// `withdraw` is then invoked with the spend-side fixture: a `4x6` proof and
+/// the `tree_update_batch` proof of the six leaves it inserts.
+///
+/// The fixture is `test/fixtures/masp_flow_proof.json`. `.transfer` and
+/// `.withdraw` both spend the note `.flush` deposits, so each test replays one
+/// of them. Regenerate it with `script/fixtures/gen_masp_fixture.sh`.
 contract MASPTransferSnarkTest is Test {
-    string internal constant FIXTURE = "test/fixtures/proof_transfer.json";
-    address permit2;
+    uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
+    uint256 internal constant SCALE = TestConstants.SCALE;
+    uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
+    address internal constant TREASURY = TestConstants.TREASURY;
+
     MockERC20 token;
-    MASPSpendHarness masp;
+    MASP masp;
+    /// Leaf count after the flush: the deposit's principal and fee note.
+    uint64 seeded;
 
     function setUp() public {
         (IVerifier tub, IBatchVerifier bv, ISignatureTransfer p2) = realVerifierStack();
-        permit2 = address(p2);
         token = new MockERC20("M", "M", 18);
 
         (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) =
-            singleAsset(IERC20(address(token)), TestConstants.ASSET_ID, TestConstants.SCALE);
+            singleAsset(IERC20(address(token)), ASSET_ID, SCALE);
 
-        masp = deploySpendHarness(tub, bv, p2, ids, tokens, scales, address(0xfee), address(this));
+        masp = deployPoolUniform(tub, bv, p2, ids, tokens, scales, FEE_BPS, TREASURY, TestConstants.OWNER);
+
+        // The deposit and its flush, real proof included.
+        string memory j = MaspFlowFixture.read();
+        vm.chainId(MaspFlowFixture.chainId(j));
+        MaspFlowFixture.Flush memory f = MaspFlowFixture.flush(j);
+        MaspFlowFixture.seedTree(masp, token, f, TestConstants.ESCROW_PAYER, address(0xb0b), SCALE, FEE_BPS);
+        seeded = masp.committedCount();
+        assertEq(masp.currentRoot(), f.tpi.newRoot, "seeded root");
     }
 
-    function _readProof(string memory j, string memory base) internal pure returns (MASP.Proof memory p) {
-        p.a[0] = vm.parseJsonUint(j, string.concat(base, ".a[0]"));
-        p.a[1] = vm.parseJsonUint(j, string.concat(base, ".a[1]"));
-        p.b[0][0] = vm.parseJsonUint(j, string.concat(base, ".b[0][0]"));
-        p.b[0][1] = vm.parseJsonUint(j, string.concat(base, ".b[0][1]"));
-        p.b[1][0] = vm.parseJsonUint(j, string.concat(base, ".b[1][0]"));
-        p.b[1][1] = vm.parseJsonUint(j, string.concat(base, ".b[1][1]"));
-        p.c[0] = vm.parseJsonUint(j, string.concat(base, ".c[0]"));
-        p.c[1] = vm.parseJsonUint(j, string.concat(base, ".c[1]"));
+    /// The spend at `key`, anchored at the flushed root's ring slot.
+    function _spend(string memory key) internal view returns (MaspFlowFixture.Spend memory s) {
+        s = MaspFlowFixture.spend(MaspFlowFixture.read(), key);
+        assertEq(s.pi.merkleRoot, masp.currentRoot(), "spend anchors at the flushed root");
+        s.tpi.anchorIndex = uint8(masp.rootIndex());
+    }
+
+    /// Asserts the spend is refused at the verifier pair and changes nothing.
+    function _expectRejected(MaspFlowFixture.Spend memory s, bool isWithdraw) internal {
+        bytes32 root = masp.currentRoot();
+        vm.prank(s.pi.relayer);
+        vm.expectRevert(MASP.ProofRejected.selector);
+        if (isWithdraw) masp.withdraw(s.txProof, s.pi, s.tubProof, s.tpi, s.aux);
+        else masp.transfer(s.txProof, s.pi, s.tubProof, s.tpi, s.aux);
+        assertEq(masp.currentRoot(), root, "root unchanged");
+        assertEq(masp.committedCount(), seeded, "no leaves inserted");
+        assertFalse(masp.spent(s.pi.nullifier[0]), "note unspent");
+    }
+
+    function _assertSpent(MaspFlowFixture.Spend memory s) internal view {
+        assertEq(masp.currentRoot(), s.tpi.newRoot, "root advanced to the proven root");
+        assertEq(masp.committedCount(), seeded + PubInputs.TRANSACT_OUT, "six leaves inserted");
+        for (uint256 k; k < PubInputs.TRANSACT_IN; ++k) {
+            assertTrue(masp.spent(s.pi.nullifier[k]), "nullifier consumed");
+        }
     }
 
     function test_transferRealSnark_succeeds() public {
-        // Skipped: the test expects the 2x2 `proof_transfer.json` layout (30
-        // `txPublicSignals`, two aux blobs), which the pool's 4x6 shape (70
-        // challenge words, six outputs) does not accept.
-        //
-        // A 4x6 fixture requires a 4x6 `flatten` off-chain. The SDK's `flatten`
-        // (sdk/src/circuit/compression.ts) is fixed to the 2x2 shape with
-        // literal [0]/[1] indices and no shape parameter. The 4x6 prover
-        // artifacts are published by the release (`4x6_final.zkey`,
-        // `4x6.wasm`). The remaining requirement is a MASP-level witness: the
-        // circuit takes `out_aux_digest` as an input while `PubInputs.compress`
-        // recomputes it from aux calldata, so the aux payload, the tree roots
-        // and the cross-bound cms/cvDeps must all be fixed before proving.
-        //
-        // Verifier-level coverage: `test/fixtures/transact_4x6_proof.json`,
-        // exercised by `BatchedGroth16Verifier.t.sol`. Layout coverage:
-        // `PubInputs.vector4x6.t.sol`, which pins the 70-word challenge and 46
-        // coefficients against the circuit's published witness vector.
-        vm.skip(true);
+        MaspFlowFixture.Spend memory s = _spend(".transfer");
+        assertEq(s.pi.publicAssetId, 0, "a transfer names no asset");
+        assertEq(s.pi.publicOut, 0, "a transfer withdraws nothing");
+        uint256 custody = token.balanceOf(address(masp));
 
-        string memory j = vm.readFile(FIXTURE);
-        vm.chainId(uint256(vm.parseJsonUint(j, ".chainId")));
+        // Both proofs are checked by the real verifiers.
+        vm.prank(s.pi.relayer);
+        masp.transfer(s.txProof, s.pi, s.tubProof, s.tpi, s.aux);
 
-        // Seeds the tree to the post-bootstrap state. Afterwards:
-        // currentRoot() == fixture.bootstrap.newRoot (= fixture.transfer.merkleRoot)
-        // committedCount == 2
-        bytes32 seedRoot = bytes32(vm.parseJsonUint(j, ".bootstrap.newRoot"));
-        masp.seedRoot(seedRoot, 2);
-        assertEq(masp.currentRoot(), seedRoot, "seed root mismatch");
-        assertEq(masp.committedCount(), 2, "committedCount=2");
+        _assertSpent(s);
+        assertEq(token.balanceOf(address(masp)), custody, "a transfer moves no tokens");
+    }
 
-        // Builds the transact_2x2 PI tuple from publicSignals.
-        uint256[] memory ps = vm.parseJsonUintArray(j, ".transfer.txPublicSignals");
-        require(ps.length == 30, "expected 30 transact pi");
+    function test_withdrawRealSnark_succeeds() public {
+        MaspFlowFixture.Spend memory s = _spend(".withdraw");
+        assertEq(s.pi.publicAssetId, ASSET_ID, "fixture asset");
+        uint256 outAmt = uint256(s.pi.publicOut) * SCALE;
+        uint256 fee = FeeMath.fee(outAmt, FEE_BPS);
+        assertGt(outAmt, 0, "a withdraw has a public output");
+        uint256 custody = token.balanceOf(address(masp));
+        uint256 accrued = masp.accruedFee(IERC20(address(token)));
 
-        PubInputs.Transact memory pi;
-        pi.merkleRoot = bytes32(ps[0]);
-        pi.nullifier[0] = bytes32(ps[1]);
-        pi.nullifier[1] = bytes32(ps[2]);
-        pi.outCm[0] = bytes32(ps[3]);
-        pi.outCm[1] = bytes32(ps[4]);
-        pi.publicAssetId = uint64(ps[5]);
-        pi.publicIn = uint64(ps[6]);
-        pi.publicOut = uint64(ps[7]);
-        pi.inCv[0][0] = ps[8];
-        pi.inCv[0][1] = ps[9];
-        pi.inCv[1][0] = ps[10];
-        pi.inCv[1][1] = ps[11];
-        pi.outCv[0][0] = ps[12];
-        pi.outCv[0][1] = ps[13];
-        pi.outCv[1][0] = ps[14];
-        pi.outCv[1][1] = ps[15];
-        pi.recipient = address(uint160(ps[16]));
-        pi.chainId = ps[17];
-        pi.payer = address(uint160(ps[18]));
-        pi.relayer = address(uint160(ps[19]));
-        pi.outCvDep[0][0] = ps[20];
-        pi.outCvDep[0][1] = ps[21];
-        pi.outCvDep[1][0] = ps[22];
-        pi.outCvDep[1][1] = ps[23];
+        vm.expectEmit(address(masp));
+        emit MASP.AssetMoved(ASSET_ID, IERC20(address(token)), 0, outAmt, 0, s.pi.publicOut);
+        vm.prank(s.pi.relayer);
+        masp.withdraw(s.txProof, s.pi, s.tubProof, s.tpi, s.aux);
 
-        // tree_update_batch PI for the transfer leg. The pool rebuilds the rest
-        // of the batch image from `pi`; the anchor is the seeded root.
-        PubInputs.SpendTree memory tpi;
-        tpi.newRoot = bytes32(vm.parseJsonUint(j, ".transfer.newRoot"));
-        tpi.startIndex = uint64(vm.parseJsonUint(j, ".transfer.startIndex"));
-        tpi.anchorIndex = uint8(masp.rootIndex());
+        _assertSpent(s);
+        assertEq(token.balanceOf(s.pi.recipient), outAmt - fee, "recipient paid net of the withdraw fee");
+        assertEq(token.balanceOf(address(masp)), custody - (outAmt - fee), "custody reduced by the payout");
+        assertEq(masp.accruedFee(IERC20(address(token))), accrued + fee, "withdraw fee accrued");
+    }
 
-        AuxValidation.Output[6] memory aux;
-        aux[0].clueRx = vm.parseJsonUint(j, ".transfer.aux[0].clueRx");
-        aux[0].clueRy = vm.parseJsonUint(j, ".transfer.aux[0].clueRy");
-        aux[0].ephPubX = vm.parseJsonUint(j, ".transfer.aux[0].ephPubX");
-        aux[0].ephPubY = vm.parseJsonUint(j, ".transfer.aux[0].ephPubY");
-        aux[0].ciphertext = vm.parseJsonBytes(j, ".transfer.aux[0].ciphertext");
-        aux[1].clueRx = vm.parseJsonUint(j, ".transfer.aux[1].clueRx");
-        aux[1].clueRy = vm.parseJsonUint(j, ".transfer.aux[1].clueRy");
-        aux[1].ephPubX = vm.parseJsonUint(j, ".transfer.aux[1].ephPubX");
-        aux[1].ephPubY = vm.parseJsonUint(j, ".transfer.aux[1].ephPubY");
-        aux[1].ciphertext = vm.parseJsonBytes(j, ".transfer.aux[1].ciphertext");
-        aux[2].clueRx = vm.parseJsonUint(j, ".transfer.aux[2].clueRx");
-        aux[2].clueRy = vm.parseJsonUint(j, ".transfer.aux[2].clueRy");
-        aux[2].ephPubX = vm.parseJsonUint(j, ".transfer.aux[2].ephPubX");
-        aux[2].ephPubY = vm.parseJsonUint(j, ".transfer.aux[2].ephPubY");
-        aux[2].ciphertext = vm.parseJsonBytes(j, ".transfer.aux[2].ciphertext");
-        aux[3].clueRx = vm.parseJsonUint(j, ".transfer.aux[3].clueRx");
-        aux[3].clueRy = vm.parseJsonUint(j, ".transfer.aux[3].clueRy");
-        aux[3].ephPubX = vm.parseJsonUint(j, ".transfer.aux[3].ephPubX");
-        aux[3].ephPubY = vm.parseJsonUint(j, ".transfer.aux[3].ephPubY");
-        aux[3].ciphertext = vm.parseJsonBytes(j, ".transfer.aux[3].ciphertext");
+    // ----- the proofs are what gate the spend --------------------------------
+    //
+    // Each case changes one word of an otherwise accepted request. Every
+    // request check still passes, so the rejection is the verifier pair's.
 
-        MASP.Proof memory txProof = _readProof(j, ".transfer.txProof");
-        MASP.Proof memory tubProof = _readProof(j, ".transfer.tubProof");
+    /// The encrypted payload is bound through `PubInputs.auxDigest`, the last
+    /// word of the transact challenge: one ciphertext byte past the clue
+    /// prefix changes `z`.
+    function test_revert_ProofRejected_transferCiphertextTampered() public {
+        MaspFlowFixture.Spend memory s = _spend(".transfer");
+        s.aux[0].ciphertext[2] ^= 0x01;
+        _expectRejected(s, false);
+    }
 
-        // Submits the transfer; both proofs are checked by the real verifiers.
-        vm.prank(pi.relayer);
-        masp.transfer(txProof, pi, tubProof, tpi, aux);
+    /// `outCm` is a coefficient of the transact polynomial and a leaf of the
+    /// batch `PubInputs.compressSpend` rebuilds, so it is bound by both proofs.
+    function test_revert_ProofRejected_transferOutCmTampered() public {
+        MaspFlowFixture.Spend memory s = _spend(".transfer");
+        s.pi.outCm[5] = bytes32(uint256(s.pi.outCm[5]) ^ 1);
+        _expectRejected(s, false);
+    }
 
-        // Post-state assertions.
-        assertEq(masp.currentRoot(), tpi.newRoot, "root advanced to fixture transfer.newRoot");
-        assertEq(masp.committedCount(), 4, "count = 2 (bootstrap) + 2 (transfer)");
-        assertTrue(masp.spent(pi.nullifier[0]), "nf0 consumed");
-        assertTrue(masp.spent(pi.nullifier[1]), "nf1 consumed");
+    /// `newRoot` enters the tree-update image only: the transact proof still
+    /// verifies, and the pair is rejected on the batch proof.
+    function test_revert_ProofRejected_transferNewRootTampered() public {
+        MaspFlowFixture.Spend memory s = _spend(".transfer");
+        s.tpi.newRoot = bytes32(uint256(s.tpi.newRoot) ^ 1);
+        _expectRejected(s, false);
+    }
+
+    /// One changed coefficient of the transact proof: `A` negated. Still a
+    /// curve point, so the pairing check runs and fails; a coordinate off the
+    /// curve would instead fail inside the precompile and burn the gas
+    /// forwarded to it.
+    function test_revert_ProofRejected_transferProofTampered() public {
+        MaspFlowFixture.Spend memory s = _spend(".transfer");
+        s.txProof.a[1] = SNARK_Q - s.txProof.a[1];
+        _expectRejected(s, false);
+    }
+
+    /// The withdraw's proofs presented for the transfer's request: both pairs
+    /// verify, each for its own public inputs only.
+    function test_revert_ProofRejected_transferWithWithdrawProofs() public {
+        MaspFlowFixture.Spend memory s = _spend(".transfer");
+        MaspFlowFixture.Spend memory w = _spend(".withdraw");
+        s.txProof = w.txProof;
+        s.tubProof = w.tubProof;
+        _expectRejected(s, false);
+    }
+
+    /// The recipient is no circuit signal; it binds through the challenge
+    /// alone, which is what stops a relayer redirecting the payout.
+    function test_revert_ProofRejected_withdrawRecipientTampered() public {
+        MaspFlowFixture.Spend memory s = _spend(".withdraw");
+        s.pi.recipient = address(0xBAD);
+        _expectRejected(s, true);
+        assertEq(token.balanceOf(address(0xBAD)), 0, "nothing paid out");
+    }
+
+    /// The public output is a coefficient the circuit balances against the
+    /// spent note: one more unit than was proven is refused.
+    function test_revert_ProofRejected_withdrawPublicOutTampered() public {
+        MaspFlowFixture.Spend memory s = _spend(".withdraw");
+        s.pi.publicOut += 1;
+        _expectRejected(s, true);
     }
 }

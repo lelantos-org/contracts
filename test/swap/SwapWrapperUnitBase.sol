@@ -3,6 +3,7 @@ pragma solidity 0.8.36;
 
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 
+import { DepositFixture } from "../utils/DepositFixture.sol";
 import { SwapTestBase } from "./SwapTestBase.sol";
 
 /// Funding and payload helpers shared by the `SwapWrapper` unit suites
@@ -35,6 +36,14 @@ abstract contract SwapWrapperUnitBase is SwapTestBase {
         a.pi_w.relayer = recipient;
         a.deposit_d.payer = payer;
         a.adapter = adapter_;
+    }
+
+    /// `cancelEscrow` for escrow `depositId`, naming `assetId`. The stub pool
+    /// checks only the id and the asset, so the rest of the preimage is left
+    /// at zero. Makes no other call, so a pending cheatcode applies to the
+    /// cancel itself.
+    function _cancelEscrow(uint256 depositId, uint64 assetId) internal {
+        wrapper.cancelEscrow(depositId, 0, bytes32(0), assetId, FEE_BPS, 0, DepositFixture.feeNote(), 0);
     }
 
     /// Sets up the happy path, then lets the caller perturb the adapter. All

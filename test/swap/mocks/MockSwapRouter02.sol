@@ -13,9 +13,8 @@ interface IMintable {
 }
 
 /// Test stub for UniV3 SwapRouter02. Pulls `amountIn` of `tokenIn` via
-/// `transferFrom` (mirroring router behaviour) and pushes `amountOut`
-/// of `tokenOut` to the recipient via direct mint (so dev sessions
-/// don't need router liquidity seeding).
+/// `transferFrom`, as the router does, and mints `amountOut` of `tokenOut`
+/// to the recipient, so the router needs no liquidity seeding.
 ///
 /// Output resolution priority:
 ///   1. `nextOut` if non-zero — fixed override (used by e2e slippage tests).

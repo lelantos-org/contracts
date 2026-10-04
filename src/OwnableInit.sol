@@ -46,7 +46,7 @@ abstract contract OwnableInit {
         emit OwnershipTransferred(address(0), owner_);
     }
 
-    /// Transfers ownership. Rejects zero, so it cannot serve as a renounce.
+    /// Rejects zero, so it cannot serve as a renounce.
     function transferOwnership(address newOwner) external onlyOwner {
         _transferOwnership(newOwner);
     }

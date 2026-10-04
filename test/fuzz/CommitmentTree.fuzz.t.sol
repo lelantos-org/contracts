@@ -51,8 +51,8 @@ contract CommitmentTreeFuzzTest is Test {
     /// to keep the assertion deterministic.
     function testFuzz_GenesisEvictedAfterFullCycle(bytes32 seed) public {
         bytes32 genesis = tree.currentRoot();
-        // Genesis sits at slot 0 and the first push lands at slot 1, so the
-        // ROOT_HISTORY-th push wraps around and overwrites slot 0.
+        // The first push lands at slot 1, so the ROOT_HISTORY-th wraps around
+        // and overwrites genesis at slot 0.
         for (uint256 i; i < ROOT_HISTORY; ++i) {
             bytes32 r = keccak256(abi.encode(seed, i));
             // A pushed root equal to genesis would keep it in the ring.

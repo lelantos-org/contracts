@@ -92,7 +92,7 @@ contract NativeAdapter is MaspEscrowSatellite {
     /// Wraps `msg.value` and escrows it into MASP. `d.payer` must be this
     /// adapter: the coin arrives with the call, so there is no Permit2 signature
     /// from the sender and the pool pulls against the adapter's own allowance.
-    /// `d.recipient` and `d.outCm` still bind the note to the depositor, so the
+    /// `d.recipient` and `d.inner` still bind the note to the depositor, so the
     /// adapter learns nothing the pool does not.
     ///
     /// `msg.value` above the pool's pull (deposit amount, fee and relayer note
@@ -124,12 +124,11 @@ contract NativeAdapter is MaspEscrowSatellite {
         // aderyn-fp-next-line(reentrancy-state-change)
         WRAPPED_NATIVE.deposit{ value: msg.value }();
 
-        // The pull is the escrowed total (amount, fee and relayer note value)
-        // and must land in `[1, msg.value]`. The floor rejects an empty pull,
-        // which is also how a non-wrapped-native asset id measures, since the
-        // adapter holds and permits no other token. The ceiling confines the
-        // pull to the coin this call supplied, keeping refunds held here for
-        // other depositors out of reach of an oversized `d.publicIn`.
+        // The pull must land in `[1, msg.value]`. The floor rejects an empty
+        // pull, which is also how a non-wrapped-native asset id measures, since
+        // the adapter holds and permits no other token. The ceiling confines
+        // the pull to the coin this call supplied, keeping refunds held here
+        // for other depositors out of reach of an oversized `d.publicIn`.
         uint256 pulled;
         (id, pulled) = _escrowMeasured(WRAPPED_NATIVE, baseline, 1, msg.value, d, aux, feeAux);
 
@@ -151,23 +150,20 @@ contract NativeAdapter is MaspEscrowSatellite {
     /// `feeAssetId`: the wrapped-native id, or 0 for a zero-value note.
     ///
     /// The refund is attributed by the wrapped-balance delta across the pool
-    /// call. MASP refuses a cancel of a contract payer's deposit from any other
-    /// sender, so the adapter is necessarily the caller. An already-settled
-    /// deposit was flushed and has no refund to forward.
+    /// call; `_cancelAndVerify` states why that is sound.
     // slither-disable-next-line reentrancy-balance
     function cancelNative(
         uint256 id,
         uint48 publicIn,
-        bytes32 cm,
-        uint256[2] calldata cvDep,
+        bytes32 inner,
         uint64 publicAssetId,
         uint16 fbps,
         uint32 submittedAt,
-        PubInputs.FeeNote calldata feeNote
+        PubInputs.FeeNote calldata feeNote,
+        uint256 pulled
     ) external nonReentrant {
-        (, address refundTo, uint256 amount) = _cancelAndVerify(
-            id, publicIn, cm, cvDep, publicAssetId, fbps, submittedAt, feeNote
-        );
+        (, address refundTo, uint256 amount) =
+            _cancelAndVerify(id, publicIn, inner, publicAssetId, fbps, submittedAt, feeNote, pulled);
 
         WRAPPED_NATIVE.withdraw(amount);
         _sendNative(refundTo, amount);

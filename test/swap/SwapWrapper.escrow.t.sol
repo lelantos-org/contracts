@@ -3,6 +3,7 @@ pragma solidity 0.8.36;
 
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { MaspEscrowSatellite } from "../../src/MaspEscrowSatellite.sol";
+import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 
 import { SwapWrapperUnitBase } from "./SwapWrapperUnitBase.sol";
@@ -11,9 +12,7 @@ import { SwapWrapperUnitBase } from "./SwapWrapperUnitBase.sol";
 /// escrow to the intent-bound `refundTo`, permissionlessly, and rejects a wrong
 /// asset, a missing or replayed record, a flushed deposit and a refund mismatch.
 contract SwapWrapperEscrowTest is SwapWrapperUnitBase {
-    // -------- escrow recovery -------------------------------------------
-
-    /// Run the happy path and return the escrow it created.
+    /// Runs the happy path and returns the escrow it created.
     function _swapAndEscrow() internal returns (uint256 depositId, uint256 pulled) {
         (SwapWrapper.SwapArgs memory a,) = _armSwap();
         (, depositId) = _swap(a);
@@ -32,16 +31,7 @@ contract SwapWrapperEscrowTest is SwapWrapperUnitBase {
 
         vm.expectEmit(true, true, true, true, address(wrapper));
         emit SwapWrapper.EscrowRefunded(depositId, SWAP_REFUND_TO, address(tokenB), pulled);
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_B);
 
         assertEq(tokenB.balanceOf(SWAP_REFUND_TO) - refundBefore, pulled, "refundTo refunded");
         assertEq(tokenB.balanceOf(address(this)), driverBefore, "driver gets nothing");
@@ -56,19 +46,30 @@ contract SwapWrapperEscrowTest is SwapWrapperUnitBase {
         uint256 refundBefore = tokenB.balanceOf(SWAP_REFUND_TO);
 
         vm.prank(address(0xDEAD));
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_B);
 
         assertEq(tokenB.balanceOf(SWAP_REFUND_TO) - refundBefore, pulled, "refund follows the record, not the caller");
         assertEq(tokenB.balanceOf(address(0xDEAD)), 0, "caller gets nothing");
+    }
+
+    /// The wrapper keeps none of the escrow digest preimage, so `cancelEscrow`
+    /// must hand the pool what the caller read from `DepositEscrowed`, each
+    /// value in its own slot, with itself as the payer. The stub pool checks
+    /// only the asset id, so the forwarded call is pinned here, with a distinct
+    /// value in every slot.
+    function test_cancelEscrowForwardsThePreimageToThePool() public {
+        (uint256 depositId,) = _swapAndEscrow();
+        PubInputs.FeeNote memory feeNote =
+            PubInputs.FeeNote({ feeIn: 5, feeAssetId: ASSET_B, feeInner: bytes32(uint256(0xfee)) });
+
+        vm.expectCall(
+            address(pool),
+            abi.encodeCall(
+                IMASPPool.cancelDeposit,
+                (depositId, 990, bytes32(uint256(0x1)), ASSET_B, FEE_BPS, address(wrapper), 7, feeNote, 11)
+            )
+        );
+        wrapper.cancelEscrow(depositId, 990, bytes32(uint256(0x1)), ASSET_B, FEE_BPS, 7, feeNote, 11);
     }
 
     /// The refund token comes from the cancel's `publicAssetId`, so naming
@@ -80,16 +81,7 @@ contract SwapWrapperEscrowTest is SwapWrapperUnitBase {
         uint256 refundA = tokenA.balanceOf(SWAP_REFUND_TO);
 
         vm.expectRevert("MockMASPSwap: digest mismatch");
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_A,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_A);
 
         assertEq(tokenA.balanceOf(SWAP_REFUND_TO), refundA, "no payout in the other asset");
         (address recorded,) = wrapper.escrows(depositId);
@@ -98,42 +90,15 @@ contract SwapWrapperEscrowTest is SwapWrapperUnitBase {
 
     function test_revert_cancelEscrowWithoutRecord() public {
         vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.NoEscrowRecord.selector, uint256(42)));
-        wrapper.cancelEscrow(
-            42,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(42, ASSET_B);
     }
 
     function test_revert_cancelEscrowReplay() public {
         (uint256 depositId,) = _swapAndEscrow();
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_B);
 
         vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.NoEscrowRecord.selector, depositId));
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_B);
     }
 
     /// A flushed deposit leaves a stale record and returns nothing. Paying it
@@ -143,16 +108,7 @@ contract SwapWrapperEscrowTest is SwapWrapperUnitBase {
         pool.simulateFlush(depositId);
 
         vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.DepositAlreadySettled.selector, depositId));
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_B);
     }
 
     /// The refund is attributed by delta and checked against the pool's reported
@@ -165,19 +121,10 @@ contract SwapWrapperEscrowTest is SwapWrapperUnitBase {
         vm.expectRevert(
             abi.encodeWithSelector(MaspEscrowSatellite.RefundMismatch.selector, depositId, pulled - 1, pulled)
         );
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_B);
     }
 
-    /// A refund below the record that the pool reports honestly is forwarded as
+    /// A refund below the record that the pool reports accurately is forwarded as
     /// delivered. A yield-asset cancel is capped at the pull and floored at the
     /// current index, so it can fall short of the record; rejecting it would
     /// leave the escrow with no refund path, since only the wrapper may cancel.
@@ -190,16 +137,7 @@ contract SwapWrapperEscrowTest is SwapWrapperUnitBase {
 
         vm.expectEmit(true, true, true, true, address(wrapper));
         emit SwapWrapper.EscrowRefunded(depositId, SWAP_REFUND_TO, address(tokenB), pulled - shortfall);
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_B,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_B);
 
         assertEq(tokenB.balanceOf(SWAP_REFUND_TO) - refundBefore, pulled - shortfall, "short refund forwarded");
         assertEq(tokenB.balanceOf(address(wrapper)), 0, "wrapper keeps nothing");

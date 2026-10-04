@@ -4,7 +4,8 @@ pragma solidity 0.8.36;
 import { Test } from "forge-std/Test.sol";
 import { BabyJubJub } from "../../src/BabyJubJub.sol";
 
-/// Fuzz suite for the projective `isLowOrder` in `BabyJubJub`.
+/// Fuzz suite for `BabyJubJub.isLowOrder`, which decides `[8]P == O` from the
+/// coordinates alone (`x == 0`, `y == 0` or `y^2 == a*x^2`).
 ///
 /// Ground truth is an independent affine implementation of the twisted Edwards
 /// group law (complete addition + modexp inversion). Points are sampled by
@@ -32,13 +33,13 @@ contract BabyJubJubFuzzTest is Test {
     // Fuzz properties
     // -----------------------------------------------------------------------
 
-    /// Differential: for any point in the full group, the projective
+    /// Differential: for any point in the full group, the coordinate test in
     /// `isLowOrder` agrees with the affine reference `[8]P == identity`.
     function testFuzz_isLowOrder_matchesAffineReference(uint256 k) public view {
         k = bound(k, 0, FULL_ORDER - 1);
         (uint256 x, uint256 y) = _refMul(k, G_X, G_Y);
         assertTrue(BabyJubJub.isOnCurve(x, y), "reference produced off-curve point");
-        assertEq(BabyJubJub.isLowOrder(x, y), _refIsLowOrder(x, y), "projective disagrees with affine reference");
+        assertEq(BabyJubJub.isLowOrder(x, y), _refIsLowOrder(x, y), "isLowOrder disagrees with affine reference");
     }
 
     /// Points in the prime-order subgroup (excluding identity) are never

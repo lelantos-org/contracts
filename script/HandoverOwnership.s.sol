@@ -44,7 +44,7 @@ contract HandoverOwnership is Script {
         require(feeBurner.code.length != 0, "feeBurner has no code");
         // Both seats land on a Timelock that can still be driven. A Timelock
         // with no proposer, or one whose proposer is a Governor over a
-        // different token, would hold the pool for good.
+        // different token, would hold the pool permanently.
         TimelockController tl = TimelockController(payable(timelock));
         require(tl.hasRole(tl.EXECUTOR_ROLE(), address(0)), "timelock execution not open");
 

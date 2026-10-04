@@ -68,7 +68,7 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     ///
     /// Update the constant only when the wallet signature shape is meant to
     /// change, in coordination with off-chain signers and circuits.
-    bytes32 internal constant PI_HASH_GOLDEN = 0xf79a840cb98e948cf7937366de41257723ae0467b054ff6cf02272d5e713e972;
+    bytes32 internal constant PI_HASH_GOLDEN = 0x2c7bff043d212aef7358f0d0747b808c85ba429479efc47e3b6ccfa8c59ba5af;
 
     function test_piHash_isStableForFixedFixture() public pure {
         PubInputs.DepositRequest memory d = _fixtureDeposit();
@@ -78,14 +78,40 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         assertEq(keccak256(abi.encode(d, aux, feeAux)), PI_HASH_GOLDEN, "piHash drifted from the pinned fixture");
     }
 
+    /// The depositor's own note is inside the signed preimage, each of the
+    /// three words the batch circuit builds its leaf from: a submitter cannot
+    /// change what is minted for the payer's funds, or to whom.
+    function test_piHash_bindsTheDepositNote() public pure {
+        AuxValidation.Output memory aux = _fixtureAux();
+        AuxValidation.Output memory feeAux = _fixtureFeeAux();
+
+        PubInputs.DepositRequest memory d = _fixtureDeposit();
+        d.inner = bytes32(uint256(0xbeef));
+        assertTrue(keccak256(abi.encode(d, aux, feeAux)) != PI_HASH_GOLDEN, "inner not bound");
+
+        d = _fixtureDeposit();
+        d.publicIn += 1;
+        assertTrue(keccak256(abi.encode(d, aux, feeAux)) != PI_HASH_GOLDEN, "publicIn not bound");
+
+        d = _fixtureDeposit();
+        d.publicAssetId = 2;
+        assertTrue(keccak256(abi.encode(d, aux, feeAux)) != PI_HASH_GOLDEN, "publicAssetId not bound");
+    }
+
+    /// The request is nine static words, so the preimage's head is those nine
+    /// and one offset per payload.
+    function test_piHash_requestIsNineWords() public pure {
+        assertEq(abi.encode(_fixtureDeposit()).length, 9 * 32, "DepositRequest words");
+    }
+
     /// The fee leg is inside the signed preimage. Both halves are probed: the
     /// request's own fee fields, and the fee payload passed alongside it.
     function test_piHash_bindsTheFeeLeg() public pure {
         PubInputs.DepositRequest memory d = _fixtureDeposit();
         AuxValidation.Output memory aux = _fixtureAux();
 
-        d.feeCm = bytes32(uint256(0xbeef));
-        assertTrue(keccak256(abi.encode(d, aux, _fixtureFeeAux())) != PI_HASH_GOLDEN, "feeCm not bound");
+        d.feeInner = bytes32(uint256(0xbeef));
+        assertTrue(keccak256(abi.encode(d, aux, _fixtureFeeAux())) != PI_HASH_GOLDEN, "feeInner not bound");
 
         d = _fixtureDeposit();
         d.feeIn += 1;
@@ -109,16 +135,10 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         d.publicIn = 100;
         d.payer = address(0xface);
         d.recipient = address(0xb0b);
-        d.outCm = bytes32(uint256(0x1111));
-        d.cvDep[0] = 0xaaaa;
-        d.cvDep[1] = 0xbbbb;
-        d.rcv = 0xeeee;
+        d.inner = bytes32(uint256(0x1111));
         d.feeAssetId = 1;
         d.feeIn = 7;
-        d.feeCm = bytes32(uint256(0x2222));
-        d.feeCvDep[0] = 0xcccc;
-        d.feeCvDep[1] = 0xdddd;
-        d.feeRcv = 0xffff;
+        d.feeInner = bytes32(uint256(0x2222));
     }
 
     /// The depositor's payload. A deposit mints two leaves, so a second payload
@@ -178,12 +198,10 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         d.publicIn = 100;
         d.payer = _signer();
         d.recipient = address(0xb0b);
-        d.outCm = bytes32(uint256(0x1111));
+        d.inner = bytes32(uint256(0x1111));
         d.feeAssetId = ASSET_ID;
         d.feeIn = 7;
-        d.feeCm = bytes32(uint256(0x2222));
-        d.feeCvDep = [uint256(0xcccc), uint256(0xdddd)];
-        d.feeRcv = 0xffff;
+        d.feeInner = bytes32(uint256(0x2222));
     }
 
     function _liveTotal(PubInputs.DepositRequest memory d) internal pure returns (uint256) {
@@ -223,18 +241,28 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         return MASP.Permit2Sig({ nonce: 0, deadline: type(uint256).max, maxTotal: total, maxFee: 0, signature: hex"" });
     }
 
-    /// Baseline: a signature over the full preimage settles.
-    function test_deposit_acceptsSignatureOverFullPreimage() public {
-        PubInputs.DepositRequest memory d = _liveRequest();
-        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
+    /// A funded `_liveRequest` with the signer's signature over its full
+    /// preimage: what a wallet hands a submitter.
+    function _signedLiveDeposit()
+        internal
+        returns (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux)
+    {
+        d = _liveRequest();
+        aux = SpendFixture.validAux();
         uint256 total = _liveTotal(d);
         _fundSigner(total);
 
-        MASP.Permit2Sig memory sig = _liveSig(total);
+        sig = _liveSig(total);
         sig.signature = _sign(sig, keccak256(abi.encode(d, aux[0], aux[1])));
+    }
+
+    /// Baseline: a signature over the full preimage settles.
+    function test_deposit_acceptsSignatureOverFullPreimage() public {
+        (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux) =
+            _signedLiveDeposit();
 
         uint256 id = masp.deposit(d, sig, aux[0], aux[1]);
-        assertEq(token.balanceOf(address(masp)), total, "pool pulled the signed total");
+        assertEq(token.balanceOf(address(masp)), _liveTotal(d), "pool pulled the signed total");
         assertTrue(masp.escrowed(id) != bytes32(0), "escrow recorded");
     }
 
@@ -260,13 +288,8 @@ contract MASPPermit2WitnessTest is MASPTestBase {
     /// find the note it is owed, so a relayer-chosen substitute would strand
     /// the payer's funds in an unspendable leaf.
     function test_revert_deposit_feeAuxSwappedAfterSigning() public {
-        PubInputs.DepositRequest memory d = _liveRequest();
-        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
-        uint256 total = _liveTotal(d);
-        _fundSigner(total);
-
-        MASP.Permit2Sig memory sig = _liveSig(total);
-        sig.signature = _sign(sig, keccak256(abi.encode(d, aux[0], aux[1])));
+        (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux) =
+            _signedLiveDeposit();
 
         // Well-formed, so it passes `AuxValidation` and only the witness check
         // rejects it.
@@ -275,21 +298,28 @@ contract MASPPermit2WitnessTest is MASPTestBase {
         masp.deposit(d, sig, aux[0], substitute);
     }
 
-    /// Same scoping over the request itself: swapping the fee note's
-    /// commitment redirects the payer-funded note to whoever submits. It leaves
-    /// the pulled amount unchanged, so only the witness check rejects it;
-    /// raising `feeIn` instead would be stopped earlier by Permit2's signed
-    /// amount cap.
-    function test_revert_deposit_feeCmSwappedAfterSigning() public {
-        PubInputs.DepositRequest memory d = _liveRequest();
-        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
-        uint256 total = _liveTotal(d);
-        _fundSigner(total);
+    /// Same scoping over the request itself: swapping the fee note's `inner`
+    /// redirects the payer-funded note to whoever submits. It leaves the
+    /// pulled amount unchanged, so only the witness check rejects it; raising
+    /// `feeIn` instead would be stopped earlier by Permit2's signed amount
+    /// cap.
+    function test_revert_deposit_feeInnerSwappedAfterSigning() public {
+        (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux) =
+            _signedLiveDeposit();
 
-        MASP.Permit2Sig memory sig = _liveSig(total);
-        sig.signature = _sign(sig, keccak256(abi.encode(d, aux[0], aux[1])));
+        d.feeInner = bytes32(uint256(0xbad));
+        vm.expectRevert(SignatureVerification.InvalidSigner.selector);
+        masp.deposit(d, sig, aux[0], aux[1]);
+    }
 
-        d.feeCm = bytes32(uint256(0xbad));
+    /// And over the depositor's own note: swapping `inner` after signing would
+    /// mint the payer's principal to a note of the submitter's choosing. The
+    /// pulled amount is again unchanged, so only the witness check rejects it.
+    function test_revert_deposit_innerSwappedAfterSigning() public {
+        (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux) =
+            _signedLiveDeposit();
+
+        d.inner = bytes32(uint256(0xbad));
         vm.expectRevert(SignatureVerification.InvalidSigner.selector);
         masp.deposit(d, sig, aux[0], aux[1]);
     }

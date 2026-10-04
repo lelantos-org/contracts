@@ -249,15 +249,15 @@ contract GenericCallWrapper is MaspEscrowSatellite {
     function cancelEscrow(
         uint256 depositId,
         uint48 publicIn,
-        bytes32 cm,
-        uint256[2] calldata cvDep,
+        bytes32 inner,
         uint64 publicAssetId,
         uint16 fbps,
         uint32 submittedAt,
-        PubInputs.FeeNote calldata feeNote
+        PubInputs.FeeNote calldata feeNote,
+        uint256 pulled
     ) external nonReentrant {
         (IERC20 token, address refundTo, uint256 amount) = _cancelAndVerify(
-            depositId, publicIn, cm, cvDep, publicAssetId, fbps, submittedAt, feeNote
+            depositId, publicIn, inner, publicAssetId, fbps, submittedAt, feeNote, pulled
         );
         token.safeTransfer(refundTo, amount);
         emit EscrowRefunded(depositId, refundTo, address(token), amount);

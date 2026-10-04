@@ -1,7 +1,7 @@
 {
   "meta": {
     "spec": "spec/fee_burner.qnt",
-    "specHash": "0xcbf61dffc6e434754cc4ff28f5faf107a697b61240bb49613f3fd759a94cf1d6",
+    "specHash": "0xe49011b29c5b3ec8844e052779cc14a5ccfdb21701f4975a5f6a216066059d99",
     "module": "fee_burner",
     "quintVersion": "0.32.0",
     "backend": "typescript",

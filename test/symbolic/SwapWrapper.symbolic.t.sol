@@ -19,7 +19,7 @@ import { MockEscrowPool, MockEscrowToken } from "./mocks/MockEscrowPool.sol";
 /// the adapter or a token; the pool mock is read only for the registry tokens
 /// the token binding compares against.
 ///
-/// The two most significant checks:
+/// The most significant checks:
 ///
 /// - **`msg.sender` must be the withdraw proof's `payer`.** `payer` is a public
 ///   input of that proof with no other constraint on the spend path, so it names
@@ -223,7 +223,7 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
         vm.warp(t);
         (bool ok, bytes memory ret) = _swap(a, PAYER);
 
-        // It must fail, but somewhere past the guard block.
+        // The call fails, but past the guard block.
         assertFalse(ok, "the stand-in pool has no withdraw; nothing here succeeds");
         _assertNotAValidationRevert(bytes4(ret));
     }
@@ -268,9 +268,9 @@ contract SwapWrapperSymbolicTest is GuardAsserts {
     // --- The token binding ---------------------------------------------------
 
     /// `tokenIn` must be the registry token of the withdraw proof's asset, for
-    /// every address. `tokenIn` is outside the intent hash, so this check is the
-    /// only thing tying the balances `swap` measures on the input and refund
-    /// legs to the token the pool actually moves.
+    /// every address. `tokenIn` is outside the intent hash, so this check alone
+    /// ties the balances `swap` measures on the input and refund legs to the
+    /// token the pool moves.
     function check_validate_rejectsEveryTokenInNotBoundToTheWithdrawAsset(address t) public {
         vm.assume(t != TOKEN_IN && t != TOKEN_OUT);
 

@@ -27,7 +27,7 @@ contract MockTreeUpdateVerifier is IVerifier {
     }
 
     /// @inheritdoc IVerifier
-    function verifyProof(uint256[2] calldata, uint256[2][2] calldata, uint256[2] calldata, uint256[2] calldata)
+    function verifyProof(uint256[2] calldata, uint256[2][2] calldata, uint256[2] calldata, uint256[3] calldata)
         external
         view
         returns (bool)

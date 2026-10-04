@@ -160,9 +160,9 @@ contract MASPFeeBoundTest is Test {
         deployBehindProxy(address(impl), initData);
     }
 
-    /// With no genesis assets there is nothing to register, so the rate arrays
-    /// are never read and an out-of-range value has no effect. It is not
-    /// guarded because nothing later reads it.
+    /// With no genesis assets `deployPoolUniform` expands the rate to empty
+    /// arrays, so an out-of-range value never reaches the pool and nothing is
+    /// registered.
     function test_emptyGenesisSetIgnoresTheRates() public {
         MASP m = _deployEmpty(type(uint16).max);
         vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, ASSET_ID));
@@ -171,8 +171,8 @@ contract MASPFeeBoundTest is Test {
 
     // --- per-leg, per-asset registration -----------------------------------
 
-    /// Asymmetric per-asset rates applied at deploy: free to enter, charged on
-    /// exit, and different per asset, as the config arrays express.
+    /// Rates are applied per asset and per leg at deploy: asset 1 is free to
+    /// enter and charged on exit, asset 2 is free on both legs.
     function test_constructorAppliesAsymmetricPerAssetRates() public {
         MockERC20 second = new MockERC20("N", "N", 18);
 

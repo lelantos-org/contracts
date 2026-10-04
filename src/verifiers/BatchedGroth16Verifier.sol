@@ -25,6 +25,8 @@ import {
     VK1_IC1Y,
     VK1_IC2X,
     VK1_IC2Y,
+    VK1_IC3X,
+    VK1_IC3Y,
     VK2_DELTA_X1,
     VK2_DELTA_X2,
     VK2_DELTA_Y1,
@@ -35,11 +37,13 @@ import {
     VK2_IC1Y,
     VK2_IC2X,
     VK2_IC2Y,
+    VK2_IC3X,
+    VK2_IC3Y,
     BATCH_DOMAIN
 } from "./VerifyingKeys.sol";
 
-/// Verifies a `4x6` proof and a `tree_update_batch` proof together in
-/// one call to the BN254 pairing precompile.
+/// Verifies a `4x6` proof and a `tree_update_batch` proof together in one call to
+/// the BN254 pairing precompile.
 ///
 /// # What it checks
 ///
@@ -73,24 +77,24 @@ import {
 ///
 /// # Transcript
 ///
-/// `e_i` is determined by `(A_i, B_i, C_i, PI_i)`, and `PI_i` by `(y_i, z_i)`.
-/// The transcript is therefore `BATCH_DOMAIN` followed by all twenty calldata
-/// words, with `calldatasize` pinned so no trailing bytes can be appended;
-/// otherwise a relayer could resample `r2` for a fixed instance. Omitting any of
-/// the twenty words would leave a grinding target.
+/// `e_i` is determined by `(A_i, B_i, C_i, PI_i)`, and `PI_i` by
+/// `(y_i, digest_i, z_i)`. The transcript is therefore `BATCH_DOMAIN` followed
+/// by all twenty-two calldata words, with `calldatasize` pinned so no trailing
+/// bytes can be appended; otherwise a relayer could resample `r2` for a fixed
+/// instance. Omitting any of the twenty-two words would leave a grinding target.
 ///
 /// # Failure modes
 ///
 /// Nearly every implementation error here is fail-closed: a wrong `IC` pairing,
-/// a swapped `y`/`z`, a wrong constant block, an off-by-one memory offset, or a
-/// drifted `alpha`/`beta`/`gamma` all reject valid proofs. The fail-open set is
-/// fully enumerable:
+/// transposed public signals, a wrong constant block, an off-by-one memory
+/// offset, or a drifted `alpha`/`beta`/`gamma` all reject valid proofs. The
+/// fail-open set is fully enumerable:
 ///
 ///   1. an unchecked `staticcall` success flag, which would let a stale output
 ///      buffer stand in for a rejected point — every flag below is checked;
-///   2. a transcript not covering all twenty words;
+///   2. a transcript not covering all twenty-two words;
 ///   3. `r2 == 0`, which would leave proof 2 entirely unchecked — excluded by
-///      construction, see `_deriveR2`'s `+ 1`;
+///      construction, see the `+ 1` in step 3 of `verifyBatch`;
 ///   4. a wrong length passed to the pairing precompile.
 ///
 /// Point validation is delegated to the precompiles, as in the snarkjs codegen.
@@ -102,29 +106,30 @@ import {
 /// strictly more validation than in the unbatched path.
 contract BatchedGroth16Verifier is IBatchVerifier {
     // Calldata offsets, from the start of `msg.data`. Every parameter is static,
-    // so the twenty words sit contiguously after the 4-byte selector:
+    // so the twenty-two words sit contiguously after the 4-byte selector:
     //
-    //   0x004  a1   (2)      0x144  a2   (2)
-    //   0x044  b1   (4)      0x184  b2   (4)
-    //   0x0c4  c1   (2)      0x204  c2   (2)
-    //   0x104  pub1 (2)      0x244  pub2 (2)
+    //   0x004  a1   (2)      0x164  a2   (2)
+    //   0x044  b1   (4)      0x1a4  b2   (4)
+    //   0x0c4  c1   (2)      0x224  c2   (2)
+    //   0x104  pub1 (3)      0x264  pub2 (3)
     //
-    // `pub[0]` is `y` (the Horner evaluation) and `pub[1]` is `z` (the
+    // `pub[0]` is `y` (the Horner evaluation), `pub[1]` is `digest` (the
+    // circuit's commitment to its coefficients) and `pub[2]` is `z` (the
     // challenge), matching `PubInputs._finalizeRaw` and hence the codegen's
-    // `IC1 * pubSignals[0] + IC2 * pubSignals[1]`.
-    uint256 private constant CD_LEN = 644;
-    uint256 private constant CD_BODY = 640;
+    // `IC1 * pubSignals[0] + IC2 * pubSignals[1] + IC3 * pubSignals[2]`.
+    uint256 private constant CD_LEN = 708;
+    uint256 private constant CD_BODY = 704;
 
     /// @inheritdoc IBatchVerifier
     function verifyBatch(
         uint256[2] calldata,
         uint256[2][2] calldata,
         uint256[2] calldata,
-        uint256[2] calldata,
+        uint256[3] calldata,
         uint256[2] calldata,
         uint256[2][2] calldata,
         uint256[2] calldata,
-        uint256[2] calldata
+        uint256[3] calldata
     ) external view returns (bool) {
         assembly ("memory-safe") {
             // Scratch layout, allocated once from the free pointer:
@@ -134,9 +139,9 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             //                 the ECADD that follows an ECMUL in place)
             //   ACC1    64 B  PI_1, then PI_1 + r2*PI_2
             //   ACC2    64 B  PI_2
-            //   HASH   672 B  BATCH_DOMAIN || the twenty calldata words
+            //   HASH   736 B  BATCH_DOMAIN || the twenty-two calldata words
             let base := mload(0x40)
-            mstore(0x40, add(base, 0x820))
+            mstore(0x40, add(base, 0x860))
             let pair := base
             let scr := add(base, 0x480)
             let acc1 := add(base, 0x500)
@@ -185,14 +190,17 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // 2. Range checks.
             // ---------------------------------------------------------------
             let y1 := calldataload(0x104)
-            let z1 := calldataload(0x124)
-            let y2 := calldataload(0x244)
-            let z2 := calldataload(0x264)
+            let d1 := calldataload(0x124)
+            let z1 := calldataload(0x144)
+            let y2 := calldataload(0x264)
+            let d2 := calldataload(0x284)
+            let z2 := calldataload(0x2a4)
 
             // Public inputs must be in the scalar field, as `checkField` in the
-            // codegen requires.
-            if iszero(and(lt(y1, SNARK_R), lt(z1, SNARK_R))) { reject() }
-            if iszero(and(lt(y2, SNARK_R), lt(z2, SNARK_R))) { reject() }
+            // codegen requires. For the digests this is the only range check
+            // anywhere: `PubInputs` hashes the calldata word as given.
+            if iszero(and(and(lt(y1, SNARK_R), lt(d1, SNARK_R)), lt(z1, SNARK_R))) { reject() }
+            if iszero(and(and(lt(y2, SNARK_R), lt(d2, SNARK_R)), lt(z2, SNARK_R))) { reject() }
 
             // `a1.y` is the one word that reaches no precompile unreduced: it
             // is negated below, and `mod(sub(q, v), q)` maps both `v` and `v + q`
@@ -219,12 +227,12 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // ---------------------------------------------------------------
             mstore(hash, BATCH_DOMAIN)
             calldatacopy(add(hash, 0x20), 0x04, CD_BODY)
-            let r2 := add(mod(keccak256(hash, 0x2a0), sub(SNARK_R, 1)), 1)
+            let r2 := add(mod(keccak256(hash, 0x2e0), sub(SNARK_R, 1)), 1)
 
             // ---------------------------------------------------------------
             // 4. Public-input commitments.
             //
-            //   PI_i = IC0_i + y_i * IC1_i + z_i * IC2_i
+            //   PI_i = IC0_i + y_i * IC1_i + digest_i * IC2_i + z_i * IC3_i
             //
             // The only place the per-circuit IC constants appear; the two
             // blocks are kept textually parallel.
@@ -234,13 +242,15 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             mstore(acc1, VK1_IC0X)
             mstore(add(acc1, 0x20), VK1_IC0Y)
             g1MulAcc(VK1_IC1X, VK1_IC1Y, y1, acc1, scr)
-            g1MulAcc(VK1_IC2X, VK1_IC2Y, z1, acc1, scr)
+            g1MulAcc(VK1_IC2X, VK1_IC2Y, d1, acc1, scr)
+            g1MulAcc(VK1_IC3X, VK1_IC3Y, z1, acc1, scr)
 
             // tree_update_batch
             mstore(acc2, VK2_IC0X)
             mstore(add(acc2, 0x20), VK2_IC0Y)
             g1MulAcc(VK2_IC1X, VK2_IC1Y, y2, acc2, scr)
-            g1MulAcc(VK2_IC2X, VK2_IC2Y, z2, acc2, scr)
+            g1MulAcc(VK2_IC2X, VK2_IC2Y, d2, acc2, scr)
+            g1MulAcc(VK2_IC3X, VK2_IC3Y, z2, acc2, scr)
 
             // acc1 := PI_1 + r2 * PI_2
             g1MulAcc(mload(acc2), mload(add(acc2, 0x20)), r2, acc1, scr)
@@ -268,9 +278,9 @@ contract BatchedGroth16Verifier is IBatchVerifier {
             // multiplying would make two encodings of one instance hash to two
             // transcripts and give a prover free `r2` resamples; reordering
             // requires an `lt(a2y, SNARK_Q)` check.
-            g1Mul(calldataload(0x144), calldataload(0x164), r2, add(pair, 0xc0), scr)
+            g1Mul(calldataload(0x164), calldataload(0x184), r2, add(pair, 0xc0), scr)
             mstore(add(pair, 0xe0), mod(sub(SNARK_Q, mload(add(pair, 0xe0))), SNARK_Q))
-            calldatacopy(add(pair, 0x100), 0x184, 0x80)
+            calldatacopy(add(pair, 0x100), 0x1a4, 0x80)
 
             // Pair 2 — ((1 + r2) * alpha, beta), the two shared alpha/beta terms
             // folded into one. When `r2 == SNARK_R - 1` the scalar is 0 and the
@@ -299,7 +309,7 @@ contract BatchedGroth16Verifier is IBatchVerifier {
 
             // Pair 5 — (r2 * C_2, delta_2). Distinct deltas prevent the C terms
             // folding, making the batch six pairs rather than five.
-            g1Mul(calldataload(0x204), calldataload(0x224), r2, add(pair, 0x3c0), scr)
+            g1Mul(calldataload(0x224), calldataload(0x244), r2, add(pair, 0x3c0), scr)
             mstore(add(pair, 0x400), VK2_DELTA_X1)
             mstore(add(pair, 0x420), VK2_DELTA_X2)
             mstore(add(pair, 0x440), VK2_DELTA_Y1)

@@ -21,8 +21,7 @@ import { DepositFixture } from "../utils/DepositFixture.sol";
 /// Both verifiers are mocked to accept any proof; the subject is rate
 /// selection and scope, not circuit correctness.
 ///
-/// A fee change reaches exactly the ids named in the call. No setter can
-/// re-rate an asset the owner did not name.
+/// A fee change reaches exactly the ids named in the call.
 contract MASPAssetFeesTest is MockPoolTestBase {
     uint64 internal constant OTHER_ID = 2;
     uint16 internal constant GENESIS_BPS = 25;
@@ -50,7 +49,7 @@ contract MASPAssetFeesTest is MockPoolTestBase {
 
     /// Sets both rates and, if the withdraw rate rose, waits out the notice and
     /// commits it. The tests using this concern a rate once it is in force; the
-    /// queue itself is covered in `MASP.upgrade.t.sol` and below.
+    /// queue itself is covered in `upgrade/MASP.upgrade.t.sol` and below.
     function _setFee(uint64 id, uint16 dep, uint16 wit) internal {
         (, uint16 live) = masp.assetFees(id);
         vm.prank(OWNER);
@@ -94,15 +93,14 @@ contract MASPAssetFeesTest is MockPoolTestBase {
 
     // --- resolution --------------------------------------------------------
 
-    /// The constructor's rate is a starting value written into each genesis
-    /// entry, not a fallback consulted later.
+    /// The rate passed at deployment is a starting value written into each
+    /// genesis entry, not a fallback consulted later.
     function test_genesisRateIsWrittenToBothLegs() public view {
         (uint16 dep, uint16 wit) = masp.assetFees(ASSET_ID);
         assertEq(dep, GENESIS_BPS);
         assertEq(wit, GENESIS_BPS);
     }
 
-    /// Legs are set independently, e.g. free to enter and charged on exit.
     function test_setAssetFee_setsLegsIndependently() public {
         _setFee(ASSET_ID, 0, 50);
         (uint16 dep, uint16 wit) = masp.assetFees(ASSET_ID);
@@ -110,7 +108,6 @@ contract MASPAssetFeesTest is MockPoolTestBase {
         assertEq(wit, 50, "withdraw charged");
     }
 
-    /// A rate change affects exactly one id.
     function test_feeChange_touchesOnlyTheNamedAsset() public {
         _setFee(ASSET_ID, 0, 900);
 
@@ -273,22 +270,18 @@ contract MASPAssetFeesTest is MockPoolTestBase {
         uint256 id = masp.deposit(d, _sig(total), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
         uint32 submittedAt = uint32(block.number);
 
-        // Re-rates the asset while the deposit is in escrow.
         _setFee(ASSET_ID, 1_500, 1_500);
         vm.roll(block.number + masp.cancelDelay());
 
-        PubInputs.FeeNote memory feeNote =
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: d.feeCm, feeCvDep: [uint256(0), uint256(0)] });
+        PubInputs.FeeNote memory feeNote = PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeInner: d.feeInner });
 
-        // The new rate is not what was escrowed.
         vm.prank(PAYER);
         vm.expectRevert(abi.encodeWithSignature("DigestMismatch(uint256)", id));
-        masp.cancelDeposit(id, uint48(publicIn), d.outCm, d.cvDep, ASSET_ID, 1_500, PAYER, submittedAt, feeNote);
+        masp.cancelDeposit(id, uint48(publicIn), d.inner, ASSET_ID, 1_500, PAYER, submittedAt, feeNote, 0);
 
-        // The submit-time rate matches and refunds everything the payer paid.
         uint256 before = token.balanceOf(PAYER);
         vm.prank(PAYER);
-        masp.cancelDeposit(id, uint48(publicIn), d.outCm, d.cvDep, ASSET_ID, GENESIS_BPS, PAYER, submittedAt, feeNote);
+        masp.cancelDeposit(id, uint48(publicIn), d.inner, ASSET_ID, GENESIS_BPS, PAYER, submittedAt, feeNote, 0);
         assertEq(token.balanceOf(PAYER) - before, total, "refund at the submit-time rate");
     }
 

@@ -1,7 +1,7 @@
 // Model of `CommitmentTree._advanceRoot` and the root lookups `isKnownRoot`
 // and `rootIndexOf` (src/CommitmentTree.sol).
 //
-// Replayed against `test/fuzz/CommitmentTreeHarness.sol` by
+// Replayed against `test/utils/CommitmentTreeHarness.sol` by
 // test/quint/CommitmentTreeReplay.t.sol.
 //
 // SCOPE

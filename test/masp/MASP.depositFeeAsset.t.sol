@@ -31,7 +31,7 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
 
     /// The pool pulls the principal and treasury fee in the deposit token and
     /// the relayer note in the fee token, each against its own signed cap, and
-    /// the escrow digest carries the fee asset between `feeIn` and `feeCm`.
+    /// the escrow digest carries the fee asset between `feeIn` and `feeInner`.
     function test_signature_crossAsset_pullsBothTokensAndBindsFeeAsset() public {
         (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux) =
             _signedCrossDeposit(_principalPull(PUBLIC_IN), _feeTokenPull());
@@ -53,8 +53,7 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
                     address(masp),
                     block.chainid,
                     id,
-                    d.outCm,
-                    d.cvDep,
+                    d.inner,
                     PLAIN_ID,
                     uint48(PUBLIC_IN),
                     FEE_BPS,
@@ -62,15 +61,18 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
                     uint32(vm.getBlockNumber()),
                     uint48(FEE_IN),
                     FEE_ID,
-                    d.feeCm,
-                    d.feeCvDep
+                    d.feeInner,
+                    // No refund cap: the deposit asset is plain.
+                    uint256(0)
                 )
             ),
             "digest binds feeAssetId"
         );
     }
 
-    /// `DepositEscrowed` carries `feeAssetId` immediately before `feeIn`.
+    /// `DepositEscrowed` carries `feeAssetId` immediately before `feeIn`, and
+    /// the fee note's `inner` after them: the three words the batch circuit
+    /// builds the relayer's leaf from.
     function test_signature_crossAsset_eventCarriesFeeAsset() public {
         (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux) =
             _signedCrossDeposit(_principalPull(PUBLIC_IN), _feeTokenPull());
@@ -80,18 +82,20 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         bytes32 topic = keccak256(
-            "DepositEscrowed(uint256,address,address,uint64,uint64,uint16,bytes32,uint256,uint256,uint256,"
-            "uint256,uint256,uint256,uint256,bytes,uint64,uint64,bytes32,uint256,uint256,uint256,uint256,uint256,"
-            "uint256,uint256,bytes)"
+            "DepositEscrowed(uint256,address,address,uint64,uint64,uint16,bytes32,uint256,uint256,"
+            "uint256,uint256,bytes,uint64,uint64,bytes32,uint256,uint256,uint256,uint256,bytes,uint256)"
         );
+        assertEq(topic, MASP.DepositEscrowed.selector, "event signature");
         uint256 found;
         for (uint256 i = 0; i < logs.length; ++i) {
             if (logs[i].topics[0] != topic) continue;
             ++found;
-            // Head words 0..10 are the static fields through `ephPubY`, word 11
-            // the first `bytes` offset, word 12 `feeAssetId`, word 13 `feeIn`.
-            assertEq(_word(logs[i].data, 12), FEE_ID, "feeAssetId");
-            assertEq(_word(logs[i].data, 13), FEE_IN, "feeIn");
+            // Head words 0..7 are the static fields through `ephPubY`, word 8
+            // the first `bytes` offset, word 9 `feeAssetId`, word 10 `feeIn`,
+            // word 11 `feeInner`.
+            assertEq(_word(logs[i].data, 9), FEE_ID, "feeAssetId");
+            assertEq(_word(logs[i].data, 10), FEE_IN, "feeIn");
+            assertEq(bytes32(_word(logs[i].data, 11)), d.feeInner, "feeInner");
         }
         assertEq(found, 1, "one DepositEscrowed");
     }
@@ -114,8 +118,8 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
     }
 
     /// `feeAssetId` is inside the signed witness, so it cannot be changed after
-    /// signing, here to the single-token path with a cap that covers its larger
-    /// pull, so only the witness check can reject.
+    /// signing. The change here is to the single-token path with a cap that
+    /// covers its larger pull, so only the witness check can reject.
     function test_revert_signature_feeAssetChangedAfterSigning() public {
         (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux) =
             _signedCrossDeposit(_principalPull(PUBLIC_IN), _feeTokenPull());
@@ -137,7 +141,7 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
     }
 
     /// On the two-token path `maxTotal` caps the deposit token alone: the
-    /// relayer note no longer counts against it.
+    /// relayer note does not count against it.
     function test_revert_signature_maxTotalExcludesRelayerNote() public {
         (PubInputs.DepositRequest memory d, MASP.Permit2Sig memory sig, AuxValidation.Output[6] memory aux) =
             _signedCrossDeposit(_principalPull(PUBLIC_IN) - 1, _feeTokenPull());
@@ -191,7 +195,7 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
         );
     }
 
-    /// A note in the deposit's own asset keeps the single pull of
+    /// A note in the deposit's own asset takes a single pull of
     /// `inAmt + fee + relayer` under the principal's scale; the fee token is
     /// untouched.
     function test_allowance_sameAsset_singlePull() public {
@@ -238,8 +242,9 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
         _expectDepositRevert(d, abi.encodeWithSelector(MASP.FeeAssetMustBeZero.selector));
     }
 
-    /// A valued note in asset 0 is unprovable (the circuit forces a valued
-    /// deposit leaf's asset non-zero), so it is refused at submit.
+    /// Asset 0 means "no asset": it cannot be registered, so a valued note in
+    /// it has no token to be charged in, and the circuits refuse value under
+    /// it. Refused at submit.
     function test_revert_FeeAssetUnsupported_zero() public {
         PubInputs.DepositRequest memory d = _requestPaying(payer, PLAIN_ID, 0, 0x500);
         _expectDepositRevert(d, abi.encodeWithSelector(MASP.FeeAssetUnsupported.selector, uint64(0)));
@@ -263,7 +268,7 @@ contract MASPDepositFeeAssetTest is DepositFeeAssetTestBase {
     }
 
     /// A yield deposit paying the relayer in its own asset is the single-token
-    /// path: the note's units join the yield supply as before.
+    /// path: the note's units join the yield supply with the principal.
     function test_yieldDeposit_sameAssetNote_accepted() public {
         token.mint(payer, type(uint128).max);
         _allow(type(uint160).max);

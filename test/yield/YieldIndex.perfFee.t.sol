@@ -27,10 +27,10 @@ contract YieldIndexPerfFeeTest is YieldTestBase {
         uint256 feeAfter = masp.yieldState(YIELD_ID).accruedFeeNormalized;
         assertGt(feeAfter, 0, "treasury minted units against the growth");
 
-        // ~10% of the growth, valued at the post-accrual index.
-        // Floored to whole normalized units, so at `scale = 1e10` the cut can
-        // be up to one unit short of the nominal 10%, never over: every rounding
-        // step favours holders over the treasury.
+        // ~10% of the growth, valued at the post-accrual index. Floored to
+        // whole normalized units, so at `scale = 1e10` the cut can be up to one
+        // unit short of the nominal 10%, never over: every rounding step
+        // favours holders over the treasury.
         uint256 treasuryValue = (feeAfter * _gross(YIELD_ID)) / _supply(YIELD_ID);
         uint256 nominal = (1_000 * SCALE * PERF_BPS) / 10_000;
         assertLe(treasuryValue, nominal, "never charges more than perfBps of the growth");
@@ -69,8 +69,8 @@ contract YieldIndexPerfFeeTest is YieldTestBase {
     /// at the old index when a deposit grows the supply, the next accrual would
     /// measure the entrant's units against it and bill them for growth that
     /// predates them. At `scale = 1` a dust position can carry a large backlog:
-    /// a one-unit deposit plus a 1e6-wei donation to the venue was enough to
-    /// take about a tenth of the next deposit's value.
+    /// a one-unit deposit plus a 1e6-wei donation to the venue would take about
+    /// a tenth of the next deposit's value.
     function test_perfFee_subUnitAccrualDoesNotBillTheNextDepositor() public {
         // A one-unit position on the empty id: two units with the fee.
         _deposit(FINE_ID, 1, 0x101);
@@ -98,7 +98,7 @@ contract YieldIndexPerfFeeTest is YieldTestBase {
     /// `hwm` is ceilinged, so `gross` can sit a wei above the stored mark while
     /// `g <= hwm` still holds. Left in place, a large arrival multiplies that wei
     /// by its share of the new supply and the next accrual bills it; on a dust
-    /// pool at scale 1 this cost the arrival 62.5 bps.
+    /// pool at `scale = 1` this would cost the arrival 62.5 bps.
     function test_perfFee_roundedMarkDoesNotBillTheNextDepositor() public {
         vm.prank(OWNER);
         masp.setYieldParams(FINE_ID, 0, PERF_BPS);

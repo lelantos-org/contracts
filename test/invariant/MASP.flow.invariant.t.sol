@@ -10,19 +10,19 @@ import { MockERC20 } from "../mocks/MockERC20.sol";
 import { FeeMath } from "../utils/FeeMath.sol";
 import { EscrowHandlerBase, EscrowInvariantTestBase } from "./EscrowHandlerBase.sol";
 
-/// Whole-flow invariant for the MASP deposit / batch / cancel / sweep
-/// state machine. The per-slice invariants
+/// Whole-flow invariant for the MASP deposit / batch / cancel / sweep state
+/// machine. The per-slice invariants
 /// ([MASPPendingFee.invariant.t.sol](MASPPendingFee.invariant.t.sol),
 /// [MASPNullifier.invariant.t.sol](MASPNullifier.invariant.t.sol),
-/// [MASPAssets.invariant.t.sol](MASPAssets.invariant.t.sol)) each cover
-/// one surface. This file exercises submit / flushBatch / cancelDeposit /
-/// sweep / advance jointly and asserts cross-handler bookkeeping:
-/// lifecycle exclusivity, conservation of `token.balanceOf(masp)`, root
-/// coherence, and cancel-delay timing.
+/// [MASPAssets.invariant.t.sol](MASPAssets.invariant.t.sol)) each cover one
+/// surface. This file exercises submit / flushBatch / cancelDeposit / sweep /
+/// advance jointly and asserts cross-handler bookkeeping: lifecycle
+/// exclusivity, conservation of `token.balanceOf(masp)`, root coherence, and
+/// cancel-delay timing.
 ///
-/// The tree-update SNARK verifier is stubbed with `vm.mockCall` (as in
-/// `MASPEscrowFeeInvariantTest.setUp`), since otherwise every `flushBatch`
-/// needs a real depth-10 proof. With the stub, flush reduces to the
+/// The tree-update SNARK verifier is stubbed with `vm.mockCall` (in
+/// `EscrowInvariantTestBase._setUpPool`), since otherwise every `flushBatch`
+/// needs a real depth-11 proof. With the stub, flush reduces to the
 /// state-machine logic these cross-handler invariants cover.
 contract MaspFlowHandler is EscrowHandlerBase {
     enum Status {
@@ -45,7 +45,7 @@ contract MaspFlowHandler is EscrowHandlerBase {
     /// Sum of principals for ids that have been `Flushed` (shielded).
     uint256 public ghostShieldedPrincipal;
     /// Most recent root pushed by `flushBatch`: the expected `currentRoot()`.
-    /// Initialized to genesis in test setUp.
+    /// Starts at the genesis root.
     bytes32 public lastNewRoot;
     /// Sum of `inserted` across all `flushBatch` calls (i.e. `2 * #flushed`).
     uint64 public ghostInserted;
@@ -67,9 +67,9 @@ contract MaspFlowHandler is EscrowHandlerBase {
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        // The zero-value relayer note escrows as (0, `DepositFixture.FEE_CM`,
-        // [0, 0]); `flushOne` and `cancelOne` resupply it through the default
-        // `_feeLeaf`.
+        // The zero-value relayer note escrows as `FeeNote(0, 0,
+        // DepositFixture.FEE_INNER)`: no value, so asset 0. `flushOne` and
+        // `cancelOne` resupply it through the default `_feeLeaf`.
         uint256 id = _escrow(_request(publicIn), 0, inAmt, fee);
         status[id] = Status.Pending;
         submitBlock[id] = block.number;
@@ -183,7 +183,7 @@ contract MaspFlowInvariantTest is EscrowInvariantTestBase {
     /// vacuously. The invariant runner cannot distinguish a hard-to-reach path
     /// from an unreachable one, so reachability is checked here directly.
     ///
-    /// Mirrors `YieldSolvencyInvariantTest.test_handlerReachesEveryPath`.
+    /// Mirrors `YieldHandlerCoverageTest.test_handlerReachesEveryPath`.
     function test_handlerReachesEveryPath() public {
         handler.submit(100);
         handler.submit(200);
@@ -191,7 +191,6 @@ contract MaspFlowInvariantTest is EscrowInvariantTestBase {
 
         handler.flushOne(0);
         assertEq(handler.flushCount(), 1, "flush path");
-        // The flush inserts both the principal leaf and the fee-note leaf.
         assertEq(masp.committedCount(), uint64(PubInputs.LEAVES_PER_DEPOSIT), "flush inserted both leaves");
 
         handler.cancelOne(0);

@@ -15,11 +15,6 @@ library BabyJubJub {
     uint256 internal constant BASE8_X = 5299619240641551281634865583518297030282874472190772894086521144482721001553;
     uint256 internal constant BASE8_Y = 16950150798460657717958625567821834550301663161624707787222815936182638968203;
 
-    /// Identity of the twisted Edwards form, (0, 1). `[k]·O = O` for all k.
-    function isIdentity(uint256 x, uint256 y) internal pure returns (bool) {
-        return x == 0 && y == 1;
-    }
-
     /// Whether (x, y) lies on Baby-Jubjub. Subgroup membership is not checked.
     function isOnCurve(uint256 x, uint256 y) internal pure returns (bool) {
         if (x >= P || y >= P) return false;
@@ -34,30 +29,23 @@ library BabyJubJub {
     /// small-subgroup point. Requires an on-curve input, so callers must run
     /// `isOnCurve` first. Rejecting these points blocks small-subgroup attacks
     /// on FMD clues and mirrors the in-circuit constraint.
+    ///
+    /// Decided from the coordinates, with no doubling. The curve is complete
+    /// (`a` square, `d` non-square), so its only point of order 2 is (0, -1)
+    /// and the points of order dividing 8 form one cyclic group: the identity,
+    /// that point, two of order 4 and four of order 8. For an on-curve point:
+    ///
+    /// - `x == 0` holds exactly for (0, 1) and (0, -1), orders 1 and 2;
+    /// - `y == 0` holds exactly for (+-1/sqrt(a), 0), order 4: a doubling's
+    ///   x-coordinate is `2xy / (a*x^2 + y^2)`, zero only there or at `x == 0`;
+    /// - `y^2 == a*x^2` holds exactly for order 8: a doubling's y-coordinate is
+    ///   `(y^2 - a*x^2) / (2 - a*x^2 - y^2)`, so the double then has `y == 0`
+    ///   and is one of the two order-4 points.
+    ///
+    /// `test/fuzz/BabyJubJub.fuzz.t.sol` checks this against `[8]P` computed
+    /// with the affine group law.
     function isLowOrder(uint256 x, uint256 y) internal pure returns (bool) {
-        if (isIdentity(x, y)) return true;
-        // Three projective doublings. The formula is complete on Baby-Jubjub
-        // (`a` square, `d` non-square), so Z stays nonzero for on-curve inputs.
-        (uint256 rx, uint256 ry, uint256 rz) = _doubleProj(x, y, 1);
-        (rx, ry, rz) = _doubleProj(rx, ry, rz);
-        (rx, ry, rz) = _doubleProj(rx, ry, rz);
-        // [8]P is the identity iff (X : Y : Z) = (0 : λ : λ).
-        return rx == 0 && ry == rz;
-    }
-
-    /// Projective twisted Edwards doubling (dbl-2008-bbjlp), 3M + 4S.
-    /// (X : Y : Z) represents affine (X/Z, Y/Z) and requires Z != 0.
-    function _doubleProj(uint256 x, uint256 y, uint256 z) private pure returns (uint256 x3, uint256 y3, uint256 z3) {
-        uint256 b = addmod(x, y, P);
-        b = mulmod(b, b, P); // B = (X+Y)^2
-        uint256 c = mulmod(x, x, P); // C = X^2
-        uint256 dd = mulmod(y, y, P); // D = Y^2
-        uint256 e = mulmod(A, c, P); // E = a*C
-        uint256 f = addmod(e, dd, P); // F = E + D
-        uint256 h = mulmod(z, z, P); // H = Z^2
-        uint256 j = addmod(f, P - mulmod(2, h, P), P); // J = F - 2H
-        x3 = mulmod(addmod(b, P - addmod(c, dd, P), P), j, P); // (B-C-D)*J
-        y3 = mulmod(f, addmod(e, P - dd, P), P); // F*(E-D)
-        z3 = mulmod(f, j, P); // F*J
+        if (x == 0 || y == 0) return true;
+        return mulmod(y, y, P) == mulmod(A, mulmod(x, x, P), P);
     }
 }

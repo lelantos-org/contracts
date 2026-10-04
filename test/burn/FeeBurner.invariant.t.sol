@@ -23,7 +23,7 @@ contract FeeBurnerHandler is Test {
     uint256 public ghostFeesIn;
     uint256 public lastSupply;
     /// Successful fills below `minLot`, which are admitted only as clearing
-    /// fills. Shows the dust path ran at all.
+    /// fills. Non-zero when the dust path ran.
     uint256 public ghostDustFills;
     /// Of those, fills that moved `startPrice`, `startedAt` or the lot's decay
     /// curve snapshot. A sub-`minLot` fill must never re-anchor.
@@ -203,7 +203,6 @@ contract FeeBurnerInvariantTest is Test {
         );
     }
 
-    /// The price never decays below the lot's floor.
     function invariant_priceNeverBelowFloor() public view {
         (bool enabled,,,,,, uint256 minPrice) = burner.lots(IERC20(address(token)));
         if (!enabled) return;

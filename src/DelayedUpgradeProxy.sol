@@ -133,10 +133,8 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
         // would let one proposal raise a term and queue an upgrade, and the raise
         // would land while holders are still leaving ahead of the upgrade.
         if (upgradeDelay_ > ExitTerms.DELAY) revert DelayExceedsExitTermsNotice();
-        // A pause at least as long as the window could hold spends shut for all
-        // of it; property (2) keeps paused time out of the window, but a bound
-        // this loose would still let a single pause stall exits for as long as
-        // the window itself.
+        // Property (2) keeps paused time out of the window, but a single pause
+        // as long as the window would still stall exits for that long.
         if (maxPause_ >= upgradeDelay_) revert PauseNotShorterThanDelay();
         UPGRADE_DELAY = upgradeDelay_;
         MAX_PAUSE = maxPause_;
@@ -203,10 +201,8 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
 
     // ============== Verifiers ================================================
     //
-    // Same shape as the upgrade lifecycle above, for the same reason: a verifier
-    // decides what the pool accepts as a valid proof, so swapping one is the
-    // same power as swapping the implementation. `VerifierStorage` holds the
-    // live pair and the queued one.
+    // Same shape as the upgrade lifecycle above; the contract notice gives the
+    // reason. `VerifierStorage` holds the live pair and the queued one.
 
     /// Queues a replacement for both verifiers.
     ///
@@ -215,9 +211,7 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
     /// given notice of a specific pair, so a different one must not inherit the
     /// elapsed part of another's notice.
     ///
-    /// The window is `queueUpgrade`'s, computed by the same `_windowEnd`: paused
-    /// time is not notice, because a holder who cannot exit has not been given
-    /// the chance to.
+    /// The window is `queueUpgrade`'s, computed by the same `_windowEnd`.
     ///
     /// The pair is validated here rather than at commit. The addresses are fixed
     /// for the whole window, so a malformed one fails the proposal that queued
@@ -248,9 +242,8 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
 
     /// Promotes the queued pair once its window has elapsed.
     ///
-    /// Permissionless, like `activateUpgrade`: after the window the pair is
-    /// fixed, public and has been cancellable throughout, so this call carries
-    /// liveness only. While it goes uncalled the current pair keeps verifying.
+    /// Permissionless for the same reason as `activateUpgrade`. While it goes
+    /// uncalled the current pair keeps verifying.
     function commitVerifierUpdate() external {
         VerifierStorage.Layout storage v = VerifierStorage.$();
         uint256 notBefore = v.notBefore;
@@ -277,8 +270,7 @@ contract DelayedUpgradeProxy is ERC1967Proxy {
     /// amount, so the window continues to measure unpaused time.
     ///
     /// Repeatable: a single pause is capped at `MAX_PAUSE`, and the admin is the
-    /// Timelock, so each pause costs a full proposal cycle. The latch this used
-    /// to carry existed to bound a guardian that could pause without one.
+    /// Timelock, so each pause costs a full proposal cycle.
     function pauseSpends(uint256 duration) external onlyAdmin {
         if (duration == 0 || duration > MAX_PAUSE) revert PauseTooLong();
         UpgradeStorage.Layout storage l = UpgradeStorage.$();

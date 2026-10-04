@@ -71,6 +71,9 @@ contract EchidnaMaspYield {
         uint64 publicIn;
         uint256 seed;
         uint32 submittedAt;
+        /// The refund cap the digest binds: the measured pull on the yield id,
+        /// zero on the plain one.
+        uint256 pulled;
         bool settled;
     }
 
@@ -174,8 +177,8 @@ contract EchidnaMaspYield {
         d.publicIn = n;
         d.payer = address(this);
         d.recipient = yieldSide ? YIELD_RECIPIENT : PLAIN_RECIPIENT;
-        d.outCm = bytes32(s);
-        d.feeCm = bytes32(s + 1);
+        d.inner = bytes32(s);
+        d.feeInner = bytes32(s + 1);
         seed++;
 
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
@@ -186,7 +189,13 @@ contract EchidnaMaspYield {
             else plainHeld += pulled;
             escrows.push(
                 Escrow({
-                    id: depositId, assetId: id, publicIn: n, seed: s, submittedAt: uint32(block.number), settled: false
+                    id: depositId,
+                    assetId: id,
+                    publicIn: n,
+                    seed: s,
+                    submittedAt: uint32(block.number),
+                    pulled: yieldSide ? pulled : 0,
+                    settled: false
                 })
             );
             shields++;
@@ -208,12 +217,15 @@ contract EchidnaMaspYield {
         tpi.newRoot = EchidnaRoots.fresh(abi.encode("y", ++seed));
         tpi.startIndex = masp.committedCount();
         tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
+        // Each note's `inner`, as escrowed: the circuit builds the two leaves
+        // from these and the slots' asset and amount.
         tpi.cms[0] = bytes32(e.seed);
         tpi.cms[1] = bytes32(e.seed + 1);
         tpi.leafAsset[0] = e.assetId;
         // leafPublicIn[1] stays 0, so the fee leaf's asset must be 0 too:
-        // `tree_update_batch.circom` step 6a canonicalises the asset of a leaf
-        // whose Pedersen binding cannot see it.
+        // submit requires asset 0, "no asset", on a zero-value fee note, the
+        // escrow digest holds it, and `_drainDeposit` rebuilds the digest from
+        // this slot.
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[0] = e.publicIn;
         tpi.isDeposit[0] = 1;
@@ -222,7 +234,8 @@ contract EchidnaMaspYield {
         uint256[] memory ids = new uint256[](1);
         ids[0] = e.id;
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: address(this), submittedAt: e.submittedAt, fbps: FEE_BPS });
+        meta[0] =
+            MASP.DepositMeta({ payer: address(this), submittedAt: e.submittedAt, fbps: FEE_BPS, pulled: e.pulled });
 
         MASP.Proof memory proof;
         try masp.flushBatch(ids, meta, proof, tpi) {
@@ -450,9 +463,8 @@ contract EchidnaMaspYield {
     /// Largest amount by which the yield id has overpaid relative to what was
     /// deposited and earned.
     ///
-    /// `echidna_noFreeMoney` as a magnitude. Every conversion between
-    /// normalized units and assets is a `mulDiv` with a rounding direction; the
-    /// question is whether the slack stays bounded as volume grows.
+    /// `echidna_noFreeMoney` as a magnitude: whether the rounding slack of the
+    /// unit/asset conversions stays bounded as volume grows.
     function optimize_freeMoney() public view returns (int256) {
         return int256(yieldPaidOut) - int256(yieldPaidIn + venueEarned);
     }

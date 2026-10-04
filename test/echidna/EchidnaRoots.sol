@@ -3,10 +3,10 @@ pragma solidity 0.8.36;
 
 import { SnarkCompression } from "../../src/SnarkCompression.sol";
 
-/// Root values for the Echidna targets.
+/// Root values for the `EchidnaMasp` and `EchidnaMaspYield` targets.
 ///
-/// Both targets stub the tree-update verifier, so the new root a flush or a
-/// spend publishes is unconstrained but must still be a field element.
+/// Both stub the tree-update verifier, so the new root a flush or a spend
+/// publishes is unconstrained but must still be a field element.
 /// `flushBatch` and `withdraw` compress the batch header through
 /// `SnarkCompression.evaluatePolyAt`, which rejects any coefficient at or
 /// above the BN254 scalar field. A raw keccak is at or above that modulus about
@@ -18,8 +18,8 @@ import { SnarkCompression } from "../../src/SnarkCompression.sol";
 library EchidnaRoots {
     /// A fresh root derived from `salt`, reduced into the scalar field.
     ///
-    /// Callers derive `salt` from live state rather than a counter, so distinct
-    /// flushes publish distinct roots and the ring advances as in production.
+    /// Callers vary `salt` per call, so distinct flushes and spends publish
+    /// distinct roots and the ring advances as in production.
     function fresh(bytes memory salt) internal pure returns (bytes32) {
         return bytes32(uint256(keccak256(salt)) % SnarkCompression.R);
     }

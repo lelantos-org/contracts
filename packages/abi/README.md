@@ -1,11 +1,10 @@
 # @lelantos-org/contracts
 
-Canonical ABIs for the Lelantos MASP contracts, generated from the Foundry
-build (`out/`) at release time. No bytecode, no addresses — ABIs only.
+ABIs for the Lelantos MASP contracts, generated from the Foundry build (`out/`) at release time. The package contains ABIs only: no bytecode and no addresses.
 
 ## Install
 
-The package lives on GitHub Packages. `.npmrc` in the consuming repo:
+The package is published to GitHub Packages. Add to `.npmrc` in the consuming repository:
 
 ```
 @lelantos-org:registry=https://npm.pkg.github.com
@@ -16,10 +15,9 @@ The package lives on GitHub Packages. `.npmrc` in the consuming repo:
 npm install @lelantos-org/contracts
 ```
 
-## Use
+## Usage
 
-Every ABI is exported `as const`, so viem/wagmi infer argument and return
-types from it:
+Every ABI is exported `as const`, so viem and wagmi infer argument and return types:
 
 ```ts
 import { maspAbi } from "@lelantos-org/contracts";
@@ -32,25 +30,13 @@ const [depositBps, withdrawBps] = await client.readContract({
 }); // readonly [number, number]
 ```
 
-The barrel re-exports every ABI. The package is ESM and marked
-`sideEffects: false`, so a bundler drops the ones you do not reference.
-
-Without a bundler — Node, Deno, a plain `<script type="module">` — the barrel
-is not free: importing it parses all 28 modules (~356 KB) even if you use one.
-Import the contract directly to pay only for what you need:
+The package is ESM and marked `sideEffects: false`. Each contract is also available as a subpath named after the Solidity contract, exporting the same symbol as the barrel:
 
 ```ts
 import { maspAbi } from "@lelantos-org/contracts/MASP";
 ```
 
-The subpath is the Solidity contract name, and each module exports the same
-symbol the barrel does. Useful when the ABI is only needed on one code path:
-
-```ts
-const { swapWrapperAbi } = await import("@lelantos-org/contracts/SwapWrapper");
-```
-
-Non-TypeScript consumers can read the plain arrays instead:
+Plain JSON arrays are available under `json/`:
 
 ```js
 import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json" };
@@ -77,6 +63,8 @@ import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json"
 | `maspEscrowSatelliteAbi` | `src/MaspEscrowSatellite.sol:MaspEscrowSatellite` |
 | `nativeAdapterAbi` | `src/native/NativeAdapter.sol:NativeAdapter` |
 | `swapWrapperAbi` | `src/swap/SwapWrapper.sol:SwapWrapper` |
+| `genericCallWrapperAbi` | `src/generic/GenericCallWrapper.sol:GenericCallWrapper` |
+| `callExecutorAbi` | `src/generic/CallExecutor.sol:CallExecutor` |
 | `uniV3AdapterAbi` | `src/swap/UniV3Adapter.sol:UniV3Adapter` |
 | `uniV4AdapterAbi` | `src/swap/UniV4Adapter.sol:UniV4Adapter` |
 | `swapAdapterAbi` | `src/swap/ISwapAdapter.sol:ISwapAdapter` |
@@ -88,20 +76,15 @@ import maspAbi from "@lelantos-org/contracts/json/MASP.json" with { type: "json"
 | `treeUpdateBatchVerifierAbi` | `src/verifiers/TreeUpdateBatchVerifier.sol:TreeUpdateBatchGroth16Verifier` |
 | `batchedGroth16VerifierAbi` | `src/verifiers/BatchedGroth16Verifier.sol:BatchedGroth16Verifier` |
 
-To add a contract, extend `CONTRACTS` in
-[`scripts/generate.mjs`](scripts/generate.mjs). The generator refuses to run if a
-`src/` contract with a non-empty ABI is neither published nor listed in
-`EXCLUDED`, so a new contract cannot be silently left out; `EXCLUDED` records why
-each omission is intentional. `TimelockController` is absent because it is
-unmodified OpenZeppelin and ships with that package.
+To add a contract, extend `CONTRACTS` in [`scripts/generate.mjs`](scripts/generate.mjs). The generator fails if a `src/` contract with a non-empty ABI is neither in `CONTRACTS` nor in `EXCLUDED`; `EXCLUDED` records the reason for each omission. `TimelockController` is unmodified OpenZeppelin and is not published here.
 
 ## Release
 
-`src/`, `json/`, and `dist/` are generated and git-ignored. Build locally
-with `just abi` from the repo root (runs `forge build`, then the generator
-and `tsc`).
+`src/`, `json/` and `dist/` are generated and git-ignored. Build locally with `just abi` from the repository root (`forge build`, the generator, then `tsc`).
 
-Publishing is tag-driven: bump `version` in this `package.json`, then push a
-tag `abi-v<version>` (e.g. `abi-v0.1.0`). `.github/workflows/publish-abi.yml`
-rebuilds the contracts from source and publishes to GitHub Packages; it fails
-if the tag and `package.json` versions disagree.
+Publishing is tag-driven:
+
+1. Bump `version` in `package.json`.
+2. Push a tag `abi-v<version>` (for example `abi-v0.1.0`).
+
+`.github/workflows/publish-abi.yml` rebuilds the contracts from source and publishes to GitHub Packages. It fails if the tag and `package.json` versions differ.

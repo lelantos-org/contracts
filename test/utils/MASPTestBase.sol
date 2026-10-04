@@ -30,8 +30,6 @@ import { TestConstants } from "./TestConstants.sol";
 /// themselves because which address gets the stub, and whether one is
 /// installed, is part of what a suite tests.
 abstract contract MASPTestBase is Test {
-    /// SCALE is chosen so `publicIn * SCALE * FEE_BPS / 10_000 != 0`: at the
-    /// fixture's publicIn = 100 the fee is 2.5e9 wei, exercising fee accrual.
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
     uint256 internal constant SCALE = TestConstants.SCALE;
     uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
@@ -69,8 +67,6 @@ abstract contract MASPTestBase is Test {
             OWNER
         );
 
-        // Default test addresses; subclasses override them with the payer and
-        // relayer addresses a fixture's Transact public inputs bind.
         payer = TestConstants.ESCROW_PAYER;
         relayer = address(0xcafe);
     }

@@ -6,6 +6,7 @@ import { NativeAdapter } from "../../src/native/NativeAdapter.sol";
 import { MaspEscrowSatellite } from "../../src/MaspEscrowSatellite.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
+import { DepositFixture } from "../utils/DepositFixture.sol";
 
 import { NativeAdapterTestBase } from "./NativeAdapterTestBase.sol";
 
@@ -26,16 +27,7 @@ contract NativeAdapterCancelTest is NativeAdapterTestBase {
         vm.expectEmit(true, true, true, true, address(adapter));
         emit NativeAdapter.NativeRefunded(id, DEPOSITOR, total);
 
-        adapter.cancelNative(
-            id,
-            uint48(publicIn),
-            bytes32(uint256(0x1)),
-            [uint256(0), 0],
-            ASSET_WETH,
-            FEE_BPS,
-            submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancel(id, publicIn, submittedAt);
 
         assertEq(DEPOSITOR.balance, total, "funder made whole in native");
         assertEq(weth.balanceOf(DEPOSITOR), 0, "refund is unwrapped");
@@ -46,16 +38,7 @@ contract NativeAdapterCancelTest is NativeAdapterTestBase {
 
     function test_cancelNative_revert_NoEscrowRecord() public {
         vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.NoEscrowRecord.selector, uint256(7)));
-        adapter.cancelNative(
-            7,
-            1,
-            bytes32(uint256(0x1)),
-            [uint256(0), 0],
-            ASSET_WETH,
-            FEE_BPS,
-            uint32(vm.getBlockNumber()),
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancel(7, 1, uint32(vm.getBlockNumber()));
     }
 
     /// The pool accepts a cancel of a contract payer's deposit only from that
@@ -73,17 +56,54 @@ contract NativeAdapterCancelTest is NativeAdapterTestBase {
         _poolCancel(id, publicIn, submittedAt);
 
         // The adapter-driven path settles it.
+        _cancel(id, publicIn, submittedAt);
+        assertEq(DEPOSITOR.balance, total, "funder paid out");
+    }
+
+    /// The adapter keeps none of the escrow digest preimage: the canceller
+    /// resupplies it, and the pool binds every word. A cancel naming another
+    /// `inner`, for the depositor's note or for the relayer's, is refused, and
+    /// the escrow and its record stay.
+    function test_cancelNative_revert_DigestMismatch_wrongInner() public {
+        uint64 publicIn = 3;
+        uint256 id = _deposit(DEPOSITOR, publicIn, _total(publicIn));
+        uint32 submittedAt = uint32(vm.getBlockNumber());
+        vm.roll(vm.getBlockNumber() + masp.cancelDelay());
+
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        _cancelWith(id, publicIn, bytes32(uint256(0x2)), DepositFixture.FEE_INNER, submittedAt);
+
+        vm.expectRevert(abi.encodeWithSelector(MASP.DigestMismatch.selector, id));
+        _cancelWith(id, publicIn, INNER, bytes32(uint256(0xbad)), submittedAt);
+
+        assertTrue(masp.escrowed(id) != bytes32(0), "escrow survives every rejected cancel");
+        (address refundTo,) = adapter.escrows(id);
+        assertEq(refundTo, DEPOSITOR, "record intact");
+        assertEq(DEPOSITOR.balance, 0, "nothing refunded");
+
+        _cancel(id, publicIn, submittedAt);
+        assertEq(DEPOSITOR.balance, _total(publicIn), "the submitted preimage settles it");
+    }
+
+    /// `cancelNative` with the preimage `_deposit` escrowed.
+    function _cancel(uint256 id, uint64 publicIn, uint32 submittedAt) internal {
+        _cancelWith(id, publicIn, INNER, DepositFixture.FEE_INNER, submittedAt);
+    }
+
+    /// `cancelNative` for a WETH escrow with a zero-value relayer note, naming
+    /// `inner` and `feeInner`. Makes no other call, so a pending
+    /// `vm.expectRevert` applies to the cancel itself.
+    function _cancelWith(uint256 id, uint64 publicIn, bytes32 inner, bytes32 feeInner, uint32 submittedAt) internal {
         adapter.cancelNative(
             id,
             uint48(publicIn),
-            bytes32(uint256(0x1)),
-            [uint256(0), 0],
+            inner,
             ASSET_WETH,
             FEE_BPS,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeInner: feeInner }),
+            0
         );
-        assertEq(DEPOSITOR.balance, total, "funder paid out");
     }
 
     /// A flushed deposit zeroes `escrowed[id]` and returns nothing. Its record
@@ -99,16 +119,7 @@ contract NativeAdapterCancelTest is NativeAdapterTestBase {
         _flush(flushedId, publicIn, masp.committedCount());
 
         vm.expectRevert(abi.encodeWithSelector(MaspEscrowSatellite.DepositAlreadySettled.selector, flushedId));
-        adapter.cancelNative(
-            flushedId,
-            uint48(publicIn),
-            bytes32(uint256(0x1)),
-            [uint256(0), 0],
-            ASSET_WETH,
-            FEE_BPS,
-            uint32(vm.getBlockNumber()),
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancel(flushedId, publicIn, uint32(vm.getBlockNumber()));
         // Flush moves no coin out of the pool, so both deposits remain.
         assertEq(weth.balanceOf(address(masp)), 2 * total, "the surviving escrow is untouched");
     }
@@ -116,27 +127,13 @@ contract NativeAdapterCancelTest is NativeAdapterTestBase {
     /// Flushes an adapter-owned deposit, leaving its record unfunded.
     function _flush(uint256 id, uint64 publicIn, uint64 startIndex) internal {
         _mockVerifiers();
-        uint256[] memory ids = new uint256[](1);
-        ids[0] = id;
-        MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: address(adapter), submittedAt: uint32(vm.getBlockNumber()), fbps: FEE_BPS });
+        MASP.DepositMeta[] memory meta = DepositFixture.metas(1, address(adapter), uint32(vm.getBlockNumber()), FEE_BPS);
 
-        PubInputs.TreeUpdateBatch memory tpi;
-        tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xdead));
-        tpi.startIndex = startIndex;
-        // Principal at slot 0, the relayer's fee note at slot 1. The builder
-        // escrows a zero-value fee note, so its leaf carries `publicIn = 0`.
-        tpi.actualCount = 2;
-        tpi.cms[0] = bytes32(uint256(0x1));
-        tpi.leafAsset[0] = ASSET_WETH;
-        tpi.leafPublicIn[0] = publicIn;
-        tpi.isDeposit[0] = 1;
-        tpi.cms[1] = bytes32(uint256(0xfee));
-        tpi.leafAsset[1] = 0;
-        tpi.leafPublicIn[1] = 0;
-        tpi.isDeposit[1] = 1;
-        masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
+        // Principal at slot 0, the zero-value relayer note at slot 1.
+        PubInputs.TreeUpdateBatch memory tpi =
+            DepositFixture.batch(masp.currentRoot(), bytes32(uint256(0xdead)), startIndex, 1);
+        DepositFixture.setDepositLeaves(tpi, 0, INNER, ASSET_WETH, publicIn);
+        masp.flushBatch(DepositFixture.ids(id), meta, FixtureLoader.emptyProof(), tpi);
     }
 
     /// A stale record left by a flushed deposit does not block an ordinary
@@ -152,16 +149,7 @@ contract NativeAdapterCancelTest is NativeAdapterTestBase {
         _flush(flushedId, publicIn, masp.committedCount());
         vm.roll(vm.getBlockNumber() + masp.cancelDelay());
 
-        adapter.cancelNative(
-            liveId,
-            uint48(publicIn),
-            bytes32(uint256(0x1)),
-            [uint256(0), 0],
-            ASSET_WETH,
-            FEE_BPS,
-            submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancel(liveId, publicIn, submittedAt);
 
         assertEq(address(0xCAFE).balance, total, "live escrow refunded");
         assertEq(weth.balanceOf(address(adapter)), 0, "adapter holds nothing after the payout");

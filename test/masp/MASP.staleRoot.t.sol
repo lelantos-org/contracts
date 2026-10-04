@@ -4,7 +4,7 @@ pragma solidity 0.8.36;
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import { MASP } from "../../src/MASP.sol";
-import { AssetRegistry } from "../../src/AssetRegistry.sol";
+import { SnarkCompression } from "../../src/SnarkCompression.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
@@ -12,9 +12,9 @@ import { MASPSpendHarness, deploySpendHarness } from "../utils/MASPSpendHarness.
 import { MockPoolTestBase } from "../utils/MockPoolTestBase.sol";
 import { noAssets } from "../utils/PoolDeployer.sol";
 
-/// Root ring-buffer eviction: a spend using a root evicted from the 64-slot
-/// ring buffer reverts with `UnknownRoot`, and a spend against a lagging root
-/// still in the ring is accepted at that root's slot.
+/// Root ring-buffer eviction: a spend using a root evicted from the ring
+/// reverts with `UnknownRoot`, and a spend against a lagging root still in the
+/// ring is accepted at that root's slot.
 ///
 /// `ROOT_HISTORY = 64`. After 64 root advances slot 0 is overwritten and the
 /// genesis root leaves the ring, so any subsequent spend presenting it as
@@ -52,7 +52,6 @@ contract MASPStaleRootTest is MockPoolTestBase {
         _evictGenesisRoot();
 
         PubInputs.Transact memory pi = _transact(PAYER, RELAYER, 1, 3);
-        pi.publicAssetId = 0; // irrelevant: the asset check fires after UnknownRoot
         pi.merkleRoot = genesis; // evicted, so unknown
 
         PubInputs.SpendTree memory tpi = SpendFixture.spendTree(bytes32(uint256(0xdead)), masp.committedCount());
@@ -60,6 +59,11 @@ contract MASPStaleRootTest is MockPoolTestBase {
         vm.prank(RELAYER);
         vm.expectRevert(MASP.UnknownRoot.selector);
         masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
+    }
+
+    /// A distinct root per step, reduced into the BN254 scalar field.
+    function _fieldRoot(uint256 step) internal pure returns (bytes32) {
+        return bytes32(uint256(keccak256(abi.encode("step", step))) % SnarkCompression.R);
     }
 
     function _spend(bytes32 anchor, uint8 anchorIndex)
@@ -90,11 +94,16 @@ contract MASPStaleRootTest is MockPoolTestBase {
 
     /// A root 63 advances old still sits in the ring, at the slot after the
     /// current one; `rootIndexOf` names it and the spend passes validation,
-    /// failing next on the asset this pool does not register.
+    /// failing next on the proof, which the mock verifier rejects by default.
+    /// A transfer names no asset, so no registry check sits in between.
+    ///
+    /// The roots here are field elements, as every real root is: the anchor
+    /// and the live root are coefficients of the two proofs' compressions,
+    /// which the pool computes once validation has passed.
     function test_laggingAnchor_acceptedAtItsIndex() public {
-        bytes32 oldest = keccak256(abi.encode("step", uint256(0)));
+        bytes32 oldest = _fieldRoot(0);
         for (uint256 i = 0; i < 64; i++) {
-            harness.seedRoot(keccak256(abi.encode("step", i)), 0);
+            harness.seedRoot(_fieldRoot(i), 0);
         }
         (bool found, uint256 index) = masp.rootIndexOf(oldest);
         assertTrue(found, "oldest root still in the ring");
@@ -102,7 +111,7 @@ contract MASPStaleRootTest is MockPoolTestBase {
 
         (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(oldest, uint8(index));
         vm.prank(RELAYER);
-        vm.expectRevert(abi.encodeWithSelector(AssetRegistry.UnknownAsset.selector, uint64(0)));
+        vm.expectRevert(MASP.ProofRejected.selector);
         masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
         // One more advance evicts it, and the same request fails validation.
@@ -140,7 +149,6 @@ contract MASPStaleRootTest is MockPoolTestBase {
         assertTrue(masp.isKnownRoot(genesis), "genesis evicted too early");
     }
 
-    /// After exactly ROOT_HISTORY advances, genesis is gone.
     function test_genesisEvicted_after64Advances() public {
         bytes32 genesis = masp.currentRoot();
         for (uint256 i = 0; i < 64; i++) {

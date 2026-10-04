@@ -5,7 +5,8 @@ import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 
 import { SwapTestBase } from "./SwapTestBase.sol";
 
-/// Additional negative tests for `SwapWrapper` not covered by `SwapWrapper.t.sol`.
+/// Deadline handling and the post-swap balance invariant of `SwapWrapper`,
+/// complementing `SwapWrapper.t.sol`.
 contract SwapWrapperNegTest is SwapTestBase {
     // --- helpers -----------------------------------------------------------
 
@@ -53,13 +54,13 @@ contract SwapWrapperNegTest is SwapTestBase {
         SwapWrapper.SwapArgs memory a = _args({
             amountIn: 1_000 * SCALE, minOut: 990 * SCALE, piOut: 1_000, depositIn: 990, deadline: block.timestamp
         });
-        // At exactly block.timestamp the deadline check passes. The call still
-        // reverts later (the pool is unfunded); the revert reason is not checked.
+        // The pool is unfunded, so the call reverts in leg 1, before `venueLeg`
+        // reads the deadline; the revert reason is not checked.
         vm.expectRevert();
         _swap(a);
     }
 
-    /// Fuzz: any deadline < block.timestamp refunds.
+    /// Any deadline below `block.timestamp` refunds.
     function testFuzz_expiredDeadline_refunds(uint256 elapsed) public {
         elapsed = bound(elapsed, 1, block.timestamp);
         _assertExpiredRefunds(block.timestamp - elapsed);

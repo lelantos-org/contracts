@@ -54,11 +54,13 @@ import { ERC4626Venue } from "../src/yield/ERC4626Venue.sol";
 /// paying once someone else holds a meaningful share. The operator therefore
 /// shields a seed deposit into the id (for example 1,000 units) into a note held
 /// by the treasury, through the SDK, and waits for it to be flushed; a donation
-/// then mostly enriches the seed's holder. The seed is not scripted here: a flushable
-/// deposit needs a note commitment, a Pedersen value commitment that the
-/// tree-update circuit binds to the amount, and encrypted payloads, all built
-/// off-chain by the wallet. A placeholder deposit with a dummy commitment could
-/// never be flushed, and relayers would have to learn to skip it.
+/// then mostly enriches the seed's holder. The seed is not scripted here: a
+/// deposit carries its note's `inner`, the hash of the owner fields the
+/// treasury must hold to spend the note, and encrypted payloads, all built
+/// off-chain by the wallet. A placeholder deposit with a dummy `inner` would
+/// still be flushed, since the tree-update circuit builds the leaf from the
+/// escrowed amount and whatever `inner` it is given, but into a note with no
+/// opening: the seed could never be withdrawn.
 contract DeployYield is Script {
     string constant DEFAULT_CONFIG = "script/config/mainnet.yield.json";
 
@@ -115,6 +117,9 @@ contract DeployYield is Script {
         _requireCode(a.token, "token has no code");
         _requireCode(a.vault, "vault has no code");
         require(a.vault != address(0), "vault zero");
+        // Asset id 0 means "no asset" to the circuits and cannot be registered;
+        // `addYieldAsset` would revert `ZeroAssetId`.
+        require(a.id != 0, "asset id 0 is reserved");
         require(a.scale != 0, "scale zero");
         require(a.bufferBps <= 10_000, "bufferBps over 100%");
         require(a.perfBps <= 2_000, "perfBps over MAX_FEE_BPS");

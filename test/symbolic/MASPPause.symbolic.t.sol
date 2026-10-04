@@ -13,12 +13,12 @@ import { SpendFixture } from "../utils/SpendFixture.sol";
 import { TEST_PROXY_ADMIN } from "../utils/PoolDeployer.sol";
 import { PoolFixture } from "./PoolFixture.sol";
 
-/// Symbolic proofs for what a guardian pause does and does not stop.
+/// Symbolic proofs for what an admin pause does and does not stop.
 ///
-/// A guardian pause halts the entry points that verify a proof or accept new
+/// An admin pause halts the entry points that verify a proof or accept new
 /// funds while an upgrade is reviewed. `MASP` keeps `cancelDeposit` and `sweep`
 /// open, because neither verifies a proof and escrowed funds must stay
-/// recoverable; a pause that froze cancellation would let the guardian hold
+/// recoverable; a pause that froze cancellation would let the admin hold
 /// depositors' funds for its full duration.
 ///
 /// Proved over every permitted pause duration and every timestamp, since the
@@ -40,15 +40,16 @@ contract MASPPauseSymbolicTest is PoolFixture {
         DelayedUpgradeProxy(payable(address(masp))).pauseSpends(duration);
     }
 
-    function _deposit(bytes32 cm) internal returns (bool ok, bytes memory ret) {
+    function _deposit(bytes32 inner) internal returns (bool ok, bytes memory ret) {
         AuxValidation.Output[6] memory aux = _aux();
-        (ok, ret) = address(masp).call(abi.encodeCall(MASP.depositAuthorized, (_request(cm), aux[0], aux[1])));
+        (ok, ret) = address(masp).call(abi.encodeCall(MASP.depositAuthorized, (_request(inner), aux[0], aux[1])));
     }
 
+    /// A transfer that passes every request guard. It names no asset:
+    /// `publicAssetId` stays zero.
     function _transfer() internal returns (bool ok, bytes memory ret) {
         PubInputs.Transact memory pi;
         pi.merkleRoot = EMPTY_ROOT;
-        pi.publicAssetId = ASSET_ID;
         pi.recipient = RECIPIENT;
         pi.payer = address(this);
         pi.relayer = address(this);
@@ -66,8 +67,8 @@ contract MASPPauseSymbolicTest is PoolFixture {
     /// Deposits and spends are halted for exactly the pause window and no longer,
     /// at every timestamp and for every permitted duration.
     ///
-    /// The upper bound is part of the property: the guardian is limited to a
-    /// single pause, and a pause outliving its duration would be an unbounded halt.
+    /// The upper bound is part of the property: a single pause is capped at
+    /// `MAX_PAUSE`, and a pause outliving its duration would be an unbounded halt.
     function check_pause_haltsSpendsForExactlyItsWindow(uint40 duration, uint40 t) public {
         vm.assume(duration > 0 && uint256(duration) <= MAX_PAUSE);
         _pause(duration);
@@ -84,32 +85,28 @@ contract MASPPauseSymbolicTest is PoolFixture {
             _assertRejected(transferred, transferRet, MASP.SpendsPaused.selector, "spend halted");
         } else {
             assertTrue(deposited, "deposit resumes when the window closes");
-            // The spend still fails validation (the fixture carries no real
-            // proof), but not with `SpendsPaused`.
-            assertTrue(bytes4(transferRet) != MASP.SpendsPaused.selector, "spend no longer halted");
+            // The fixture passes every request guard and the spend verifier is
+            // stubbed to accept, so nothing but the pause could have stopped it.
+            assertTrue(transferred, "spend resumes when the window closes");
         }
     }
 
     // --- what a pause must not stop -----------------------------------------
 
     /// An escrowed deposit stays cancellable throughout a pause, for every
-    /// duration and every point inside the window.
-    ///
-    /// Recoverability guarantee: `cancelDeposit` verifies no proof, so halting it
-    /// protects nothing and would let a guardian hold depositors' funds for the
-    /// pause's full length.
-    function check_pause_leavesEscrowRecoverable(bytes32 cm, uint40 duration, uint40 t) public {
-        uint256 id = _submit(cm);
+    /// duration and every point inside the window. This is the recoverability
+    /// guarantee stated in the contract comment.
+    function check_pause_leavesEscrowRecoverable(bytes32 inner, uint40 duration, uint40 t) public {
+        uint256 id = _submit(inner);
 
         vm.assume(duration > 0 && uint256(duration) <= MAX_PAUSE);
         _pause(duration);
 
-        // Anywhere inside the pause window.
         vm.assume(t >= T0 && uint256(t) < T0 + uint256(duration));
         vm.warp(t);
         vm.roll(block.number + masp.cancelDelay());
 
-        assertTrue(_cancelSubmitted(id, cm), "cancel stays open while spends are paused");
+        assertTrue(_cancelSubmitted(id, inner), "cancel stays open while spends are paused");
         assertEq(masp.escrowed(id), bytes32(0), "escrow settled");
     }
 

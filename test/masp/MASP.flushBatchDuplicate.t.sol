@@ -38,7 +38,6 @@ contract MASPFlushBatchDuplicateTest is MockPoolTestBase {
 
     // --- helpers -----------------------------------------------------------
 
-    /// Matches the zero `feeCvDep` the deposit builder leaves in place.
     /// Digest meta matching `_submit` (same payer, same block, deploy fee).
     function _meta(uint256 n) internal view returns (MASP.DepositMeta[] memory) {
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -49,20 +48,20 @@ contract MASPFlushBatchDuplicateTest is MockPoolTestBase {
 
     struct _Pre {
         uint48 publicIn;
-        bytes32 cm;
-        uint256[2] cvDep;
+        /// The note's `inner`, as escrowed.
+        bytes32 inner;
     }
 
     mapping(uint256 => _Pre) internal _pre;
 
-    function _submit(uint64 publicIn, bytes32 cm) internal returns (uint256 id) {
+    function _submit(uint64 publicIn, bytes32 inner) internal returns (uint256 id) {
         token.mint(payer, FeeMath.gross(publicIn, SCALE, FEE_BPS));
         vm.prank(payer);
         token.approve(address(permit2), type(uint256).max);
 
-        PubInputs.DepositRequest memory d = DepositFixture.request(ASSET_ID, publicIn, payer, recipient, cm);
+        PubInputs.DepositRequest memory d = DepositFixture.request(ASSET_ID, publicIn, payer, recipient, inner);
         id = masp.deposit(d, DepositFixture.sig(_nextNonce++), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
-        _pre[id] = _Pre({ publicIn: uint48(publicIn), cm: cm, cvDep: d.cvDep });
+        _pre[id] = _Pre({ publicIn: uint48(publicIn), inner: d.inner });
     }
 
     function _buildTpi(uint256[] memory depositIds) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
@@ -71,7 +70,7 @@ contract MASPFlushBatchDuplicateTest is MockPoolTestBase {
         );
         for (uint256 i = 0; i < depositIds.length; i++) {
             _Pre memory p = _pre[depositIds[i]];
-            DepositFixture.setDepositLeaves(tpi, i, p.cm, p.cvDep, ASSET_ID, p.publicIn);
+            DepositFixture.setDepositLeaves(tpi, i, p.inner, ASSET_ID, p.publicIn);
         }
     }
 
@@ -83,8 +82,8 @@ contract MASPFlushBatchDuplicateTest is MockPoolTestBase {
         uint256 id = _submit(100, bytes32(uint256(0x111)));
         assertEq(id, 0);
 
-        // A tpi that drains the same id twice; only the first drain can succeed.
-        // The storage check runs before SNARK verification.
+        // A batch that claims the same id twice. The storage check runs before
+        // SNARK verification.
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
@@ -96,8 +95,8 @@ contract MASPFlushBatchDuplicateTest is MockPoolTestBase {
         tpi.leafPublicIn[0] = 100;
         tpi.isDeposit[0] = 1;
         tpi.cms[1] = bytes32(uint256(0xfee));
-        // Zero value, so asset 0: the circuit canonicalises the asset of a
-        // leaf whose Pedersen binding cannot see it (step 6a), and
+        // Zero value, so asset 0, "no asset": that is what submit requires of
+        // a zero-value note, so it is what the escrow digest holds, and
         // `_drainDeposit` requires the match.
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[1] = 0;
@@ -133,9 +132,8 @@ contract MASPFlushBatchDuplicateTest is MockPoolTestBase {
         // Flush deleted the escrow slot, so cancel reverts with DepositNotPending.
         vm.roll(block.number + masp.cancelDelay());
         _Pre memory p = _pre[id];
-        uint256[2] memory zCv;
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id));
-        masp.cancelDeposit(id, p.publicIn, p.cm, zCv, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote());
+        masp.cancelDeposit(id, p.publicIn, p.inner, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote(), 0);
     }
 
     function test_revert_cancelAfterFlush_multipleDeposits() public {
@@ -150,16 +148,14 @@ contract MASPFlushBatchDuplicateTest is MockPoolTestBase {
 
         vm.roll(block.number + masp.cancelDelay());
 
-        // Both revert.
-        uint256[2] memory zCv;
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id0));
         masp.cancelDeposit(
-            id0, _pre[id0].publicIn, _pre[id0].cm, zCv, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote()
+            id0, _pre[id0].publicIn, _pre[id0].inner, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote(), 0
         );
 
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, id1));
         masp.cancelDeposit(
-            id1, _pre[id1].publicIn, _pre[id1].cm, zCv, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote()
+            id1, _pre[id1].publicIn, _pre[id1].inner, ASSET_ID, FEE_BPS, payer, 0, DepositFixture.feeNote(), 0
         );
     }
 }

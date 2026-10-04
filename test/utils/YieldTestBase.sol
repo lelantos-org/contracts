@@ -25,6 +25,7 @@ import { deployPoolUniform, singleAsset } from "./PoolDeployer.sol";
 import { Stubs } from "./Stubs.sol";
 import { TestConstants } from "./TestConstants.sol";
 import { DepositFixture } from "./DepositFixture.sol";
+import { EscrowLogs } from "./EscrowLogs.sol";
 
 /// Shared rig for the yield-index tests.
 ///
@@ -70,6 +71,11 @@ abstract contract YieldTestBase is Test {
     address internal permit2;
 
     address internal payer = address(0xa11ce);
+
+    /// The refund cap of each escrow made through `_depositAuthorized`, which a
+    /// flush or cancel hands back. Read from `DepositEscrowed.pulled`, as an
+    /// off-chain caller reads it: the pool stores nothing for it.
+    mapping(uint256 id => uint256) internal pulledOf;
 
     function setUp() public virtual {
         token = new MockERC20("M", "M", 18);
@@ -121,9 +127,9 @@ abstract contract YieldTestBase is Test {
         IAllowanceTransfer(permit2).approve(address(token), address(masp), cap, uint48(block.timestamp + 365 days));
     }
 
-    /// Commitments are small consecutive integers, not hashes: they are fed to
-    /// `PubInputs.compress`, which rejects anything at or above the SNARK field
-    /// modulus.
+    /// The `inner` values are small consecutive integers, not hashes: they
+    /// reach `PubInputs.compress` as the flush batch's `cms`, which rejects
+    /// anything at or above the SNARK field modulus.
     function _request(uint64 id, uint64 publicIn, uint64 feeIn, uint256 seed)
         internal
         view
@@ -131,19 +137,41 @@ abstract contract YieldTestBase is Test {
     {
         d = DepositFixture.request(id, publicIn, payer, RECIPIENT, bytes32(seed));
         d.feeIn = feeIn;
-        d.feeCm = bytes32(seed + 1);
+        d.feeInner = bytes32(seed + 1);
     }
 
-    /// Deposit into `id` and return the escrow id. Mints and approves whatever
-    /// the pool asks for, so the index may move freely between calls.
+    /// Submits `d` on the allowance path as its payer and records the escrow's
+    /// refund cap in `pulledOf`.
+    function _depositAuthorized(PubInputs.DepositRequest memory d) internal returns (uint256 id) {
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
+        vm.recordLogs();
+        vm.prank(d.payer);
+        id = masp.depositAuthorized(d, aux[0], aux[1]);
+        pulledOf[id] = EscrowLogs.pulled(vm.getRecordedLogs(), address(masp), id);
+    }
+
+    /// The zero-value fee note `_request(.., seed)` escrows.
+    function _feeNote(uint256 seed) internal pure returns (PubInputs.FeeNote memory) {
+        return PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeInner: bytes32(seed + 1) });
+    }
+
+    /// Cancels escrow `id` of `YIELD_ID`, made by `_request(YIELD_ID, publicIn,
+    /// 0, seed)`, handing back the refund cap its `DepositEscrowed` event
+    /// carried.
+    function _cancel(uint256 id, uint64 publicIn, uint256 seed, uint32 submittedAt) internal {
+        masp.cancelDeposit(
+            id, uint48(publicIn), bytes32(seed), YIELD_ID, FEE_BPS, payer, submittedAt, _feeNote(seed), pulledOf[id]
+        );
+    }
+
+    /// Deposit into `id` and return the escrow id and the amount pulled. Mints
+    /// and approves whatever the pool asks for, so the index may move freely
+    /// between calls.
     function _deposit(uint64 id, uint64 publicIn, uint256 seed) internal returns (uint256 depositId, uint256 pulled) {
         token.mint(payer, type(uint128).max);
         _allow(type(uint160).max);
-        PubInputs.DepositRequest memory d = _request(id, publicIn, 0, seed);
-        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         uint256 before = token.balanceOf(payer);
-        vm.prank(payer);
-        depositId = masp.depositAuthorized(d, aux[0], aux[1]);
+        depositId = _depositAuthorized(_request(id, publicIn, 0, seed));
         pulled = before - token.balanceOf(payer);
     }
 
@@ -198,7 +226,7 @@ abstract contract YieldTestBase is Test {
         return vault.convertToAssets(vault.balanceOf(address(venue))) + masp.yieldState(id).idle;
     }
 
-    /// `gross` of `FINE_ID`, whose position sits in `vaultFine`.
+    /// `_gross` for `FINE_ID`, whose position sits in `vaultFine`.
     function _grossFine() internal view returns (uint256) {
         return vaultFine.convertToAssets(vaultFine.balanceOf(address(venueFine))) + masp.yieldState(FINE_ID).idle;
     }

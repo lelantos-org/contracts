@@ -38,6 +38,35 @@ contract IMASPPoolTest is MASPTestBase {
         assertEq(IMASPPool.cancelDeposit.selector, MASP.cancelDeposit.selector, "cancelDeposit drifted");
     }
 
+    /// The selector tests above show only that the interface and the pool
+    /// agree; these pin `depositAuthorized` and `cancelDeposit` to the argument
+    /// lists written out, so a change made to the pool and the interface
+    /// together still has to be made here, where an off-chain caller reads it.
+    /// A deposit describes each note by its asset, amount and `inner`; a cancel
+    /// resupplies the escrow preimage, closed by the three-word fee note and
+    /// the refund cap.
+    function test_signature_depositAuthorized() public pure {
+        string memory request = "(uint256,uint64,uint64,address,address,bytes32,uint64,uint64,bytes32)";
+        string memory aux = "(uint256,uint256,uint256,uint256,bytes)";
+        assertEq(
+            IMASPPool.depositAuthorized.selector,
+            bytes4(keccak256(bytes(string.concat("depositAuthorized(", request, ",", aux, ",", aux, ")")))),
+            "depositAuthorized argument types drifted"
+        );
+    }
+
+    function test_signature_cancelDeposit() public pure {
+        assertEq(
+            IMASPPool.cancelDeposit.selector,
+            bytes4(
+                keccak256(
+                    "cancelDeposit(uint256,uint48,bytes32,uint64,uint16,address,uint32,(uint48,uint64,bytes32),uint256)"
+                )
+            ),
+            "cancelDeposit argument types drifted"
+        );
+    }
+
     function test_selector_asset() public pure {
         assertEq(IMASPPool.asset.selector, AssetRegistry.asset.selector, "asset drifted");
     }
@@ -62,17 +91,14 @@ contract IMASPPoolTest is MASPTestBase {
 
     function _withdrawSignature(string memory name) internal pure returns (string memory) {
         string memory proof = "(uint256[2],uint256[2][2],uint256[2])";
+        // merkleRoot, nullifier, outCm, publicAssetId, publicOut, digest, then
+        // recipient, chainId, payer, relayer, intentHash.
         string memory transact =
-            "(bytes32,bytes32[4],bytes32[6],uint64,uint64,uint64,uint256[2][4],uint256[2][6],uint256[2][6],address,uint256,address,address,uint256)";
+            "(bytes32,bytes32[4],bytes32[6],uint64,uint64,uint256,address,uint256,address,address,uint256)";
+        // newRoot, startIndex, anchorIndex, digest.
+        string memory spendTree = "(bytes32,uint64,uint8,uint256)";
         return string.concat(
-            name,
-            "(",
-            proof,
-            ",",
-            transact,
-            ",",
-            proof,
-            ",(bytes32,uint64,uint8),(uint256,uint256,uint256,uint256,bytes)[6])"
+            name, "(", proof, ",", transact, ",", proof, ",", spendTree, ",(uint256,uint256,uint256,uint256,bytes)[6])"
         );
     }
 
@@ -93,8 +119,7 @@ contract IMASPPoolTest is MASPTestBase {
         assertEq(_pool().escrowed(0), bytes32(0), "unknown id reads as the zero sentinel");
     }
 
-    /// `cancelDeposit` dispatches through the interface. An unknown id is the
-    /// simplest input: `DepositNotPending` is the first check in
+    /// An unknown id suffices: `DepositNotPending` is the first check in
     /// `cancelDeposit`, so reaching it shows dispatch succeeded.
     function test_dispatch_cancelDeposit() public {
         vm.expectRevert(abi.encodeWithSelector(MASP.DepositNotPending.selector, uint256(999)));
@@ -103,12 +128,12 @@ contract IMASPPoolTest is MASPTestBase {
                 999,
                 0,
                 bytes32(0),
-                [uint256(0), 0],
                 0,
                 0,
                 address(0),
                 0,
-                PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(0), feeCvDep: [uint256(0), 0] })
+                PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeInner: bytes32(0) }),
+                0
             );
     }
 
@@ -122,12 +147,12 @@ contract IMASPPoolTest is MASPTestBase {
     }
 
     function test_dispatch_withdraw() public {
+        // `publicOut` is left zero: the first check in `withdraw`.
         PubInputs.Transact memory pi;
-        pi.publicIn = 1; // first check in `withdraw`
         IMASPPool.Proof memory proof;
         PubInputs.SpendTree memory tpi;
 
-        vm.expectRevert(MASP.MustNotHaveDeposit.selector);
+        vm.expectRevert(MASP.MustHaveWithdraw.selector);
         _pool().withdraw(proof, pi, proof, tpi, SpendFixture.validAux());
     }
 
@@ -135,5 +160,8 @@ contract IMASPPoolTest is MASPTestBase {
         IMASPPool.AssetEntry memory viaInterface = _pool().asset(ASSET_ID);
         assertEq(viaInterface.token, address(masp.asset(ASSET_ID).token), "token");
         assertEq(viaInterface.scale, masp.asset(ASSET_ID).scale, "scale");
+        // The interface restates the struct, so the two must encode alike field
+        // for field, the yield flag included.
+        assertEq(abi.encode(viaInterface), abi.encode(masp.asset(ASSET_ID)), "AssetEntry is not ABI-identical");
     }
 }

@@ -11,8 +11,6 @@ import { SwapWrapperUnitBase } from "./SwapWrapperUnitBase.sol";
 /// over-delivers output, under-reports, or partially fills must neither leave
 /// a balance on the wrapper or adapter nor bypass the wrapper's own `minOut`.
 contract SwapWrapperLeftoverTest is SwapWrapperUnitBase {
-    // -------- closing leftover invariant --------------------------------
-
     /// A venue that returns part of the input leaves `tokenIn` on the wrapper.
     /// Only the closing invariant detects this, preventing a balance the next
     /// swap could spend.

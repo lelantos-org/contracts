@@ -15,13 +15,14 @@ import { DepositFeeAssetTestBase } from "./DepositFeeAssetTestBase.sol";
 contract MASPDepositFeeAssetSettlementTest is DepositFeeAssetTestBase {
     // --- flush --------------------------------------------------------------
 
-    /// Flush binds the fee leaf to the submitted `feeAssetId` and accrues only
-    /// the principal's treasury fee; the fee token stays as backing.
+    /// Flush binds the fee leaf to the submitted `feeAssetId`, which the batch
+    /// circuit hashes into that leaf, and accrues only the principal's treasury
+    /// fee; the fee token stays as backing.
     function test_flush_crossAsset_settles() public {
         (uint256 id, PubInputs.DepositRequest memory d, uint32 submittedAt) = _escrow(PLAIN_ID, FEE_ID, 0x700);
 
         vm.expectEmit(address(masp));
-        emit MASP.DepositFlushed(id, d.outCm);
+        emit MASP.DepositFlushed(id, d.inner);
         _flush(id, _tpi(d, FEE_ID), submittedAt);
 
         assertEq(masp.escrowed(id), bytes32(0), "escrow drained");
@@ -143,7 +144,7 @@ contract MASPDepositFeeAssetSettlementTest is DepositFeeAssetTestBase {
     function testFuzz_crossAsset_pullAndRefundExact(uint64 publicIn, uint64 feeIn, uint256 feeScale) public {
         publicIn = uint64(bound(publicIn, 1, type(uint48).max));
         feeIn = uint64(bound(feeIn, 1, type(uint48).max));
-        feeScale = bound(feeScale, 1, 1e18);
+        feeScale = bound(feeScale, 1, type(uint48).max);
         vm.prank(OWNER);
         masp.addAsset(FUZZ_FEE_ID, IERC20(address(feeToken)), feeScale, FEE_BPS, FEE_BPS);
 

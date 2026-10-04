@@ -39,6 +39,8 @@ abstract contract NativeAdapterTestBase is Test {
 
     address internal constant DEPOSITOR = address(0xBEEF);
     address internal constant RECIPIENT = TestConstants.RECIPIENT;
+    /// The `inner` every `_request` deposit escrows.
+    bytes32 internal constant INNER = bytes32(uint256(0x1));
 
     MockERC20 token;
     MockWETH9 weth;
@@ -74,7 +76,7 @@ abstract contract NativeAdapterTestBase is Test {
     }
 
     function _request(uint64 assetId, uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
-        return DepositFixture.request(assetId, publicIn, address(adapter), RECIPIENT, bytes32(uint256(0x1)));
+        return DepositFixture.request(assetId, publicIn, address(adapter), RECIPIENT, INNER);
     }
 
     function _total(uint64 publicIn) internal pure returns (uint256) {
@@ -85,7 +87,6 @@ abstract contract NativeAdapterTestBase is Test {
     function _transactPi(uint64 assetId, uint64 publicOut) internal view returns (PubInputs.Transact memory pi) {
         pi.chainId = block.chainid;
         pi.publicAssetId = assetId;
-        pi.publicIn = 0;
         pi.publicOut = publicOut;
         pi.recipient = address(adapter);
         pi.payer = DEPOSITOR;
@@ -101,19 +102,11 @@ abstract contract NativeAdapterTestBase is Test {
     }
 
     /// Cancels directly at the pool, naming the adapter as payer. Kept out of
-    /// the test body so the 8-argument call does not exceed the stack limit
+    /// the test body so the 9-argument call does not exceed the stack limit
     /// under the coverage build.
     function _poolCancel(uint256 id, uint64 publicIn, uint32 submittedAt) internal {
         masp.cancelDeposit(
-            id,
-            uint48(publicIn),
-            bytes32(uint256(0x1)),
-            [uint256(0), 0],
-            ASSET_WETH,
-            FEE_BPS,
-            address(adapter),
-            submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
+            id, uint48(publicIn), INNER, ASSET_WETH, FEE_BPS, address(adapter), submittedAt, DepositFixture.feeNote(), 0
         );
     }
 

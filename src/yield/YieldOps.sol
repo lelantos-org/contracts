@@ -32,7 +32,7 @@ interface IERC4626Asset {
 /// further `addYieldAsset`.
 library VenueBinding {
     /// `keccak256(abi.encode(uint256(keccak256("lelantos.storage.VenueBinding")) - 1)) & ~bytes32(uint256(0xff))`
-    /// Re-derived in `VenueBinding.t.sol`.
+    /// Re-derived in `NamespaceSlots.t.sol`.
     bytes32 internal constant SLOT = 0xa6c3bebda549f5084fdfcd40001b1f0bf32be1fec6fb4d6d201bdb403ee41100;
 
     /// @custom:storage-location erc7201:lelantos.storage.VenueBinding
@@ -227,7 +227,7 @@ library YieldOps {
     /// The supply is clamped to the venue's `maxDeposit`. A capped or paused
     /// ERC-4626 reverts a deposit above its limit, and this runs inside every
     /// shield that crosses the band, so an unclamped supply would halt shields
-    /// until the guardian halted the asset. The excess stays idle, which costs
+    /// until the owner halted the asset. The excess stays idle, which costs
     /// yield and not solvency (above), and the next band crossing or
     /// `rebalance` offers it again.
     function _fundVenue(Store storage y, uint64 id, IERC20 token, uint256 g, YieldParams memory q, bool banded)
@@ -273,9 +273,8 @@ library YieldOps {
     /// credited even when it falls short of the refill; only a delivery that
     /// leaves `idle` below `need` reverts, with `VenueUnderDelivered`, so a
     /// lossy venue fails the exit as a drained one does rather than being paid
-    /// from other ids' balances. Measuring is sound because every caller holds
-    /// the pool's reentrancy guard and the venue is the one bound at
-    /// registration.
+    /// from other ids' balances. See `_withdrawMeasured` for why the measurement
+    /// is sound.
     // slither-disable-next-line reentrancy-balance
     function _ensureIdle(Store storage y, uint64 id, IERC20 token, uint256 need, YieldParams memory q, uint256 refill)
         private
@@ -347,7 +346,6 @@ library YieldOps {
         address recipient,
         uint256 nOut
     ) external returns (uint256 net) {
-        // Accrues the performance fee before `totalNormalized` changes.
         (YieldParams memory q, uint256 g) = _begin(y, id, scale);
         if (g == 0) revert NoBacking(id);
 
@@ -421,10 +419,10 @@ library YieldOps {
     }
 
     /// Releases a yield-asset escrow and returns the current value of its
-    /// units, capped at `cap`, the underlying pulled at submit. A zero `cap` is
-    /// no record, not a cap: a recorded pull is never zero (`publicIn != 0`, and
-    /// `NoBacking` refuses a zero-priced shield), so it marks an escrow submitted
-    /// before the cap existed, refunded uncapped as it was priced to be.
+    /// units, capped at `cap`, the underlying pulled at submit. The pool binds
+    /// `cap` into the escrow digest at submit and checks it before this call,
+    /// so it is the amount actually pulled, which is never zero (`publicIn != 0`,
+    /// and `NoBacking` refuses a zero-priced shield).
     ///
     /// The escrow's units join the supply at submit, so they share the index
     /// while the deposit waits. The cap keeps an escrow that is never flushed
@@ -448,7 +446,7 @@ library YieldOps {
 
         uint256 nTotal = publicIn + Fees.unitFee(publicIn, fbps) + feeIn;
         total = _toUnderlying(nTotal, scale, g, _supply(y, id), Math.Rounding.Floor);
-        if (cap != 0 && total > cap) total = cap;
+        if (total > cap) total = cap;
 
         y.totalNormalized[id] -= nTotal;
         _ensureIdle(y, id, token, total, q, _refillFor(g, total, q.bufferBps));

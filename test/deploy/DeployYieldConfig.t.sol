@@ -22,10 +22,10 @@ contract DeployYieldConfigTest is Test {
     ];
 
     /// Per chain: the yield ids the templates assign, above every id the chain
-    /// already registers in its core config (mainnet 1-10, base 1-5, arbitrum
-    /// 1-6, bsc 1-5) and in the Morpho entries of `{chain}.yield.json` (mainnet
-    /// 11-15, base 6-8, arbitrum 7; bsc has none). BTC carries no yield id on
-    /// any chain; mainnet 16 and base 9 are left unassigned.
+    /// already registers in its core config (mainnet 1-10 and 16, base 1-5,
+    /// arbitrum 1-6, bsc 1-5) and in the Morpho entries of `{chain}.yield.json`
+    /// (mainnet 11-15, base 6-8, arbitrum 7; bsc has none). BTC carries no
+    /// yield id on any chain; base 9 is left unassigned.
     function test_decodesWithFieldsInTheRightSlots() public view {
         uint64[2][4] memory expectedIds = [[uint64(17), 18], [uint64(10), 11], [uint64(8), 9], [uint64(6), 7]];
         // BSC's USDC has 18 decimals, so its scale keeps 6-decimal precision

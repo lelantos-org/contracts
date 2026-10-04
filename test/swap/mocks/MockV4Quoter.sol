@@ -5,7 +5,7 @@ pragma solidity 0.8.36;
 ///
 /// Rates are keyed by `(tokenIn, tokenOut, fee)` — tick spacing is not part of
 /// the key, since the anvil stack seeds one rate per canonical tier and the
-/// adapter derives spacing from the fee.
+/// metaquoter pairs each canonical fee with one tick spacing.
 contract MockV4Quoter {
     struct PoolKey {
         address currency0;

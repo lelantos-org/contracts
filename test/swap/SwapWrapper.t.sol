@@ -3,7 +3,6 @@ pragma solidity 0.8.36;
 
 import { SwapWrapper } from "../../src/swap/SwapWrapper.sol";
 import { MaspEscrowSatellite } from "../../src/MaspEscrowSatellite.sol";
-import { PubInputs } from "../../src/libs/PubInputs.sol";
 
 import { GasBurner, NestedGasBurner } from "../mocks/GasBurner.sol";
 import { SwapWrapperUnitBase } from "./SwapWrapperUnitBase.sol";
@@ -21,14 +20,13 @@ contract SwapWrapperTest is SwapWrapperUnitBase {
     function test_happyPathForwardsDustToTreasury() public {
         uint256 grossIn = 1_000 * SCALE;
         uint256 feeOnA = (grossIn * FEE_BPS) / 10_000;
-        uint256 netIn = grossIn - feeOnA; // what MASP.withdraw actually delivers
-        uint64 minPublicIn = 990; // minOut = 990 * SCALE
+        uint256 netIn = grossIn - feeOnA; // what MASP.withdraw delivers
+        uint64 minPublicIn = 990;
         uint256 minOut = uint256(minPublicIn) * SCALE;
         uint256 expectedFeeOnB = (minOut * FEE_BPS) / 10_000;
-        // Venues deliver gross output; the wrapper computes the dust
-        // (gross - MASP pull) from its balance delta. Venue output covers
-        // MASP's fee-on-publicIn pull plus a 7-unit surplus forwarded to the
-        // treasury.
+        // The venue's gross output covers MASP's pull (`minOut` plus its fee)
+        // and a 7-unit surplus. The wrapper measures that surplus as dust
+        // (gross - MASP pull) by balance delta and forwards it to the treasury.
         uint256 expectedDust = 7 * SCALE;
         uint256 actualOut = minOut + expectedFeeOnB + expectedDust;
 
@@ -54,15 +52,15 @@ contract SwapWrapperTest is SwapWrapperUnitBase {
         assertEq(tokenB.balanceOf(TREASURY), expectedDust, "dust to treasury");
         assertEq(tokenB.balanceOf(address(wrapper)), 0, "wrapper holds no B");
         assertEq(tokenA.balanceOf(address(wrapper)), 0, "wrapper holds no A");
-        // Wrapper swapped the net receipt; pool kept the withdraw fee and the
-        // adapter received exactly the net (not the gross `publicOut*scale`).
+        // The wrapper swaps the net receipt: the pool keeps the withdraw fee and
+        // the adapter receives the net, not the gross `publicOut*scale`.
         assertEq(tokenA.balanceOf(address(pool)), feeOnA, "pool retained withdraw fee");
         assertEq(tokenA.balanceOf(address(adapter)), netIn, "adapter got net input");
         assertEq(tokenB.balanceOf(address(pool)), minOut + expectedFeeOnB, "pool received minOut + fee");
     }
 
-    /// The wrapper must swap the *measured* receipt from MASP.withdraw, not the
-    /// caller-supplied `amountIn` (which is only a floor). Sets the floor below
+    /// The wrapper swaps the receipt it measures from MASP.withdraw, not the
+    /// caller-supplied `amountIn`, which is only a floor. Sets the floor below
     /// the net receipt and asserts the full net reached the adapter.
     function test_swapUsesMeasuredReceiptNotAmountIn() public {
         uint256 grossIn = 1_000 * SCALE;
@@ -148,7 +146,6 @@ contract SwapWrapperTest is SwapWrapperUnitBase {
 
         _swap(a);
 
-        // Swap succeeded; only the donated dust remains (untouched).
         assertEq(tokenA.balanceOf(address(wrapper)), 3, "tokenA donation preserved");
         assertEq(tokenB.balanceOf(address(wrapper)), 5, "tokenB donation preserved");
         assertEq(tokenB.balanceOf(TREASURY), expectedDust, "dust to treasury");
@@ -246,7 +243,7 @@ contract SwapWrapperTest is SwapWrapperUnitBase {
         uint256 treasuryBefore = tokenA.balanceOf(TREASURY);
 
         vm.expectEmit(true, true, false, false, address(wrapper));
-        // `Error(string)`, from the mock's `require`.
+        // `Error(string)`, from the mock's string revert.
         emit SwapWrapper.SwapRefunded(address(adapter), address(tokenA), a.amountIn, 0, 0, bytes4(0x08c379a0));
         (uint256 actualOut, uint256 depositId) = _swap(a);
 
@@ -274,9 +271,10 @@ contract SwapWrapperTest is SwapWrapperUnitBase {
     /// refunds. Four forwarding frames in front of the burner, plus `venueLeg`
     /// itself, each keep back 1/64 of their gas, so about 7.6% of the budget
     /// comes back unspent and the innermost failure surfaces as
-    /// `InnerCallFailed`, not as an out-of-gas. A 1/32 slack read that as a
-    /// market failure and refunded, letting the driver force a refund through
-    /// its choice of gas limit.
+    /// `InnerCallFailed`, not as an out-of-gas. The 1/8 slack in `_tryVenueLeg`
+    /// covers that share; a narrower one would read the failure as a market
+    /// failure and refund, letting the driver force a refund through its choice
+    /// of gas limit.
     function test_deepOutOfGasRevertsInsteadOfRefunding() public {
         (SwapWrapper.SwapArgs memory a,) = _armSwap();
         address next = address(new GasBurner());
@@ -312,22 +310,13 @@ contract SwapWrapperTest is SwapWrapperUnitBase {
 
         vm.expectEmit(true, true, true, true, address(wrapper));
         emit SwapWrapper.EscrowRefunded(depositId, SWAP_REFUND_TO, address(tokenA), pulled);
-        wrapper.cancelEscrow(
-            depositId,
-            0,
-            bytes32(0),
-            [uint256(0), 0],
-            ASSET_A,
-            FEE_BPS,
-            0,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0xfee)), feeCvDep: [uint256(0), 0] })
-        );
+        _cancelEscrow(depositId, ASSET_A);
 
         assertEq(tokenA.balanceOf(SWAP_REFUND_TO) - refundBefore, pulled, "refund reached refundTo");
     }
 
     /// The MASP fee can push the pulled total above what the venue delivered,
-    /// leaving the wrapper short of `dust` to forward. The explicit guard
+    /// leaving the wrapper short of `dust` to forward; the wrapper's guard
     /// rejects this. Pre-mints exactly `fee` extra B to the wrapper so the
     /// Permit2 pull does not run out of balance, isolating the wrapper-level
     /// invariant `pulled <= actualOut`.
@@ -342,8 +331,6 @@ contract SwapWrapperTest is SwapWrapperUnitBase {
 
         _mintToPool(grossIn);
         _fundAdapter(actualOut);
-        // Give Permit2 the balance to satisfy `minOut + fee` so the wrapper
-        // guard is exercised rather than a Permit2 underflow.
         tokenB.mint(address(wrapper), expectedFeeOnB);
         pool.setNextWithdrawAmount(grossIn);
         adapter.setNextActualOut(actualOut);

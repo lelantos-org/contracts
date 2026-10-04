@@ -5,55 +5,47 @@ import { Test } from "forge-std/Test.sol";
 
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 
-/// Exposes the library across an external call boundary so the `calldata`
-/// fast path receives real calldata.
-contract VectorTubHarness {
-    using PubInputs for PubInputs.TreeUpdateBatch;
-
-    function compress(PubInputs.TreeUpdateBatch calldata tpi) external pure returns (uint256[2] memory) {
-        return PubInputs.compress(tpi);
-    }
-
-    function compressRef(PubInputs.TreeUpdateBatch memory tpi) external pure returns (uint256[2] memory) {
-        return PubInputs.compressRef(tpi);
-    }
-}
+import { CompressHarness, Y, DIGEST, Z } from "../utils/CompressHarness.sol";
 
 /// Pins `compress(TreeUpdateBatch)` against the `tree-update-batch-8` vector
-/// published by the circuits package.
+/// of the circuits package.
 ///
 /// `test/fixtures/tree_update_batch_vector.json` is a copy of
 /// `circuits/vectors/tree-update-batch-8.json`, since forge cannot read across
-/// the repository boundary. `just vectors-consumers-check` in the circuits repo
-/// fails when the two disagree; without it this suite would pass against a
-/// stale copy of the layout.
+/// the repository boundary; the circuits version it comes from is recorded in
+/// `test/fixtures/README.md`. `just vectors-consumers-check` in the circuits
+/// repo fails when the two disagree; without it this suite would pass against
+/// a stale copy of the layout.
 ///
 /// `PubInputs.t.sol` fuzzes `compress == compressRef`, but both are written in
-/// this repo, so a misreading of the circuit's 52-slot order would be
+/// this repo, so a misreading of the circuit's 36-slot order would be
 /// reproduced on both sides. This suite drives the struct from the circuit's
-/// own witness and compares against the `(y, z)` the compiled circuit
+/// own witness and compares against the `[y, digest, z]` the compiled circuit
 /// produced, anchoring the layout outside the repo.
 ///
-/// Unlike the 4x6 transact vector there is no substituted slot: the batch
-/// circuit takes every coefficient as a public input, so all 52 come from the
-/// vector verbatim and the published `(y, z)` is asserted directly.
+/// Unlike the 4x6 transact vector there is no substituted slot: every word of
+/// the preimage comes from the vector verbatim, so the published signals are
+/// asserted directly. The digest is not a witness input here; the struct takes
+/// it from `compression.digest`, the value the circuit output, which is what a
+/// flusher puts in calldata.
 contract PubInputsVectorTubTest is Test {
     string internal constant VECTOR = "test/fixtures/tree_update_batch_vector.json";
     uint256 internal constant R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
-    /// Evaluated into `y`: every word of the preimage, including the
-    /// `leafAsset` / `leafPublicIn` / `isDeposit` blocks. They are signals of
+    /// Evaluated into `y` and committed to by `digest`: every word of the
+    /// struct but the digest itself, including the `leafAsset` /
+    /// `leafPublicIn` / `isDeposit` blocks. They are signals of
     /// `tree_update_batch.circom`, so hashing them into `z` alone would bind
-    /// nothing — see `PubInputs.sol :: BATCH_COEFFS`.
-    uint256 internal constant COEFFS = 4 + 6 * PubInputs.MAX_L_BATCH;
+    /// nothing; see `PubInputs.sol :: BATCH_COEFFS`.
+    uint256 internal constant COEFFS = 4 + 4 * PubInputs.MAX_L_BATCH;
 
-    /// Hashed into `z`: the whole preimage.
-    uint256 internal constant CHALLENGE_WORDS = 4 + 6 * PubInputs.MAX_L_BATCH;
+    /// Hashed into `z`: the coefficients, then the digest word.
+    uint256 internal constant CHALLENGE_WORDS = COEFFS + 1;
 
-    VectorTubHarness internal h;
+    CompressHarness internal h;
     string internal json;
 
     function setUp() public {
-        h = new VectorTubHarness();
+        h = new CompressHarness();
         json = vm.readFile(VECTOR);
     }
 
@@ -73,6 +65,13 @@ contract PubInputsVectorTubTest is Test {
         assertEq(_u(".circuit.coeffCount"), COEFFS, "coeff count");
         assertEq(_u(".circuit.challengeWords"), CHALLENGE_WORDS, "challenge words");
         assertEq(_u(".circuit.shape.maxL"), PubInputs.MAX_L_BATCH, "maxL");
+
+        // The order `compress` returns and both verifiers take.
+        string[] memory signals = vm.parseJsonStringArray(json, ".circuit.publicSignals");
+        assertEq(signals.length, 3, "public signal count");
+        assertEq(signals[0], "y", "signal 0");
+        assertEq(signals[1], "digest", "signal 1");
+        assertEq(signals[2], "z", "signal 2");
     }
 
     function _loadTpi(uint256 v) internal view returns (PubInputs.TreeUpdateBatch memory tpi) {
@@ -84,12 +83,18 @@ contract PubInputsVectorTubTest is Test {
         for (uint256 k = 0; k < PubInputs.MAX_L_BATCH; k++) {
             string memory idx = string.concat("[", vm.toString(k), "]");
             tpi.cms[k] = bytes32(_u(string.concat(b, ".cms", idx)));
-            tpi.cvDeps[k][0] = _u(string.concat(b, ".cv_dep", idx, "[0]"));
-            tpi.cvDeps[k][1] = _u(string.concat(b, ".cv_dep", idx, "[1]"));
             tpi.leafAsset[k] = uint64(_u(string.concat(b, ".leaf_asset", idx)));
             tpi.leafPublicIn[k] = uint64(_u(string.concat(b, ".leaf_public_in", idx)));
             tpi.isDeposit[k] = uint8(_u(string.concat(b, ".is_deposit", idx)));
         }
+        tpi.digest = _digest(v);
+    }
+
+    /// The circuit's digest signal, which the vector states as the circuit's
+    /// output and again in the compression record.
+    function _digest(uint256 v) internal view returns (uint256 digest) {
+        digest = _u(string.concat(_base(v), ".circuitOutput.digest"));
+        assertEq(_u(string.concat(_base(v), ".compression.digest")), digest, "compression.digest");
     }
 
     function _horner(uint256[] memory c, uint256 z) internal pure returns (uint256 y) {
@@ -99,19 +104,24 @@ contract PubInputsVectorTubTest is Test {
     }
 
     /// Both the calldata fast path and the memory reference reproduce the
-    /// `(y, z)` the circuit committed to.
+    /// `[y, digest, z]` the circuit committed to.
     function _runVector(uint256 v) internal view {
         PubInputs.TreeUpdateBatch memory tpi = _loadTpi(v);
         uint256 z = _u(string.concat(_base(v), ".compression.z"));
         uint256 y = _u(string.concat(_base(v), ".compression.y"));
+        uint256 digest = _digest(v);
+        assertEq(_u(string.concat(_base(v), ".circuitOutput.y")), y, "circuit output y");
+        assertEq(_u(string.concat(_base(v), ".witness.z")), z, "witness z");
 
-        uint256[2] memory got = h.compress(tpi);
-        assertEq(got[1], z, "z mismatch against vector layout");
-        assertEq(got[0], y, "y mismatch against vector layout");
+        uint256[3] memory got = h.batch(tpi);
+        assertEq(got[Y], y, "y mismatch against vector layout");
+        assertEq(got[DIGEST], digest, "digest is not the circuit's");
+        assertEq(got[Z], z, "z mismatch against vector layout");
 
-        uint256[2] memory ref = h.compressRef(tpi);
-        assertEq(ref[1], z, "compressRef z mismatch");
-        assertEq(ref[0], y, "compressRef y mismatch");
+        uint256[3] memory ref = h.batchRef(tpi);
+        assertEq(ref[Y], y, "compressRef y mismatch");
+        assertEq(ref[DIGEST], digest, "compressRef digest mismatch");
+        assertEq(ref[Z], z, "compressRef z mismatch");
     }
 
     function test_vector0_singleDepositEmptyTree() public view {
@@ -146,8 +156,8 @@ contract PubInputsVectorTubTest is Test {
         }
         uint256 y = _horner(coeffs, z);
 
-        uint256[2] memory got = h.compress(tpi);
-        assertTrue(got[0] != y || got[1] != z, "permuted layout must not match");
+        uint256[3] memory got = h.batch(tpi);
+        assertTrue(got[Y] != y || got[Z] != z, "permuted layout must not match");
     }
 
     /// The vector's published challenge preimage, as an array.
@@ -158,10 +168,11 @@ contract PubInputsVectorTubTest is Test {
         }
     }
 
-    /// The vector's published preimage matches its ABI encoding and `z`, and
-    /// its coefficient list is the preimage prefix. Checked independently of
-    /// `(y, z)`, where compensating errors in the layout and the Horner
-    /// evaluation could cancel out.
+    /// The vector's published preimage matches its ABI encoding and `z`, its
+    /// coefficient list is the preimage prefix and evaluates to the published
+    /// `y`, and the one word after the coefficients is the digest. Checked
+    /// independently of `_runVector`, where compensating errors in the layout
+    /// and the Horner evaluation could cancel out.
     function test_coefficientVectorMatchesVector() public view {
         for (uint256 v = 0; v < 3; v++) {
             uint256[] memory challenge = _challenge(v);
@@ -170,15 +181,38 @@ contract PubInputsVectorTubTest is Test {
                 keccak256(vm.parseJsonBytes(json, string.concat(_base(v), ".compression.abiEncodedChallenge"))),
                 "abi encoding of the challenge preimage"
             );
-            assertEq(uint256(keccak256(abi.encode(challenge))) % R, _u(string.concat(_base(v), ".compression.z")), "z");
+            uint256 z = uint256(keccak256(abi.encode(challenge))) % R;
+            assertEq(z, _u(string.concat(_base(v), ".compression.z")), "z");
 
             // The coefficients are the preimage's prefix, not a separate list.
+            uint256[] memory coeffs = new uint256[](COEFFS);
             for (uint256 i = 0; i < COEFFS; i++) {
-                assertEq(
-                    _u(string.concat(_base(v), ".compression.coeffs[", vm.toString(i), "]")),
-                    challenge[i],
-                    "coefficient is the preimage prefix"
-                );
+                coeffs[i] = _u(string.concat(_base(v), ".compression.coeffs[", vm.toString(i), "]"));
+                assertEq(coeffs[i], challenge[i], "coefficient is the preimage prefix");
+            }
+            // The digest is hashed after them and is not one of them.
+            assertEq(challenge[COEFFS], _digest(v), "digest closes the preimage");
+            assertEq(_horner(coeffs, z), _u(string.concat(_base(v), ".compression.y")), "y");
+        }
+    }
+
+    /// A deposit slot's `cms` word is the depositor's `inner`, not the tree
+    /// leaf: the vector records the leaf the circuit built from it, and for a
+    /// deposit the two differ, while a spend slot's `cms` is inserted as it
+    /// stands. This is the reading of `cms[k]` that `MASP._drainDeposit`
+    /// relies on when it pins `isDeposit` to 1 for an escrowed `inner`.
+    function test_depositLeafIsBuiltFromInner() public view {
+        for (uint256 v = 0; v < 3; v++) {
+            PubInputs.TreeUpdateBatch memory tpi = _loadTpi(v);
+            for (uint256 k = 0; k < tpi.actualCount; k++) {
+                string memory leafPath = string.concat(_base(v), ".intermediates.leaves[", vm.toString(k), "]");
+                uint256 leaf = _u(string.concat(leafPath, ".leaf"));
+                assertEq(_u(string.concat(leafPath, ".cms")), uint256(tpi.cms[k]), "cms is the witness word");
+                if (tpi.isDeposit[k] == 1) {
+                    assertTrue(leaf != uint256(tpi.cms[k]), "a deposit's leaf is not its inner");
+                } else {
+                    assertEq(leaf, uint256(tpi.cms[k]), "a spend's leaf is its commitment");
+                }
             }
         }
     }

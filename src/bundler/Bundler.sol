@@ -23,11 +23,11 @@ interface IBundlerDeployer {
 /// updates can only land in order. `execute` makes the K calls in one
 /// transaction, each seeing the state the previous one left.
 ///
-/// The calls are plain `CALL`s, so the pool and adapters are unchanged and see
-/// the Bundler as `msg.sender`:
+/// The calls are plain `CALL`s, so the pool and adapters see the Bundler as
+/// `msg.sender`:
 ///
 /// - pool spends bind `pi.relayer = this` (`MASP._validateRequest`);
-/// - `withdrawNative` still binds `pi.relayer` to the adapter
+/// - `withdrawNative` binds `pi.relayer` to the adapter, not the Bundler
 ///   (`NativeAdapter.withdrawNative`);
 /// - swaps bind `pi_w.payer = this` (`SwapWrapper._validate`);
 /// - generic calls bind `pi_w.payer = this` (`GenericCallWrapper._validate`);

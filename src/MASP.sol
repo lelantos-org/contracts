@@ -39,9 +39,8 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     using PubInputs for PubInputs.Transact;
     using PubInputs for PubInputs.TreeUpdateBatch;
 
-    /// Upper-case accessor names are part of the external interface: `IMASPPool`,
-    /// the peripherals and the SDK read them by name.
-    ///
+    /// Upper-case accessor names are part of the external interface: the SDK and
+    /// the relayer read them by name.
 
     /// Width of the per-token fee accumulators in `flushBatch`: one slot per
     /// deposit, since a batch drains at most `MAX_L_BATCH / LEAVES_PER_DEPOSIT`
@@ -109,6 +108,9 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         address payer;
         uint32 submittedAt;
         uint16 fbps;
+        /// `DepositEscrowed.pulled`. A flush refunds nothing and so never
+        /// applies the cap, but the digest binds it.
+        uint256 pulled;
     }
 
     /// Blocks before `cancelDeposit` is allowed. Owner-tunable within
@@ -119,14 +121,8 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     uint32 internal constant CANCEL_DELAY_MAX = 50_400; // ~7d on 12s blocks
     uint32 internal constant CANCEL_DELAY_DEFAULT = 7_200; // ~24h on 12s blocks
 
-    /// Underlying pulled at submit for a pending yield-asset escrow. Caps its
-    /// cancellation refund so an escrow that is never flushed cannot earn; see
-    /// `YieldOps.cancel`. Unset for plain assets, whose refund is the fixed
-    /// amount pulled. Cleared at flush and at cancel.
-    mapping(uint256 id => uint256) private _escrowPulled;
-
-    /// Emitted on shield and unshield; skipped for pure transfers
-    /// (`in == out == 0`).
+    /// Emitted on shield (deposit) and unshield (withdraw); skipped for pure
+    /// transfers.
     ///
     /// `inAmount` / `outAmount` are the ERC-20 base units that moved;
     /// `publicIn` / `publicOut` are the circuit values the SNARK published. For
@@ -142,24 +138,21 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     );
 
     /// Encrypted-note payload for spend flows (FMD clue, ephemeral pubkey,
-    /// ciphertext, Pedersen value commitment). Emitted once per output leaf.
-    /// `cm` is indexed, so this also serves as the note-creation signal for
-    /// indexers that track commitments only.
+    /// ciphertext). Emitted once per output leaf. `cm` is the note commitment
+    /// and the tree leaf; it is indexed, so this also serves as the
+    /// note-creation signal for indexers that track commitments only.
     event NotePayload(
-        bytes32 indexed cm,
-        uint256 clueRx,
-        uint256 clueRy,
-        uint256 ephPubX,
-        uint256 ephPubY,
-        bytes ciphertext,
-        uint256 cvDepX,
-        uint256 cvDepY
+        bytes32 indexed cm, uint256 clueRx, uint256 clueRy, uint256 ephPubX, uint256 ephPubY, bytes ciphertext
     );
 
     /// Escrow-flow note signal. Carries the per-deposit payload a relayer needs
-    /// to assemble a `flushBatch`, including the deposit leaf's Pedersen value
-    /// commitment `cvDep` and its blinder `rcv`. `NotePayload` is not emitted
-    /// on this path.
+    /// to assemble a `flushBatch`. `NotePayload` is not emitted on this path.
+    ///
+    /// `inner` is not the tree leaf. The leaf a flush inserts for this deposit
+    /// is `Poseidon(TAG_CM, publicAssetId * 2^64 + publicIn, inner)`, computed
+    /// by the batch circuit and never on-chain; an indexer rebuilding the tree
+    /// computes it the same way, and likewise the fee note's from `feeAssetId`,
+    /// `feeIn` and `feeInner`.
     event DepositEscrowed(
         uint256 indexed id,
         address indexed payer,
@@ -167,10 +160,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         uint64 publicAssetId,
         uint64 publicIn,
         uint16 feeBpsAtSubmit,
-        bytes32 cm,
-        uint256 cvDepX,
-        uint256 cvDepY,
-        uint256 rcv,
+        bytes32 inner,
         uint256 clueRx,
         uint256 clueRy,
         uint256 ephPubX,
@@ -182,18 +172,21 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         // when `feeIn` is 0.
         uint64 feeAssetId,
         uint64 feeIn,
-        bytes32 feeCm,
-        uint256 feeCvDepX,
-        uint256 feeCvDepY,
-        uint256 feeRcv,
+        bytes32 feeInner,
         uint256 feeClueRx,
         uint256 feeClueRy,
         uint256 feeEphPubX,
         uint256 feeEphPubY,
-        bytes feeCiphertext
+        bytes feeCiphertext,
+        // A yield-asset escrow's refund cap: what was pulled for it in the
+        // deposit asset's token, which is the most a cancel returns (see
+        // `YieldOps.cancel`). Zero for a plain asset, whose refund is fixed by
+        // the other fields. Part of the digest preimage, so a flush or a cancel
+        // hands it back.
+        uint256 pulled
     );
 
-    event DepositFlushed(uint256 indexed id, bytes32 cm);
+    event DepositFlushed(uint256 indexed id, bytes32 inner);
     /// `refunded` is paid in the deposit asset's token. `feeRefunded` is the
     /// relayer note's value paid separately in `feeAssetId`'s token, nonzero
     /// only when the note was in another asset; otherwise that value is part
@@ -210,23 +203,25 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     error BadRelayer();
     // --- entry-point invariants ---------------------------------------------
     error MustHaveDeposit();
-    error MustNotHaveDeposit();
     error MustHaveWithdraw();
     error MustNotHaveWithdraw();
+    /// A transfer withdraws nothing, so its `publicAssetId` must be 0.
+    error MustNotNameAsset();
     // --- merkle / batch state ------------------------------------------------
     error UnknownRoot();
     error StaleOldRoot();
     error BatchMisaligned();
     error TreeFull();
     // --- registry / proof verification ---------------------------------------
-    /// `spendVerifier_` has code but does not answer `verifyBatch`.
+    /// `permit2_` holds no code.
     error ZeroPermit2();
     error ProofRejected();
     error TreeUpdateRejected();
     // --- escrow flow ---------------------------------------------------------
     error PublicInTooLarge();
     error PublicOutTooLarge();
-    error ZeroCm();
+    /// A deposit's `inner` or `feeInner` is zero.
+    error ZeroInner();
     error DepositNotPending(uint256 id);
     error BadBatchSize();
     error CancelTooEarly(uint256 id, uint256 unlockBlock);
@@ -248,7 +243,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     error SpendsPaused(uint256 until);
 
     /// Halts every entry point that verifies a proof or accepts new funds for
-    /// the duration of a guardian pause.
+    /// the duration of an admin pause (`DelayedUpgradeProxy.pauseSpends`).
     ///
     /// A pause also blocks exits, so `DelayedUpgradeProxy` defers any pending
     /// upgrade by the pause duration and the window measures unpaused time.
@@ -293,7 +288,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         _initCommitmentTree();
         VerifierStorage.validatePair(address(treeUpdateBatchVerifier_), address(spendVerifier_));
         if (address(permit2_).code.length == 0) revert ZeroPermit2();
-        // Deploy-time guard for the duplicated batch width; see FEE_ACC_SLOTS.
+        // Deploy-time guard for the duplicated batch width; see `FEE_ACC_SLOTS`.
         if (FEE_ACC_SLOTS * PubInputs.LEAVES_PER_DEPOSIT != PubInputs.MAX_L_BATCH) revert BadBatchSize();
         VerifierStorage.Layout storage v = VerifierStorage.$();
         v.treeUpdateBatchVerifier = address(treeUpdateBatchVerifier_);
@@ -311,8 +306,8 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     /// already in flight. Shortening only frees funds sooner and applies at
     /// once, dropping any queued raise. Lengthening would extend a lock the
     /// payer did not accept, so it is queued in `ExitTerms` and lands through
-    /// `commitExitTerms`. `CancelDelayUpdated` is emitted only when the live
-    /// value changes hands, here or at commit.
+    /// `commitExitTerms`. `CancelDelayUpdated` is emitted when the live value is
+    /// written, here or at commit, not when a raise is queued.
     function setCancelDelay(uint32 newDelay) external onlyOwner {
         if (newDelay < CANCEL_DELAY_MIN || newDelay > CANCEL_DELAY_MAX) revert BadCancelDelay();
         if (!YieldOps.proposeRaise(ExitTerms.$().cancelDelay, cancelDelay, newDelay, 0, ExitTerms.CANCEL_DELAY)) {
@@ -329,7 +324,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     /// for its full length, so the call carries liveness only, like
     /// `activateUpgrade`. Each commit emits the term's ordinary applied event
     /// (`AssetFeeSet`, `CancelDelayUpdated`, `YieldParamsSet`), so indexers
-    /// following those need no change.
+    /// following those need no separate handling.
     ///
     /// One entry point for all three terms, with its logic in `YieldOps`, since
     /// the pool sits close to the EIP-170 limit. The library applies the
@@ -354,17 +349,16 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     ///
     /// Held in `VerifierStorage`, not in the pool's sequential layout: the
     /// proxy installs a replacement and would otherwise need a copy of that
-    /// layout to do it. Declared explicitly rather than as a public variable so
-    /// the accessor name, which `IMASPPool` and the SDK read, is unchanged.
+    /// layout to do it. Declared as an explicit function to provide the
+    /// upper-case accessor name; see the note at the top of the contract.
     function TREE_UPDATE_BATCH_VERIFIER() external view returns (IVerifier) {
         return VerifierStorage.treeUpdateBatchVerifier();
     }
 
     /// Checks the `(4x6, tree_update_batch)` proof pair a spend carries in one
-    /// BN254 pairing call. Argument order is significant: transact first,
-    /// tree-update second. This is the whole of a spend's proof check; the pool
-    /// holds no standalone `4x6` verifier, and a rejection is not attributable
-    /// to either proof on-chain.
+    /// BN254 pairing call. This is the whole of a spend's proof check: the pool
+    /// holds no standalone `4x6` verifier. See `_verifyProofs` for the argument
+    /// order and the rejection error.
     ///
     /// Held in `VerifierStorage`; see `TREE_UPDATE_BATCH_VERIFIER`.
     function SPEND_VERIFIER() external view returns (IBatchVerifier) {
@@ -383,7 +377,9 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     ///
     /// The venue binding is permanent: `_addAsset` reverts `DuplicateAsset` on
     /// an existing id, so `params[id].venue` is written exactly once, and there
-    /// is no `setVenue`. Replacing a venue means registering a new id.
+    /// is no `setVenue`. Replacing a venue means registering a new id. The
+    /// entry's `isYield` flag, which the pool's own paths branch on, is written
+    /// in the same call and is as permanent.
     ///
     /// Yield is a property of the asset id, not of the note: the circuit sees
     /// only `publicAssetId`, and every note under an id shares one index. The
@@ -402,7 +398,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         uint16 bufferBps_,
         uint16 perfBps_
     ) external onlyOwner {
-        _addAsset(id, token, scale, depositBps, withdrawBps);
+        _addAsset(id, token, scale, depositBps, withdrawBps, true);
         _initYieldAsset(id, token, venue_, bufferBps_, perfBps_);
     }
 
@@ -422,12 +418,11 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         PubInputs.SpendTree calldata tpi,
         AuxValidation.Output[6] calldata aux
     ) external nonReentrant whenNotPaused {
-        if (pi.publicIn != 0) revert MustNotHaveDeposit();
         if (pi.publicOut == 0) revert MustHaveWithdraw();
         AssetEntry memory a = _preflight(pi, tpi, aux);
         _finalize(p, pi, tp, tpi, aux);
         uint256 outAmt;
-        if (!isYieldAsset(pi.publicAssetId)) {
+        if (!a.isYield) {
             outAmt = uint256(pi.publicOut) * a.scale;
             _unshieldLeg(a.token, pi.recipient, outAmt, a.withdrawBps);
         } else {
@@ -447,11 +442,13 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         PubInputs.SpendTree calldata tpi,
         AuxValidation.Output[6] calldata aux
     ) external nonReentrant whenNotPaused {
-        if (pi.publicIn != 0) revert MustNotHaveDeposit();
         if (pi.publicOut != 0) revert MustNotHaveWithdraw();
+        // No tokens move and no asset is named: the circuit forces
+        // `publicAssetId` to 0 whenever `publicOut` is, so a transfer does not
+        // publish the asset it moves. Checked here so a request naming an asset
+        // fails with a reason rather than as a rejected proof.
+        if (pi.publicAssetId != 0) revert MustNotNameAsset();
         _validateRequest(pi, tpi, aux);
-        // No tokens move; only the registry existence check applies.
-        _requireAssetKnown(pi.publicAssetId);
         _finalize(p, pi, tp, tpi, aux);
         _emitNotes(pi, aux);
     }
@@ -459,9 +456,9 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     // ============== Escrow flow ==============================================
 
     /// Pulls funds into escrow via Permit2; no SNARK at submit. Relayers read
-    /// `DepositEscrowed` to assemble a `flushBatch`. A commitment that does not
-    /// match its preimage costs only the depositor: the leaf carries no
-    /// spendable witness.
+    /// `DepositEscrowed` to assemble a `flushBatch`. An `inner` that is not the
+    /// hash of a note's owner fields costs only the depositor: the leaf then
+    /// has no opening.
     function deposit(
         PubInputs.DepositRequest calldata d,
         Permit2Sig calldata sig,
@@ -494,7 +491,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
                 piHash
             );
         }
-        _settleShield(d.publicAssetId, a.token, s);
+        _settleShield(d.publicAssetId, a, s);
         id = _finalizeDeposit(d, aux, feeAux, a, s, a.depositBps);
     }
 
@@ -524,7 +521,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
                 IAllowanceTransfer(address(PERMIT2)), d.payer, a.token, s.total, fa.token, s.feePull
             );
         }
-        _settleShield(d.publicAssetId, a.token, s);
+        _settleShield(d.publicAssetId, a, s);
         id = _finalizeDeposit(d, aux, feeAux, a, s, a.depositBps);
     }
 
@@ -546,9 +543,6 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         /// `gross` as of the quote, so settlement need not read the venue
         /// again.
         uint256 grossBefore;
-        /// Zero for a plain asset. Carried so settlement branches on the value
-        /// the quote already read.
-        address venue;
     }
 
     /// Prices a shield under the asset's arithmetic.
@@ -558,9 +552,9 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     /// unit fee rounds up where the plain fee floors. See `Fees.unitFee`.
     ///
     /// A relayer note in another asset is priced under that asset's `scale` and
-    /// kept out of the principal's quote entirely: the yield branch is passed
-    /// `feeIn = 0`, so no fee units join the principal's `totalNormalized`, and
-    /// the escrow cap `_escrowPulled` covers the principal's pull alone.
+    /// kept out of the principal's quote: the yield branch is passed `feeIn = 0`,
+    /// so no fee units join the principal's `totalNormalized`, and the escrow's
+    /// refund cap (`DepositEscrowed.pulled`) covers the principal's pull alone.
     /// `cancelDeposit` splits the refund the same way.
     function _quoteShield(PubInputs.DepositRequest calldata d, AssetEntry memory a, AssetEntry memory fa)
         private
@@ -571,8 +565,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
             s.feePull = _relayerAmount(feeIn, fa.scale);
             feeIn = 0;
         }
-        s.venue = _y.params[d.publicAssetId].venue;
-        if (s.venue == address(0)) {
+        if (!a.isYield) {
             (uint256 inAmt, uint256 fee) = _computeAmounts(d.publicIn, a.scale, a.depositBps);
             s.inAmt = inAmt;
             s.total = inAmt + fee + _relayerAmount(feeIn, a.scale);
@@ -584,18 +577,18 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
 
     /// Books a pulled shield. A plain asset has nothing to book: its backing is
     /// the pool's balance and its fee does not accrue until flush.
-    function _settleShield(uint64 assetId, IERC20 token, Shield memory s) private {
-        if (s.venue == address(0)) return;
-        YieldOps.settleShield(_y, assetId, token, s.total, s.units, s.grossBefore);
+    function _settleShield(uint64 assetId, AssetEntry memory a, Shield memory s) private {
+        if (!a.isYield) return;
+        YieldOps.settleShield(_y, assetId, a.token, s.total, s.units, s.grossBefore);
     }
 
     /// Shared validation for `deposit*`. Returns the deposit asset's entry and,
     /// when the relayer note is charged in another asset, that asset's entry
     /// (zeroed otherwise).
     ///
-    /// No commitment is opened here, `feeCvDep` included, so nothing at submit
-    /// ties the note to `feeAssetId` beyond the digest; `_drainDeposit` binds
-    /// it.
+    /// Nothing is opened here. The digest records `feeAssetId` and `feeIn`
+    /// beside `feeInner`, and at flush the batch circuit builds the fee leaf
+    /// from exactly those three.
     function _validateDeposit(
         PubInputs.DepositRequest calldata d,
         AuxValidation.Output calldata aux,
@@ -606,29 +599,29 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         if (d.publicIn > type(uint48).max) revert PublicInTooLarge();
         if (d.payer == address(0)) revert ZeroPayer();
         if (d.recipient == address(0)) revert ZeroRecipient();
-        if (d.outCm == bytes32(0)) revert ZeroCm();
+        if (d.inner == bytes32(0)) revert ZeroInner();
 
         // The fee note's value may be zero, but the leaf must be well formed.
         // `_drainDeposit` narrows this to uint48, as it does `publicIn`.
         if (d.feeIn > type(uint48).max) revert PublicInTooLarge();
-        if (d.feeCm == bytes32(0)) revert ZeroCm();
+        if (d.feeInner == bytes32(0)) revert ZeroInner();
 
         a = _getAsset(d.publicAssetId);
         if (address(a.token) == address(0)) revert UnknownAsset(d.publicAssetId);
         if (a.disabled) revert AssetDisabled(d.publicAssetId);
 
-        // The fee note's asset. A zero-value leaf's asset is canonically 0 in
-        // the circuit, so the request must say so too, or flush could not
-        // match the digest. A note charged in another asset (for a valued
-        // note, `PubInputs.feeInDepositAsset` reduces to the id comparison
-        // below) must be a live, plain registry asset: a yield asset would
-        // need its units booked into that asset's `totalNormalized`, which
-        // only the deposit asset gets.
+        // The fee note's asset. A zero-value note is charged in nothing, so it
+        // must name asset 0, "no asset"; the circuit accepts any id on a
+        // zero-value leaf, and this keeps one canonical form. A note charged in
+        // another asset (for a valued note, `PubInputs.feeInDepositAsset`
+        // reduces to the id comparison below) must be a live, plain registry
+        // asset: a yield asset would need its units booked into that asset's
+        // `totalNormalized`, which only the deposit asset gets.
         if (d.feeIn == 0) {
             if (d.feeAssetId != 0) revert FeeAssetMustBeZero();
         } else if (d.feeAssetId != d.publicAssetId) {
-            if (d.feeAssetId == 0 || isYieldAsset(d.feeAssetId)) revert FeeAssetUnsupported(d.feeAssetId);
             fa = _getAsset(d.feeAssetId);
+            if (d.feeAssetId == 0 || fa.isYield) revert FeeAssetUnsupported(d.feeAssetId);
             if (address(fa.token) == address(0)) revert UnknownAsset(d.feeAssetId);
             if (fa.disabled) revert AssetDisabled(d.feeAssetId);
         }
@@ -652,14 +645,13 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         unchecked {
             id = nextDepositId++;
         }
-        // Kept outside the digest so the preimage, and every off-chain copy of
-        // it, is unchanged.
-        if (s.venue != address(0)) _escrowPulled[id] = s.total;
+        // The refund cap, `DepositEscrowed.pulled`: bound by the digest and
+        // published in the event rather than stored.
+        uint256 pulled = a.isYield ? s.total : 0;
         // forge-lint: disable-next-line(unsafe-typecast)
         escrowed[id] = _depositDigest(
             id,
-            d.outCm,
-            d.cvDep,
+            d.inner,
             d.publicAssetId,
             uint48(d.publicIn),
             fbps,
@@ -670,9 +662,9 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
                 // forge-lint: disable-next-line(unsafe-typecast)
                 feeIn: uint48(d.feeIn),
                 feeAssetId: d.feeAssetId,
-                feeCm: d.feeCm,
-                feeCvDep: d.feeCvDep
-            })
+                feeInner: d.feeInner
+            }),
+            pulled
         );
 
         emit DepositEscrowed(
@@ -682,10 +674,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
             d.publicAssetId,
             d.publicIn,
             fbps,
-            d.outCm,
-            d.cvDep[0],
-            d.cvDep[1],
-            d.rcv,
+            d.inner,
             aux.clueRx,
             aux.clueRy,
             aux.ephPubX,
@@ -693,15 +682,13 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
             aux.ciphertext,
             d.feeAssetId,
             d.feeIn,
-            d.feeCm,
-            d.feeCvDep[0],
-            d.feeCvDep[1],
-            d.feeRcv,
+            d.feeInner,
             feeAux.clueRx,
             feeAux.clueRy,
             feeAux.ephPubX,
             feeAux.ephPubY,
-            feeAux.ciphertext
+            feeAux.ciphertext,
+            pulled
         );
         emit AssetMoved(d.publicAssetId, a.token, s.inAmt, 0, d.publicIn, 0);
     }
@@ -724,8 +711,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         if (meta.length != n) revert BadBatchSize();
         _validateBatchHeader(n, tpi);
 
-        // Per-token fee accumulator; `initialize` checks its width against
-        // `PubInputs.MAX_L_BATCH`. See FEE_ACC_SLOTS.
+        // Per-token fee accumulators; see `FEE_ACC_SLOTS`.
         // slither-disable-next-line uninitialized-local
         IERC20[FEE_ACC_SLOTS] memory tokens;
         // slither-disable-next-line uninitialized-local
@@ -752,10 +738,8 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         }
     }
 
-    /// Batch-level header checks: size, count alignment, tree position.
-    ///
-    /// `n` counts deposits; the batch commits `LEAVES_PER_DEPOSIT * n` leaves,
-    /// as each deposit mints the depositor's note and the relayer's fee note.
+    /// Batch-level header checks: size, count alignment, tree position. `n`
+    /// counts deposits; the batch commits `LEAVES_PER_DEPOSIT * n` leaves.
     function _validateBatchHeader(uint256 n, PubInputs.TreeUpdateBatch calldata tpi) private view {
         uint256 leaves = n * PubInputs.LEAVES_PER_DEPOSIT;
         if (n == 0 || leaves > PubInputs.MAX_L_BATCH) revert BadBatchSize();
@@ -794,23 +778,21 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         // slither-disable-next-line incorrect-equality
         if (stored == bytes32(0)) revert DepositNotPending(id);
 
-        // Deposit `i` owns two adjacent leaves: its principal, then the note
-        // paying the flusher. Both are deposit leaves to the circuit, which
-        // binds each `cvDep` to its own `leafPublicIn`.
+        // Deposit `i`'s two leaves: its principal, then the note paying the
+        // flusher. Both are deposit leaves to the circuit, which builds each
+        // from that slot's own `leafAsset`, `leafPublicIn` and `cms` (the
+        // depositor's `inner`). Pinning `isDeposit` to 1 is what makes it do so:
+        // with the flag clear the circuit inserts `cms` as it stands, and a
+        // depositor who escrowed a commitment of its choosing in place of
+        // `inner` would hold a note of any value.
         uint256 p = i * PubInputs.LEAVES_PER_DEPOSIT;
         uint256 f = p + 1;
         if (tpi.isDeposit[p] != 1 || tpi.isDeposit[f] != 1) revert BadDepositMode();
         if (tpi.leafPublicIn[p] > type(uint48).max) revert PublicInTooLarge();
         if (tpi.leafPublicIn[f] > type(uint48).max) revert PublicInTooLarge();
         // The fee note's asset, `leafAsset[f]`, enters the digest below as
-        // `FeeNote.feeAssetId`, so it must equal the `feeAssetId` validated at
-        // submit. The circuit constrains it by cases (`tree_update_batch.circom`
-        // step 6a): a deposit leaf carrying value has its `cvDep` bound to
-        // `(leafPublicIn, leafAsset)` by the Pedersen binding, so the asset is
-        // the one the note commits to and is non-zero; a zero-value leaf's
-        // asset is invisible to the binding (`cv_dep` is `rcv*H` for any
-        // asset), so the circuit canonicalises it to 0, as submit requires of a
-        // zero `feeIn`.
+        // `FeeNote.feeAssetId`, so it is the `feeAssetId` validated at submit,
+        // and the circuit hashes it into the fee leaf beside `leafPublicIn[f]`.
         //
         // A note in another asset than the principal was pulled at submit as
         // `feeIn * scale` of a plain asset's token and backs the note as
@@ -822,7 +804,6 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         bytes32 expected = _depositDigest(
             id,
             tpi.cms[p],
-            tpi.cvDeps[p],
             assetId,
             uint48(tpi.leafPublicIn[p]),
             m.fbps,
@@ -832,19 +813,18 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
                 // forge-lint: disable-next-line(unsafe-typecast)
                 feeIn: uint48(tpi.leafPublicIn[f]),
                 feeAssetId: tpi.leafAsset[f],
-                feeCm: tpi.cms[f],
-                feeCvDep: tpi.cvDeps[f]
-            })
+                feeInner: tpi.cms[f]
+            }),
+            m.pulled
         );
         if (expected != stored) revert DigestMismatch(id);
 
         AssetEntry memory a = _getAsset(assetId);
 
-        // Only the treasury's cut is accrued. The relayer's stays pool
-        // principal: a shielded note is spendable only while the pool still
-        // holds the tokens behind it.
+        // Only the treasury's cut is accrued; the relayer's stays pool
+        // principal (see `_relayerAmount`).
         uint256 newCount;
-        if (!isYieldAsset(assetId)) {
+        if (!a.isYield) {
             (, uint256 fee) = _computeAmounts(uint256(tpi.leafPublicIn[p]), a.scale, uint256(m.fbps));
             uint256 slot;
             (slot, newCount) = _findOrAppendToken(tokens, nUnique, a.token);
@@ -863,7 +843,6 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
                 _y.totalNormalized[assetId] -= nFee;
                 _y.accruedFeeNormalized[assetId] += nFee;
             }
-            delete _escrowPulled[id];
             newCount = nUnique;
         }
 
@@ -876,22 +855,21 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     /// `(address(this), block.chainid, id)` is the anti-replay prefix.
     function _depositDigest(
         uint256 id,
-        bytes32 cm,
-        uint256[2] memory cvDep,
+        bytes32 inner,
         uint64 publicAssetId,
         uint48 publicIn,
         uint16 feeBpsAtSubmit,
         address payer,
         uint32 submittedAt,
-        PubInputs.FeeNote memory fee
+        PubInputs.FeeNote memory fee,
+        uint256 pulled
     ) private view returns (bytes32) {
         return keccak256(
             abi.encode(
                 address(this),
                 block.chainid,
                 id,
-                cm,
-                cvDep,
+                inner,
                 publicAssetId,
                 publicIn,
                 feeBpsAtSubmit,
@@ -900,9 +878,11 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
                 // The relayer's leaf is bound like the depositor's:
                 // `flushBatch` supplies both from calldata, so an unbound fee
                 // note would let a flusher mint itself an arbitrary one.
-                // `FeeNote` is static and encodes to five words in place:
-                // `feeIn`, `feeAssetId`, `feeCm`, `feeCvDep`.
-                fee
+                // `FeeNote` is static and encodes to three words in place:
+                // `feeIn`, `feeAssetId`, `feeInner`.
+                fee,
+                // The refund cap. Bound so that a canceller cannot choose it.
+                pulled
             )
         );
     }
@@ -936,21 +916,23 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     /// asset's token and `feeRefunded` in `feeNote.feeAssetId`'s. `feeRefunded`
     /// is nonzero only when the relayer note was paid in another asset;
     /// otherwise its value is part of `total`.
+    ///
+    /// `pulled` is `DepositEscrowed.pulled`, the refund cap.
     function cancelDeposit(
         uint256 id,
         uint48 publicIn,
-        bytes32 cm,
-        uint256[2] calldata cvDep,
+        bytes32 inner,
         uint64 publicAssetId,
         uint16 fbps,
         address payer,
         uint32 submittedAt,
-        PubInputs.FeeNote calldata feeNote
+        PubInputs.FeeNote calldata feeNote,
+        uint256 pulled
     ) external nonReentrant returns (uint256 total, uint256 feeRefunded) {
         bytes32 stored = escrowed[id];
         if (stored == bytes32(0)) revert DepositNotPending(id);
 
-        bytes32 expected = _depositDigest(id, cm, cvDep, publicAssetId, publicIn, fbps, payer, submittedAt, feeNote);
+        bytes32 expected = _depositDigest(id, inner, publicAssetId, publicIn, fbps, payer, submittedAt, feeNote, pulled);
         if (expected != stored) revert DigestMismatch(id);
 
         // `payer` is digest-verified above, so this is the real payer, not a
@@ -980,13 +962,13 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
         }
 
         AssetEntry memory a = _getAsset(publicAssetId);
-        if (!isYieldAsset(publicAssetId)) {
+        if (!a.isYield) {
             (uint256 inAmt, uint256 fee) = _computeAmounts(uint256(publicIn), a.scale, uint256(fbps));
             total = inAmt + fee + _relayerAmount(relayerIn, a.scale);
         } else {
-            // Refunded at the current index, capped at the amount pulled at
-            // submit: an escrow shares losses but earns nothing. An unset pull
-            // is uncapped; see `YieldOps.cancel`.
+            // Refunded at the current index, capped at `pulled`, the amount
+            // taken at submit and digest-verified above: an escrow shares
+            // losses but earns nothing. See `YieldOps.cancel`.
             //
             // This external call precedes the `escrowed` clear below. The
             // reentrancy guard is contract-wide, so the cross-function
@@ -995,9 +977,8 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
             // entry.
             // slither-disable-next-line reentrancy-no-eth
             total = YieldOps.cancel(
-                _y, publicAssetId, a.token, a.scale, uint256(publicIn), uint256(fbps), relayerIn, _escrowPulled[id]
+                _y, publicAssetId, a.token, a.scale, uint256(publicIn), uint256(fbps), relayerIn, pulled
             );
-            delete _escrowPulled[id];
         }
 
         // CEI: clear escrow before external transfers.
@@ -1010,7 +991,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
 
     // ============== Internal helpers =========================================
 
-    /// `inAmt = publicIn * scale`, `fee = inAmt * fbps / BPS`.
+    /// `inAmt = publicIn * scale`, `fee = inAmt * fbps / BPS_DENOMINATOR`.
     function _computeAmounts(uint256 publicIn, uint256 scale, uint256 fbps)
         private
         pure
@@ -1077,9 +1058,10 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
 
     /// Spend-side request validation. The two Groth16 proofs are cross-bound
     /// by `PubInputs.compressSpend`, which builds the tree-update image from
-    /// `pi` itself: `cms` and `cvDeps` are `pi.outCm` and `pi.outCvDep`,
-    /// `actualCount` is `TRANSACT_OUT_LEAVES`, and `isDeposit` is 0. This
-    /// function checks the request fields, the anchor and the tree position.
+    /// `pi` itself: `cms` is `pi.outCm`, `actualCount` is
+    /// `TRANSACT_OUT_LEAVES`, and `isDeposit` is 0, so the circuit inserts each
+    /// `outCm` as the leaf it is. This function checks the request fields, the
+    /// anchor and the tree position.
     function _validateRequest(
         PubInputs.Transact calldata pi,
         PubInputs.SpendTree calldata tpi,
@@ -1108,7 +1090,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     }
 
     /// Verifies both Groth16 proofs (`4x6` and `tree_update_batch`) in a single
-    /// pairing check. Public inputs are Fiat-Shamir-compressed to `(y, z)`
+    /// pairing check. Public inputs are compressed to `[y, digest, z]`
     /// beforehand.
     ///
     /// `verifyBatch` returns one bool for both proofs, so a rejection always
@@ -1116,7 +1098,7 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     /// error.
     ///
     /// The call must stay high-level with these exact static parameters:
-    /// `BatchedGroth16Verifier` pins `calldatasize` to `4 + 20 * 32` and hashes
+    /// `BatchedGroth16Verifier` pins `calldatasize` to `4 + 22 * 32` and hashes
     /// that calldata verbatim as its transcript. Slot order is significant:
     /// transact first, tree-update second.
     function _verifyProofs(
@@ -1135,21 +1117,12 @@ contract MASP is Initializable, CommitmentTree, AssetRegistry, NullifierSet, Yie
     }
 
     /// Emits `NotePayload` for each output of a spend. `AssetMoved` is left to
-    /// the unshield path: every spend forces `publicIn == 0`, so the shield side
-    /// is always zero, and `transfer` moves no tokens.
+    /// the unshield path: a spend has no shield side, and `transfer` moves no
+    /// tokens.
     function _emitNotes(PubInputs.Transact calldata pi, AuxValidation.Output[6] calldata aux) private {
         for (uint256 k = 0; k < PubInputs.TRANSACT_OUT; ++k) {
             AuxValidation.Output calldata a = aux[k];
-            emit NotePayload(
-                pi.outCm[k],
-                a.clueRx,
-                a.clueRy,
-                a.ephPubX,
-                a.ephPubY,
-                a.ciphertext,
-                pi.outCvDep[k][0],
-                pi.outCvDep[k][1]
-            );
+            emit NotePayload(pi.outCm[k], a.clueRx, a.clueRy, a.ephPubX, a.ephPubY, a.ciphertext);
         }
     }
 

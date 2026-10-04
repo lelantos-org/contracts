@@ -39,7 +39,6 @@ contract EchidnaMaspReachabilityTest is Test {
         // --- flush ---
         target.flushOne(0);
         assertEq(target.flushCount(), 1, "flush path");
-        // The flush must insert both the principal and the relayer note leaf.
         assertEq(target.masp().committedCount(), 2, "flush inserted both leaves");
         assertGt(target.masp().accruedFee(IERC20(address(target.token()))), 0, "flush accrued the fee");
 
@@ -77,12 +76,10 @@ contract EchidnaMaspReachabilityTest is Test {
         assertTrue(target.echidna_unknownRootRejected(), "unknown root rejected");
 
         // --- root ring size ---
-        // `EchidnaMasp.ROOT_HISTORY` mirrors an `internal constant` that
-        // cannot be read across the contract boundary. The last in-range slot
-        // must read and one past it must not, so a ring-size change fails here
-        // instead of leaving the eviction properties on the wrong slot.
-        // `masp` is hoisted because `vm.expectRevert` applies to the next call,
-        // and `target.masp()` is itself a call that does not revert.
+        // Pins `EchidnaMaspBase.ROOT_HISTORY` to the pool's ring size: the last
+        // in-range slot must read and one past it must not. `masp` is hoisted
+        // because `vm.expectRevert` applies to the next call, and
+        // `target.masp()` is itself a call that does not revert.
         MASP pool = target.masp();
         pool.roots(63);
         vm.expectRevert();
@@ -92,7 +89,8 @@ contract EchidnaMaspReachabilityTest is Test {
         target.sweep();
         assertEq(target.masp().accruedFee(IERC20(address(target.token()))), 0, "sweep path");
 
-        // Every property must hold after a full lap of the state machine.
+        // The bookkeeping properties must hold after a full lap of the state
+        // machine.
         assertTrue(target.echidna_solvency(), "solvency");
         assertTrue(target.echidna_feeAccrualAccounted(), "fee accrual accounted");
         assertTrue(target.echidna_rootCoherence(), "root coherence");
@@ -117,6 +115,18 @@ contract EchidnaMaspReachabilityTest is Test {
         assertGt(target.masp().committedCount(), leavesBefore, "transfer advanced the tree");
         assertTrue(target.echidna_transferMovesNoTokens(), "transfer moves no tokens");
         assertTrue(target.echidna_solvency(), "solvency across a transfer");
+
+        // The same request naming an asset must reach the pool and be refused,
+        // for the registered id (even seed) and an unregistered one (odd).
+        // Neither advances the tree; the honest transfer above shows the
+        // request is otherwise one the pool accepts.
+        uint64 leavesAfter = target.masp().committedCount();
+        target.transferNamingAsset(0, 0x9100);
+        target.transferNamingAsset(77, 0x9200);
+        assertEq(target.namedAssetTransferAttempts(), 2, "named-asset attempts reached the pool");
+        assertTrue(target.echidna_transferNamesNoAsset(), "transfer naming an asset rejected");
+        assertEq(target.masp().committedCount(), leavesAfter, "rejected transfers inserted nothing");
+        assertEq(target.transferCount(), 1, "only the honest transfer landed");
     }
 
     /// Multi-deposit batches: the honest one and the one naming the same
@@ -162,7 +172,7 @@ contract EchidnaMaspReachabilityTest is Test {
         assertTrue(target.echidna_evictedRootRejected(), "evicted root rejected");
     }
 
-    /// The guardian pause: spends and deposits stop, refunds do not.
+    /// The admin pause: spends and deposits stop, refunds do not.
     function test_pausePathsReach() public {
         target.submit(100, 7);
         target.submit(200, 9);
@@ -184,7 +194,6 @@ contract EchidnaMaspReachabilityTest is Test {
         assertEq(target.pausedSpendAttempts(), 1, "paused-spend attempt ran");
         assertTrue(target.echidna_pauseBlocksSpends(), "pause blocks spends");
 
-        // Escrowed funds stay recoverable under a pause.
         target.pausedCancelHonoured(0);
         assertEq(target.pausedCancelAttempts(), 1, "paused-cancel attempt ran");
         assertEq(target.cancelCount(), 1, "cancel landed while paused");

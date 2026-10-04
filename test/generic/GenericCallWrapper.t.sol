@@ -5,6 +5,7 @@ import { GenericCallWrapper } from "../../src/generic/GenericCallWrapper.sol";
 import { CallExecutor } from "../../src/generic/CallExecutor.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
 import { IWrappedNative } from "../../src/interfaces/IWrappedNative.sol";
+import { IMASPPool } from "../../src/interfaces/IMASPPool.sol";
 
 import { GenericCallTestBase } from "./GenericCallTestBase.sol";
 import { GenericIntent } from "./GenericIntent.sol";
@@ -227,12 +228,33 @@ contract GenericCallWrapperTest is GenericCallTestBase {
 
         PubInputs.FeeNote memory feeNote;
         vm.prank(address(0xD00D));
-        wrapper.cancelEscrow(ids[1], 50, bytes32(0), [uint256(0), 0], ASSET_C, 0, 0, feeNote);
+        wrapper.cancelEscrow(ids[1], 50, bytes32(0), ASSET_C, 0, 0, feeNote, 0);
 
         assertEq(tokenC.balanceOf(REFUND_TO), _pull(50), "C refunded to refundTo");
         assertEq(tokenB.balanceOf(REFUND_TO), 0, "B escrow untouched");
         (address cleared,) = wrapper.escrows(ids[1]);
         assertEq(cleared, address(0), "record cleared");
+    }
+
+    /// The wrapper keeps none of the escrow digest preimage, so `cancelEscrow`
+    /// must hand the pool what the caller read from `DepositEscrowed`, each
+    /// value in its own slot, with itself as the payer. The stub pool checks
+    /// only the asset id, so the forwarded call is pinned here, with a distinct
+    /// value in every slot.
+    function test_cancelEscrow_forwardsThePreimageToThePool() public {
+        _fundWithdraw();
+        uint256[] memory ids = _execute(_swapArgs(990, _pull(990)));
+        PubInputs.FeeNote memory feeNote =
+            PubInputs.FeeNote({ feeIn: 5, feeAssetId: ASSET_B, feeInner: bytes32(uint256(0xfee)) });
+
+        vm.expectCall(
+            address(pool),
+            abi.encodeCall(
+                IMASPPool.cancelDeposit,
+                (ids[0], 990, bytes32(uint256(0x1)), ASSET_B, FEE_BPS, address(wrapper), 7, feeNote, 11)
+            )
+        );
+        wrapper.cancelEscrow(ids[0], 990, bytes32(uint256(0x1)), ASSET_B, FEE_BPS, 7, feeNote, 11);
     }
 
     // =====================================================================

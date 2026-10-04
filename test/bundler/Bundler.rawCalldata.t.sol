@@ -10,8 +10,6 @@ import { BundlerTestBase } from "./BundlerTestBase.sol";
 /// length is refused as `MalformedCall` before any call runs. Fixture and call
 /// builders in `BundlerTestBase`.
 contract BundlerRawCalldataTest is BundlerTestBase {
-    // --- malformed ABI -----------------------------------------------------
-
     /// `execute([Call(masp, transfer.selector)])`, whose words sit at fixed
     /// positions: 0x04 array offset, 0x24 length, 0x44 element offset, 0x64
     /// target, 0x84 payload offset, 0xa4 payload length, 0xc4 payload.

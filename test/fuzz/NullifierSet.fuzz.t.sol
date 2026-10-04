@@ -40,7 +40,7 @@ contract NullifierSetFuzzTest is Test {
     /// in bit position.
     function testFuzz_sameBucket_bitIsolation(uint248 bucketTop, uint8 bit1, uint8 bit2) public {
         vm.assume(bit1 != bit2);
-        // Construct nfs with identical top 248 bits (same bucket) but different bottom 8 bits.
+        // The top 248 bits select the bucket, the bottom 8 the bit position.
         bytes32 nf1 = bytes32((uint256(bucketTop) << 8) | uint256(bit1));
         bytes32 nf2 = bytes32((uint256(bucketTop) << 8) | uint256(bit2));
         harness.consumeNullifierExternal(nf1);

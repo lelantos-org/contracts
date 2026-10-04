@@ -9,7 +9,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// `transferFrom(from, to, amount, token)`, and `initialize` only requires the
 /// address to have code. The real Permit2 adds an allowance ledger, a nonce
 /// bitmap and an EIP-712 signature check, which symbolic execution would explore
-/// on every deposit and which the escrow proofs do not concern.
+/// on every deposit and which no escrow proof depends on.
 ///
 /// The pull performs a real ERC-20 transfer, so pool balances remain consistent.
 /// Only the Permit2 authorization is omitted, which is Permit2's responsibility

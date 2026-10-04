@@ -84,7 +84,6 @@ contract DeployGovernanceTest is Test {
         p.auctionRestartMultBps = 20_000;
     }
 
-    /// After the deploy the deployer retains no role.
     function test_deployerRetainsNothing() public {
         BaseGovernanceDeploy.GovStack memory s = harness.deployStack(_params());
 

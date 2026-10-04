@@ -27,9 +27,9 @@ import { MockERC4626 } from "../test/mocks/MockERC4626.sol";
 /// differ only in the venue binding.
 ///
 /// Registration is permanent (`addYieldAsset` goes through the add-only
-/// registry), so a re-run against the same MASP reverts on the first id.
-/// `just redeploy` also re-runs `DeployTest.s.sol`, producing a fresh MASP with
-/// none of these ids taken.
+/// registry), so a re-run against the same MASP reverts on the first id. The
+/// `backend/stack` recipe `just redeploy` also re-runs `DeployTest.s.sol`,
+/// producing a fresh MASP with none of these ids taken.
 ///
 /// Required env (populated from DeployTest output):
 ///   MASP                       — MASP address, owned by the broadcasting key

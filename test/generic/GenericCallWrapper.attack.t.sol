@@ -11,9 +11,9 @@ import { MaspEscrowSatellite } from "../../src/MaspEscrowSatellite.sol";
 import { GenericCallTestBase } from "./GenericCallTestBase.sol";
 import { MockDrainer, MockReentrant, MockDonor } from "./mocks/MockCallTargets.sol";
 
-/// Adversarial calls. Each models a threat from the design review: approvals
-/// left behind for a later user (S1), calls reaching the wrapper's own
-/// privileges (S2), and balances forced onto the executor or the wrapper (S5).
+/// Adversarial calls. Each models a threat: approvals left behind for a later
+/// user (S1), calls reaching the wrapper's own privileges (S2), and balances
+/// forced onto the executor or the wrapper (S5).
 contract GenericCallWrapperAttackTest is GenericCallTestBase {
     MockDrainer internal drainer;
     MockReentrant internal reentrant;

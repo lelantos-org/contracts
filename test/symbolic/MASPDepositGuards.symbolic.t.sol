@@ -37,8 +37,7 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
         _assertRejected(ok, ret, expected);
     }
 
-    /// The fixture is accepted, so each rejection proof below is attributable to
-    /// the field it breaks.
+    /// Non-vacuity: the unmodified fixture is accepted.
     function check_deposit_fixtureIsAccepted() public {
         (bool ok,) = _deposit(_valid());
         assertTrue(ok);
@@ -47,8 +46,8 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
     // --- amount bounds -----------------------------------------------------
 
     /// A deposit amount must be non-zero and fit `uint48`, the width the escrow
-    /// digest and the tree-update circuit narrow it to. Proved over the full
-    /// declared `uint64`, covering both sides of the `uint48` max boundary.
+    /// digest and the tree-update circuit narrow it to. Proved for zero and for
+    /// every `uint64` above the `uint48` maximum.
     function check_deposit_rejectsOutOfRangeAmount(uint64 publicIn) public {
         vm.assume(publicIn == 0 || publicIn > type(uint48).max);
 
@@ -69,7 +68,7 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
         _rejectedWith(d, MASP.PublicInTooLarge.selector);
     }
 
-    // --- party and commitment binding --------------------------------------
+    // --- party and note binding --------------------------------------------
 
     /// `depositAuthorized` pulls against the payer's allowance, so the caller must
     /// be the payer; otherwise any address that approved the pool through Permit2
@@ -97,17 +96,18 @@ contract MASPDepositGuardsSymbolicTest is PoolFixture {
         _rejectedWith(d, zeroPayer ? MASP.ZeroPayer.selector : MASP.ZeroRecipient.selector);
     }
 
-    /// Neither of the deposit's two leaves may carry a zero commitment; a zero
-    /// commitment is not a well-formed note.
-    function check_deposit_rejectsZeroCommitment(bool zeroOut) public {
+    /// Neither of the deposit's two notes may carry a zero `inner`. `inner` is
+    /// `Poseidon(TAG_INNER, pk, rho, rcm)`, the owner half the batch circuit
+    /// hashes into the leaf; zero is not the hash of any note the pool mints.
+    function check_deposit_rejectsZeroInner(bool zeroPrincipal) public {
         PubInputs.DepositRequest memory d = _valid();
-        if (zeroOut) {
-            d.outCm = bytes32(0);
+        if (zeroPrincipal) {
+            d.inner = bytes32(0);
         } else {
-            d.feeCm = bytes32(0);
+            d.feeInner = bytes32(0);
         }
 
-        _rejectedWith(d, MASP.ZeroCm.selector);
+        _rejectedWith(d, MASP.ZeroInner.selector);
     }
 
     /// A request built for another chain cannot be replayed here.

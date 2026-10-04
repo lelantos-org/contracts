@@ -21,16 +21,16 @@ import { TEST_PROXY_ADMIN } from "../utils/PoolDeployer.sol";
 /// ownership and the pool's proxy admin handed to the Timelock, so lifecycle
 /// tests exercise the production `onlyOwner` and `onlyAdmin` boundaries.
 ///
-/// Deliberately not built on `BaseGovernanceDeploy._deployGovernanceStack`: that
-/// path requires the `SwapWrapper` to exist before the burner, so the wrapper
-/// could not take the burner as its treasury, and it can only run inside a
-/// separate `Script` harness, which would become the deployer instead of this
-/// contract. `test/deploy/DeployGovernance.t.sol` covers the script itself.
+/// Not built on `BaseGovernanceDeploy._deployGovernanceStack`: that path
+/// requires the `SwapWrapper` to exist before the burner, so the wrapper could
+/// not take the burner as its treasury, and it can only run inside a separate
+/// `Script` harness, which would become the deployer instead of this contract.
+/// `test/deploy/DeployGovernance.t.sol` covers the script itself.
 ///
-/// Every warp targets an absolute timestamp read back from the Governor
-/// (`proposalSnapshot`, `proposalDeadline`, `proposalEta`). Under `via_ir` the
-/// optimizer may cache `block.timestamp` within a call, which `vm.warp`
-/// invalidates, so `vm.warp(block.timestamp + n)` is unreliable in a test body.
+/// Proposal-pipeline warps target absolute timestamps read back from the
+/// Governor (`proposalSnapshot`, `proposalDeadline`, `proposalEta`). Under
+/// `via_ir` the optimizer may cache `block.timestamp` within a call, so
+/// `vm.warp(block.timestamp + n)` is unreliable in a test body.
 abstract contract GovTestBase is MASPTestBase {
     uint256 internal constant SUPPLY = GovConstants.SUPPLY;
     uint48 internal constant VOTING_DELAY = 2 days;
@@ -97,18 +97,17 @@ abstract contract GovTestBase is MASPTestBase {
             IMASPPool(address(masp)), IAllowanceTransfer(address(permit2)), address(this), address(burner)
         );
 
-        // Handover in the runbook order: treasuries first, so the first fee
-        // routing needs no proposal, then ownership.
+        // Handover in the order of `HandoverOwnership.s.sol`: treasuries first,
+        // so the first fee routing needs no proposal, then ownership, then the
+        // proxy admin.
         vm.startPrank(OWNER);
         masp.setTreasury(address(burner));
         masp.transferOwnership(address(timelock));
         vm.stopPrank();
         wrapper.transferOwnership(address(timelock));
-        // Then the proxy admin, as `HandoverOwnership.s.sol` does last.
         vm.prank(TEST_PROXY_ADMIN);
         _poolProxy().changeProxyAdmin(address(timelock));
 
-        // Last step: the deployer renounces its admin role.
         timelock.renounceRole(timelock.DEFAULT_ADMIN_ROLE(), address(this));
 
         _distributeAndDelegate();
@@ -172,9 +171,8 @@ abstract contract GovTestBase is MASPTestBase {
         calldatas[0] = data;
     }
 
-    /// A single owner-gated call on `target`, the shape of every proposal that
-    /// reaches an owned contract. The Timelock is the owner, so the call is
-    /// direct: there is no interposed admin to route through.
+    /// A single owner-gated call on `target`, direct because the Timelock is
+    /// the owner: the shape of every proposal that reaches an owned contract.
     function _adminCall(address target, bytes memory data)
         internal
         pure

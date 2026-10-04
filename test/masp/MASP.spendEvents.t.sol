@@ -4,7 +4,9 @@ pragma solidity 0.8.36;
 import { Vm } from "forge-std/Test.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import { MASP } from "../../src/MASP.sol";
 import { PubInputs } from "../../src/libs/PubInputs.sol";
+import { AuxValidation } from "../../src/libs/AuxValidation.sol";
 import { MockERC20 } from "../mocks/MockERC20.sol";
 import { SpendFixture } from "../utils/SpendFixture.sol";
 import { FixtureLoader } from "../utils/FixtureLoader.sol";
@@ -31,15 +33,17 @@ contract MASPSpendEventsTest is MockPoolTestBase {
         uint64 publicOut
     );
     event NotePayload(
-        bytes32 indexed cm,
-        uint256 clueRx,
-        uint256 clueRy,
-        uint256 ephPubX,
-        uint256 ephPubY,
-        bytes ciphertext,
-        uint256 cvDepX,
-        uint256 cvDepY
+        bytes32 indexed cm, uint256 clueRx, uint256 clueRy, uint256 ephPubX, uint256 ephPubY, bytes ciphertext
     );
+
+    /// `NotePayload`'s signature, written out so a change to its parameter
+    /// list fails here rather than moving with `MASP.NotePayload.selector`: a
+    /// mismatched topic is never emitted, and a count over it would pass
+    /// vacuously.
+    function _notePayloadTopic() internal pure returns (bytes32 topic) {
+        topic = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes)");
+        assertEq(topic, MASP.NotePayload.selector, "NotePayload signature");
+    }
 
     function setUp() public {
         token = new MockERC20("M", "M", 18);
@@ -59,7 +63,9 @@ contract MASPSpendEventsTest is MockPoolTestBase {
         returns (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi)
     {
         pi = _transact(PAYER, RELAYER, 0x1111, 0x3333);
-        pi.publicAssetId = ASSET_ID;
+        // A transfer names no asset; only a withdrawal says which one it pays
+        // out.
+        pi.publicAssetId = publicOut == 0 ? 0 : ASSET_ID;
         pi.publicOut = publicOut;
 
         tpi = SpendFixture.spendTree(bytes32(uint256(0xABCD)), 0);
@@ -79,7 +85,6 @@ contract MASPSpendEventsTest is MockPoolTestBase {
         vm.prank(RELAYER);
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
-        // The recipient receives gross minus fee; the fee accrues to the pool.
         uint256 fee = (gross * FEE_BPS) / 10_000;
         assertEq(token.balanceOf(RECIPIENT), gross - fee, "recipient net");
         assertEq(masp.accruedFee(IERC20(address(token))), fee, "accrued fee");
@@ -95,10 +100,11 @@ contract MASPSpendEventsTest is MockPoolTestBase {
         masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        // The signature must match the event's declaration: a mismatched topic
-        // is never emitted, so the assertion would pass vacuously.
+        // Checked against the declaration for the reason `_notePayloadTopic`
+        // gives: a mismatched topic would make the loop pass vacuously.
         bytes32 assetMovedSig = keccak256("AssetMoved(uint64,address,uint256,uint256,uint64,uint64)");
-        bytes32 notePayloadSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
+        assertEq(assetMovedSig, MASP.AssetMoved.selector, "AssetMoved signature");
+        bytes32 notePayloadSig = _notePayloadTopic();
         uint256 notePayloads;
         for (uint256 i = 0; i < logs.length; i++) {
             assertTrue(logs[i].topics[0] != assetMovedSig, "transfer must not emit AssetMoved");
@@ -117,7 +123,7 @@ contract MASPSpendEventsTest is MockPoolTestBase {
         masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 notePayloadSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
+        bytes32 notePayloadSig = _notePayloadTopic();
         uint256 seen;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].topics[0] != notePayloadSig) continue;
@@ -127,18 +133,78 @@ contract MASPSpendEventsTest is MockPoolTestBase {
         assertEq(seen, PubInputs.TRANSACT_OUT, "one NotePayload per output leaf");
     }
 
+    /// The payload's shape, field by field: the commitment as the one indexed
+    /// topic, then five head words, the clue and ephemeral points and the
+    /// ciphertext, each output's own. `cm` is the note commitment and the tree
+    /// leaf; nothing follows the ciphertext.
+    function test_spend_notePayloadShapeAndContents() public {
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(0);
+        // Distinct payloads per output, so a misattributed one is visible.
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
+        for (uint256 k; k < aux.length; ++k) {
+            aux[k].ciphertext = abi.encodePacked(uint16(k + 1), bytes32(uint256(0xc0de + k)));
+        }
+
+        vm.recordLogs();
+        vm.prank(RELAYER);
+        masp.transfer(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bytes32 noteSig = _notePayloadTopic();
+        uint256 seen;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter != address(masp) || logs[i].topics[0] != noteSig) continue;
+            assertEq(logs[i].topics.length, 2, "signature plus the indexed commitment");
+            assertEq(logs[i].topics[1], pi.outCm[seen], "cm topic");
+
+            bytes memory data = logs[i].data;
+            (uint256 clueRx, uint256 clueRy, uint256 ephPubX, uint256 ephPubY, bytes memory ciphertext) =
+                abi.decode(data, (uint256, uint256, uint256, uint256, bytes));
+            assertEq(clueRx, aux[seen].clueRx, "clueRx");
+            assertEq(clueRy, aux[seen].clueRy, "clueRy");
+            assertEq(ephPubX, aux[seen].ephPubX, "ephPubX");
+            assertEq(ephPubY, aux[seen].ephPubY, "ephPubY");
+            assertEq(ciphertext, aux[seen].ciphertext, "ciphertext");
+
+            // Five head words, then the ciphertext's length word and its 34
+            // bytes padded to two words: no trailing parameter.
+            uint256 ciphertextOffset;
+            assembly ("memory-safe") {
+                ciphertextOffset := mload(add(data, mul(5, 0x20)))
+            }
+            assertEq(ciphertextOffset, 5 * 0x20, "five non-indexed parameters");
+            assertEq(data.length, (5 + 1 + 2) * 0x20, "nothing after the ciphertext");
+            seen++;
+        }
+        assertEq(seen, PubInputs.TRANSACT_OUT, "one NotePayload per output leaf");
+    }
+
+    /// A withdrawal publishes its outputs the same way, beside `AssetMoved`.
+    function test_withdraw_emitsNotePayloadPerOutput() public {
+        (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(7);
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
+
+        for (uint256 k; k < PubInputs.TRANSACT_OUT; ++k) {
+            vm.expectEmit(address(masp));
+            emit NotePayload(
+                pi.outCm[k], aux[k].clueRx, aux[k].clueRy, aux[k].ephPubX, aux[k].ephPubY, aux[k].ciphertext
+            );
+        }
+        vm.prank(RELAYER);
+        masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);
+    }
+
     // --- leaf-index reconstruction ------------------------------------------
 
     /// A wallet learns its note's Merkle leaf index by pairing `RootAdvanced`
     /// with the per-leaf `NotePayload` events: leaf `k` sits at
     /// `startIndex + k`. The events do not state the index directly, so the
-    /// mapping depends on emission order and count. A wrong index
-    /// yields a bad Merkle path and an unspendable note, and at the 4x6 shape
-    /// a mis-mapping misplaces three leaves rather than two.
+    /// mapping depends on emission order and count. A wrong index yields a bad
+    /// Merkle path and an unspendable note.
     ///
-    /// This pins the indexer-facing event sequence for a spend: how many events of
-    /// each kind, in what order, and that the counts track
-    /// `PubInputs.TRANSACT_IN` / `TRANSACT_OUT` rather than a literal 2 or 3.
+    /// This pins the indexer-facing event sequence for a spend: how many events
+    /// of each kind, in what order, and that the counts track
+    /// `PubInputs.TRANSACT_IN` / `TRANSACT_OUT` rather than literals.
     function test_spend_eventsAllowLeafIndexReconstruction() public {
         (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spend(0);
         uint64 startBefore = masp.committedCount();
@@ -150,7 +216,7 @@ contract MASPSpendEventsTest is MockPoolTestBase {
 
         bytes32 nfSig = keccak256("NullifierConsumed(bytes32)");
         bytes32 rootSig = keccak256("RootAdvanced(uint64,uint64,bytes32,bytes32)");
-        bytes32 noteSig = keccak256("NotePayload(bytes32,uint256,uint256,uint256,uint256,bytes,uint256,uint256)");
+        bytes32 noteSig = _notePayloadTopic();
 
         uint256 nfCount;
         uint256 noteCount;
@@ -163,7 +229,6 @@ contract MASPSpendEventsTest is MockPoolTestBase {
             if (logs[i].emitter != address(masp)) continue;
             bytes32 sig = logs[i].topics[0];
             if (sig == nfSig) {
-                // Nullifiers are emitted in input order.
                 assertEq(logs[i].topics[1], pi.nullifier[nfCount], "nullifier order");
                 nfCount++;
             } else if (sig == rootSig) {

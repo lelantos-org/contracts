@@ -24,7 +24,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
     address internal constant SWAP_DRIVER = address(0xD21E);
     /// `test_intentHash_crossLanguageVector`'s expected hash.
     uint256 internal constant INTENT_VECTOR =
-        17_537_988_237_215_357_429_810_858_075_676_193_989_150_518_723_851_377_084_809_783_452_071_645_726_238;
+        21_702_110_874_988_732_878_282_240_820_387_414_370_167_849_366_391_701_560_116_504_902_614_029_013_783;
 
     MockERC20 internal tokenC;
 
@@ -36,8 +36,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
     }
 
     /// `_defaultSwapArgs` for a withdraw of `grossIn`, swapping all it nets and
-    /// driven by `SWAP_DRIVER`. The originating proof names only the wrapper; no
-    /// public input identifies the caller of `swap`.
+    /// driven by `SWAP_DRIVER`.
     function _baseArgs(uint256 grossIn, uint256 minOut, uint64 depositIn)
         internal
         view
@@ -45,9 +44,9 @@ contract SwapWrapperBindingTest is SwapTestBase {
     {
         a = _defaultSwapArgs(_netOfFee(grossIn), minOut, uint64(grossIn / SCALE), depositIn);
         a.pi_w.payer = SWAP_DRIVER;
-        // This suite's output note has always left the fee-note commitment
-        // unset; kept so the bound payloads its tests replay stay unchanged.
-        a.deposit_d.feeCm = bytes32(0);
+        // The output note in this suite leaves the fee note's `inner` unset,
+        // unlike the `DepositFixture.request` default.
+        a.deposit_d.feeInner = bytes32(0);
     }
 
     /// Replaying the withdraw proof verbatim under a substituted `deposit_d`
@@ -66,7 +65,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
         SwapWrapper.SwapArgs memory a = SwapIntent.bind(_baseArgs(grossIn, minOut, minPublicIn));
         // Identical proof and public inputs; only the deposit changes.
         a.deposit_d.recipient = ATTACKER_NOTE;
-        a.deposit_d.outCm = bytes32(uint256(0xA77ACC));
+        a.deposit_d.inner = bytes32(uint256(0xA77ACC));
 
         vm.prank(address(0xDEADBEEF)); // arbitrary caller, not the victim
         vm.expectRevert(
@@ -100,7 +99,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
     /// token binding would otherwise reject it first.
     function _tamper(SwapWrapper.SwapArgs memory a, uint256 field) internal view {
         if (field == 0) a.deposit_d.recipient = ATTACKER_NOTE;
-        else if (field == 1) a.deposit_d.outCm = bytes32(uint256(0xA77ACC));
+        else if (field == 1) a.deposit_d.inner = bytes32(uint256(0xA77ACC));
         else if (field == 2) a.minOut = 1;
         else if (field == 3) a.refundTo = address(0xBAD);
         else if (field == 4) a.deadline = a.deadline - 1;
@@ -108,7 +107,7 @@ contract SwapWrapperBindingTest is SwapTestBase {
         else if (field == 6) a.fee_aux_d.clueRx = 1;
         else if (field == 7) a.deposit_d.feeIn = 1;
         else if (field == 8) a.refund_d.recipient = ATTACKER_NOTE;
-        else if (field == 9) a.refund_d.outCm = bytes32(uint256(0xA77ACC));
+        else if (field == 9) a.refund_d.inner = bytes32(uint256(0xA77ACC));
         else if (field == 10) a.refund_aux_d.ciphertext = hex"0bad";
         else (a.tokenOut, a.deposit_d.publicAssetId) = (address(tokenC), ASSET_C);
     }
@@ -148,14 +147,10 @@ contract SwapWrapperBindingTest is SwapTestBase {
         a.deposit_d.publicIn = 990;
         a.deposit_d.payer = address(0x5A5A);
         a.deposit_d.recipient = address(0xBEEF);
-        a.deposit_d.outCm = bytes32(uint256(1));
-        a.deposit_d.cvDep = [uint256(2), 3];
-        a.deposit_d.rcv = 4;
+        a.deposit_d.inner = bytes32(uint256(1));
         a.deposit_d.feeAssetId = 2;
         a.deposit_d.feeIn = 5;
-        a.deposit_d.feeCm = bytes32(uint256(6));
-        a.deposit_d.feeCvDep = [uint256(7), 8];
-        a.deposit_d.feeRcv = 9;
+        a.deposit_d.feeInner = bytes32(uint256(6));
         a.aux_d = AuxValidation.Output({ clueRx: 10, clueRy: 11, ephPubX: 12, ephPubY: 13, ciphertext: hex"0102" });
         a.fee_aux_d =
             AuxValidation.Output({ clueRx: 14, clueRy: 15, ephPubX: 16, ephPubY: 17, ciphertext: hex"030405" });
@@ -164,14 +159,10 @@ contract SwapWrapperBindingTest is SwapTestBase {
         a.refund_d.publicIn = 995;
         a.refund_d.payer = address(0x5A5A);
         a.refund_d.recipient = address(0xBEEF);
-        a.refund_d.outCm = bytes32(uint256(0x12));
-        a.refund_d.cvDep = [uint256(19), 20];
-        a.refund_d.rcv = 21;
+        a.refund_d.inner = bytes32(uint256(0x12));
         a.refund_d.feeAssetId = 1;
         a.refund_d.feeIn = 22;
-        a.refund_d.feeCm = bytes32(uint256(0x17));
-        a.refund_d.feeCvDep = [uint256(24), 25];
-        a.refund_d.feeRcv = 26;
+        a.refund_d.feeInner = bytes32(uint256(0x17));
         a.refund_aux_d = AuxValidation.Output({ clueRx: 27, clueRy: 28, ephPubX: 29, ephPubY: 30, ciphertext: hex"06" });
         a.refund_fee_aux_d =
             AuxValidation.Output({ clueRx: 31, clueRy: 32, ephPubX: 33, ephPubY: 34, ciphertext: hex"0708" });
@@ -228,13 +219,14 @@ contract SwapWrapperBindingTest is SwapTestBase {
 
     // --- token binding --------------------------------------------------------
 
-    /// The audit's sweep. The payer names a `tokenIn` whose `balanceOf` it
+    /// A scripted-balance sweep. The payer names a `tokenIn` whose `balanceOf` it
     /// scripts, `[0, 1, 1, 0, 0]`, with a passed deadline and a refund note in
-    /// token C, which the wrapper holds and which `prepareToken` armed. Unbound,
-    /// the venue leg fails `SwapExpired`, the refund escrows `refund_d` pulling
-    /// the wrapper's real C while every bound and the leftover check read the
-    /// script, and the attacker's note is minted from all of it. `tokenIn` is now
-    /// bound to the withdraw proof's asset, so the swap reverts before leg 1.
+    /// token C, which the wrapper holds and which `prepareToken` armed. With
+    /// `tokenIn` unbound, the venue leg would fail `SwapExpired`, the refund
+    /// would escrow `refund_d` pulling the wrapper's real C while every bound and
+    /// the leftover check read the script, and the attacker's note would be
+    /// minted from all of it. `tokenIn` is bound to the withdraw proof's asset,
+    /// so the swap reverts before leg 1.
     function test_revert_tokenInNotWithdrawAssetScriptedSweep() public {
         uint256 donated = 5_000 * SCALE;
         tokenC.mint(address(wrapper), donated);

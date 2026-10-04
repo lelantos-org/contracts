@@ -68,9 +68,9 @@ optimizer_runs = 1_000
 paths = "src/libs/DepositOps.sol"
 optimizer_runs = 1_000
 
-# Fork-test endpoints, used only by `test/swap/fork/`. Those tests `vm.skip`
-# themselves unless FORK_TESTS=1, so a checkout with none of these vars set
-# still runs `forge test` clean.
+# Fork-test endpoints, used only by `test/swap/fork/` and `test/yield/fork/`.
+# Those tests `vm.skip` themselves unless FORK_TESTS=1, so a checkout with none
+# of these vars set still runs `forge test` clean.
 [rpc_endpoints]
 base = "${BASE_RPC_URL}"
 mainnet = "${MAINNET_RPC_URL}"
@@ -106,10 +106,10 @@ exclude_lints = ["unsafe-cheatcode"]
 # `mixed-case-function` rejects; per-function suppression would need a disable
 # comment on every test in the directory.
 #
-# `[lint].ignore` is not applied by forge 1.5.1 or 1.8.1 (the pinned CI
-# version), so `forge lint` still reports these paths. Lint findings are
-# warnings and no CI job reads them; the entry records intent and takes effect
-# if a release applies it.
+# `[lint].ignore` is not applied by forge 1.8.1 (the pinned CI version), so
+# `forge lint` still reports these paths. Lint findings are warnings and no CI
+# job reads them; the entry records intent and takes effect if a release
+# applies it.
 ignore = ["src/verifiers/Verifier.sol", "src/verifiers/TreeUpdateBatchVerifier.sol", "test/symbolic/**"]
 
 # Deploy profile: keeps via_ir (avoids stack-too-deep) but lowers
@@ -206,14 +206,13 @@ chain_id = 31337
 # Two settings are required:
 #
 # `libraries` pre-links YieldOps and DepositOps at fixed addresses. MASP links
-# against both (YieldOps at 12 call sites, DepositOps at the two deposit
-# pulls); Foundry normally deploys and links them inside the test EVM, which
-# Echidna cannot do, so it aborts with "Unlinked libraries detected in bytecode
-# of contract src/MASP.sol:MASP". Pinning the addresses makes solc embed them
-# in MASP's bytecode; `just echidna` then runs each library's creation code at
-# its address via Echidna's `deployBytecodes`, so the calls reach real code. The
-# addresses are arbitrary and otherwise unused; they must match
-# `ECHIDNA_YIELDOPS_ADDR` and `ECHIDNA_DEPOSITOPS_ADDR` in the justfile.
+# against both; Foundry normally deploys and links them inside the test EVM,
+# which Echidna cannot do, so it aborts with "Unlinked libraries detected in
+# bytecode of contract src/MASP.sol:MASP". Pinning the addresses makes solc
+# embed them in MASP's bytecode; `just echidna` then runs each library's
+# creation code at its address via Echidna's `deployBytecodes`, so the calls
+# reach real code. The addresses are arbitrary and otherwise unused; they must
+# match `ECHIDNA_YIELDOPS_ADDR` and `ECHIDNA_DEPOSITOPS_ADDR` in the justfile.
 #
 # `dynamic_test_linking = false` for the same reason the `slither` recipe
 # passes `--no-dynamic-test-linking`: dynamic test linking (on by default from

@@ -23,7 +23,6 @@ contract GovernorLifecycleTest is GovTestBase {
         assertEq(_poolProxy().proxyAdmin(), address(timelock), "proxy admin");
     }
 
-    /// After handover the previous owner has no administrative access.
     function test_formerOwnerCanNoLongerAdminister() public {
         vm.prank(OWNER);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, OWNER));
@@ -124,7 +123,6 @@ contract GovernorLifecycleTest is GovTestBase {
 
         uint256 id = _proposeAndSucceed(t, v, c, desc);
         governor.queue(t, v, c, h);
-        // One second short of the eta.
         vm.warp(governor.proposalEta(id) - 1);
         vm.expectRevert();
         governor.execute(t, v, c, h);
@@ -145,17 +143,17 @@ contract GovernorLifecycleTest is GovTestBase {
 
     // ============== Ownership-destroying calls ===============================
     //
-    // With the Timelock owning the pool directly there is no interposed contract
-    // to refuse these. What remains is what each target refuses for itself:
-    // `OwnableInit` never declares `renounceOwnership`, so neither the pool nor
-    // the wrapper can be left ownerless. A transfer is not refused, and is
-    // irreversible. The proposal threshold, the vote, the Timelock delay and the
-    // guardian's `CANCELLER_ROLE` are the only brakes; the veto itself is
-    // covered by `Timelock.roles.t.sol`.
+    // The Timelock owns the pool directly, so no interposed contract refuses
+    // these calls; only each target's own refusals apply. `OwnableInit` never
+    // declares `renounceOwnership`, so neither the pool nor the wrapper can be
+    // left ownerless. A transfer is not refused, and is irreversible. The
+    // proposal threshold, the vote, the Timelock delay and the guardian's
+    // `CANCELLER_ROLE` are the only brakes; the veto itself is covered by
+    // `Timelock.roles.t.sol`.
 
-    /// `OwnableInit` never declares `renounceOwnership`, so the call finds no
-    /// function and the proposal's execution reverts. This holds for both owned
-    /// contracts and is the one bound on the owner a proposal cannot lift.
+    /// The call finds no `renounceOwnership` function on either owned contract,
+    /// so the proposal's execution reverts. This is the one bound on the owner
+    /// a proposal cannot lift.
     function test_proposalCannotRenounceEitherOwnedContract() public {
         address[2] memory targets = [address(masp), address(wrapper)];
         for (uint256 i = 0; i < targets.length; ++i) {
@@ -170,9 +168,8 @@ contract GovernorLifecycleTest is GovTestBase {
         }
     }
 
-    /// Ownership can still be moved to an address that cannot administer it,
-    /// which `ProtocolAdmin` used to refuse. Only the delay and the guardian's
-    /// veto stand in the way.
+    /// Ownership can be moved to an address that cannot administer it. Only the
+    /// delay and the guardian's veto stand in the way.
     function test_proposalCanMoveThePoolToABurnAddress() public {
         address dead = address(0xdEaD);
         (address[] memory t, uint256[] memory v, bytes[] memory c) =

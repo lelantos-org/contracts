@@ -91,8 +91,6 @@ abstract contract DepositFeeAssetTestBase is YieldTestBase {
         d = _request(publicAssetId, PUBLIC_IN, FEE_IN, seed);
         d.payer = who;
         d.feeAssetId = feeAssetId;
-        d.cvDep = [uint256(0xc0), uint256(0xc1)];
-        d.feeCvDep = [uint256(0xf0), uint256(0xf1)];
     }
 
     /// Funds `who` in both tokens and approves Permit2 for each.
@@ -112,12 +110,6 @@ abstract contract DepositFeeAssetTestBase is YieldTestBase {
         IAllowanceTransfer(permit2).approve(address(token), address(masp), principalCap, exp);
         IAllowanceTransfer(permit2).approve(address(feeToken), address(masp), feeCap, exp);
         vm.stopPrank();
-    }
-
-    function _depositAuthorized(PubInputs.DepositRequest memory d) internal returns (uint256 id) {
-        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
-        vm.prank(d.payer);
-        id = masp.depositAuthorized(d, aux[0], aux[1]);
     }
 
     function _expectDepositRevert(PubInputs.DepositRequest memory d, bytes memory err) internal {
@@ -212,23 +204,22 @@ abstract contract DepositFeeAssetTestBase is YieldTestBase {
     // --- flush and cancel ---------------------------------------------------
 
     /// The flush batch for one deposit, with the fee leaf declaring
-    /// `feeLeafAsset`.
+    /// `feeLeafAsset`. Both `cms` slots carry an `inner`: the batch circuit
+    /// builds each leaf from the slot's asset, amount and `inner`.
     function _tpi(PubInputs.DepositRequest memory d, uint64 feeLeafAsset)
         internal
         view
         returns (PubInputs.TreeUpdateBatch memory tpi)
     {
         tpi.oldRoot = masp.currentRoot();
-        tpi.newRoot = bytes32(uint256(0xfeed0000) + uint256(d.outCm));
+        tpi.newRoot = bytes32(uint256(0xfeed0000) + uint256(d.inner));
         tpi.startIndex = masp.committedCount();
         tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
-        tpi.cms[0] = d.outCm;
-        tpi.cvDeps[0] = d.cvDep;
+        tpi.cms[0] = d.inner;
         tpi.leafAsset[0] = d.publicAssetId;
         tpi.leafPublicIn[0] = d.publicIn;
         tpi.isDeposit[0] = 1;
-        tpi.cms[1] = d.feeCm;
-        tpi.cvDeps[1] = d.feeCvDep;
+        tpi.cms[1] = d.feeInner;
         tpi.leafAsset[1] = feeLeafAsset;
         tpi.leafPublicIn[1] = d.feeIn;
         tpi.isDeposit[1] = 1;
@@ -238,7 +229,7 @@ abstract contract DepositFeeAssetTestBase is YieldTestBase {
         uint256[] memory ids = new uint256[](1);
         ids[0] = id;
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: submittedAt, fbps: FEE_BPS });
+        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: submittedAt, fbps: FEE_BPS, pulled: pulledOf[id] });
         masp.flushBatch(ids, meta, FixtureLoader.emptyProof(), tpi);
     }
 
@@ -255,15 +246,13 @@ abstract contract DepositFeeAssetTestBase is YieldTestBase {
         return masp.cancelDeposit(
             id,
             uint48(d.publicIn),
-            d.outCm,
-            d.cvDep,
+            d.inner,
             d.publicAssetId,
             FEE_BPS,
             d.payer,
             submittedAt,
-            PubInputs.FeeNote({
-                feeIn: uint48(d.feeIn), feeAssetId: d.feeAssetId, feeCm: d.feeCm, feeCvDep: d.feeCvDep
-            })
+            PubInputs.FeeNote({ feeIn: uint48(d.feeIn), feeAssetId: d.feeAssetId, feeInner: d.feeInner }),
+            pulledOf[id]
         );
     }
 }

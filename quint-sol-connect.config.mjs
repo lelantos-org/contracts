@@ -269,8 +269,8 @@ export default {
         halfLife: 'uint256',
         maxHalvings: 'uint256',
         // The lot's curve snapshot, written by setLot and a re-anchoring fill.
-        // Priced off rather than the globals, so setDecayParams never reprices
-        // a running lot.
+        // The lot is priced off it rather than the globals, so setDecayParams
+        // never reprices a running lot.
         lotHalfLife: 'uint256',
         lotMaxHalvings: 'uint256',
       },
@@ -342,7 +342,7 @@ export default {
       // (queue -> pause -> activate, pause -> queue, pause -> pause),
       // and one 60-step trace reaches more of them than two 30-step ones.
       // 76 rather than 60 since `queueUpgrade` defers by a running pause:
-      // longer windows cost activations, and 8 x 60 fell below the floor.
+      // longer windows cost activations, and 8 x 60 falls below the floor.
       run: {
         traces: 8,
         maxSteps: 76,

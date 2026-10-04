@@ -16,13 +16,13 @@
 //     is already pending; `queueUpgrade` starts the window at
 //     `max(now, pausedUntil)`, absorbing whatever pause is still running.
 //
-// `queue; pause` takes the first path and `pause; queue` the second. Before the
-// second existed, a pause issued ahead of the queue, or running across a cancel
-// and re-queue, spent its remaining duration inside the new window. Neither a
+// `queue; pause` takes the first path and `pause; queue` the second. Without
+// the second, a pause issued ahead of the queue, or running across a cancel and
+// re-queue, would spend its remaining duration inside the new window. Neither a
 // single-call proof nor an end-of-run invariant distinguishes the orderings,
-// since both end with a pending upgrade and a used latch;
+// since both end with a pending upgrade and `pausedUntil` set;
 // `inv_exitWindowIsUnpaused` states what both must preserve, by counting the
-// unpaused seconds the window actually contained.
+// unpaused seconds the window contained.
 //
 // The exit window, during which holders can leave before a changed
 // implementation takes effect, is the protocol's primary upgrade safety
@@ -382,7 +382,7 @@ module delayed_upgrade_proxy {
   /// activation is enabled at the boundary the guard divides.
   val wit_activatedAtBoundary = pendingImpl != 0 and nowTs == activationAt
 
-  /// Pause, reset, pause again: the latch cycle.
+  /// More than one pause was applied: `pauseSpends` is repeatable.
   val wit_relatch = pauseFirings > 1
 
   /// More than one window was opened: a cancel or activation followed by a

@@ -29,7 +29,7 @@ env:
 # and `forge build` select different outputs, `size` uses the deploy profile,
 # and `symbolic` the halmos profile. The key prefix pins the Foundry release
 # and foundry.toml: a settings change needs a clean build (see the comment on
-# `additional_compiler_profiles` there), so it must not restore an old cache.
+# `additional_compiler_profiles` there), so it must not restore a stale cache.
 # The suffix hashes every compiled source, so a restore-keys hit is incremental.
 #
 # Slither is not cached: an incremental build leaves superseded files in
@@ -160,7 +160,7 @@ jobs:
       # resolve. See the `slither` recipe in the justfile.
       # `--skip` excludes test/ and script/: Slither parses every source in
       # build-info before `filter_paths` drops the non-src findings, and test/
-      # is 217 of the 274 first-party sources. See the `slither` recipe in the
+      # is most of the first-party sources. See the `slither` recipe in the
       # justfile for the measurements and for the informational findings the
       # narrower scope adds.
       - run: forge build --build-info --no-dynamic-test-linking --skip 'test/**' --skip 'script/**'

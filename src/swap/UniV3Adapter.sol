@@ -146,10 +146,8 @@ contract UniV3Adapter is ISwapAdapter {
 
         inToken.forceApprove(address(ROUTER), 0);
 
-        // An exact-input swap may stop early at a `sqrtPriceLimitX96` or when a
-        // pool runs out of liquidity, pulling only part of `amountIn`. The rest
-        // would stay here with no way out, so a partial fill reverts: inside the
-        // wrapper's `venueLeg` that becomes a refund of the whole input.
+        // A partial fill (see `PartialFill`) reverts: inside the wrapper's
+        // `venueLeg` that becomes a refund of the whole input.
         uint256 consumed = inBefore - inToken.balanceOf(address(this));
         if (consumed != amountIn) revert PartialFill(consumed, amountIn);
 

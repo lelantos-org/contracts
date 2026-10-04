@@ -12,8 +12,6 @@ import { YieldTestBase } from "../utils/YieldTestBase.sol";
 contract YieldIndexLivenessTest is YieldTestBase {
     uint64 internal constant N = 1_000_000; // units; fee at 25bps is 2_500
 
-    // ============== Venue liveness ===========================================
-
     /// A drained venue is a liveness failure, not a loss: the spend reverts
     /// entirely, so its nullifiers stay unspent and the note remains.
     function test_drainedVenue_revertsWithdraw_andLeavesNullifiersUnspent() public {

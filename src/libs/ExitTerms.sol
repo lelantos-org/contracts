@@ -16,19 +16,19 @@ import { UpgradeStorage } from "../UpgradeStorage.sol";
 ///
 /// Lowering any of them can only help a holder, so it applies at once. A raise
 /// is queued here instead and takes effect only through the permissionless
-/// commit once `DELAY` has passed, so every holder sees it coming and can exit
-/// under the old terms first.
+/// commit once `DELAY` has passed, so every holder has notice of it and can
+/// exit under the current terms first.
 ///
 /// The delay is measured from the raise itself, so it does not depend on call
 /// order relative to an upgrade: `DelayedUpgradeProxy` requires
 /// `UPGRADE_DELAY <= DELAY`, so a raise queued alongside an upgrade cannot land
 /// before the upgrade activates.
 ///
-/// Namespaced rather than declared in the pool, so the pool's sequential layout
-/// (`StorageLayout.t.sol`) is unchanged.
+/// Namespaced rather than declared in the pool, so it occupies none of the
+/// pool's sequential layout (`StorageLayout.t.sol`).
 library ExitTerms {
     /// `keccak256(abi.encode(uint256(keccak256("lelantos.storage.ExitTerms")) - 1)) & ~bytes32(uint256(0xff))`
-    /// Re-derived in `ExitTerms.t.sol`.
+    /// Re-derived in `NamespaceSlots.t.sol`.
     bytes32 internal constant SLOT = 0x0f9c0e5b0c444e1c6ae77a031530181a8734d67ee4430f4d78d0babf00f7d800;
 
     /// Notice a raise gets before it can be committed. At least the upgrade
@@ -64,8 +64,8 @@ library ExitTerms {
     /// also emits the term's own applied event, or cleared by a setter call at
     /// or below the live value. `assetId` is zero for `CANCEL_DELAY`.
     ///
-    /// `notBefore` is the earliest commit time as of queueing; a later guardian
-    /// pause defers it (see `dueAt`), which this event does not re-announce.
+    /// `notBefore` is the earliest commit time as of queueing; a later pause
+    /// defers it (see `dueAt`), which this event does not re-announce.
     event ExitTermRaisePending(uint64 indexed assetId, uint8 indexed term, uint256 value, uint256 notBefore);
 
     /// Every queued raise for the id is still inside its notice period; the
@@ -86,8 +86,8 @@ library ExitTerms {
     /// queued (or was already queued), in which case the caller keeps `live`;
     /// false when the caller applies `next` now.
     ///
-    /// At or below `live`, any queued raise is dropped: the owner's latest word
-    /// is a value no higher than today's, so the raise is withdrawn with it.
+    /// At or below `live`, any queued raise is dropped: the owner's latest call
+    /// asks for no more than the live value, which withdraws the raise.
     ///
     /// Above `live`, a call repeating the queued value keeps its timer, so a
     /// setter that also carries an immediate term (the deposit rate, the
@@ -118,7 +118,7 @@ library ExitTerms {
 
     /// When `p` becomes committable; zero if nothing is queued.
     ///
-    /// A guardian pause halts exits, so time spent paused cannot count as
+    /// A pause halts exits, so time spent paused cannot count as
     /// notice. Rather than track paused time, the raise waits a full `DELAY`
     /// after the latest pause ends: `pausedUntil` is never cleared, so an old
     /// pause yields a bound already in the past.

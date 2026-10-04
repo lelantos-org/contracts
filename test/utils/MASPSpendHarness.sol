@@ -12,9 +12,9 @@ import { deployBehindProxy, poolInitCalldata } from "./PoolDeployer.sol";
 
 /// Test-only subclass that seeds commitment-tree state (root and
 /// committedCount) directly, bypassing `deposit` and `flushBatch`. Used by
-/// spend suites such as `MASP.transferSnark.t.sol` to verify the spend-side
-/// Groth16 pair against a pre-populated tree. The pool is deployable only
-/// behind a proxy, so this takes no constructor arguments;
+/// spend suites that need a tree position no short deposit sequence reaches,
+/// such as `MASP.staleRoot.t.sol` and `MASP.treeCapacity.t.sol`. The pool is
+/// deployable only behind a proxy, so this takes no constructor arguments;
 /// `deploySpendHarness` initializes it behind one.
 contract MASPSpendHarness is MASP {
     /// Seeds the tree to a known root and committedCount without a proof.

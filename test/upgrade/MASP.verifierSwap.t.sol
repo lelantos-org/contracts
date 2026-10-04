@@ -31,14 +31,14 @@ contract MASPVerifierSwapTest is MASPUpgradeTestBase {
         newSpend = new MockBatchVerifier();
     }
 
-    /// `EscrowFlowBase._flush` mocks the live verifier into accepting, which is
-    /// exactly what this file must not do: the point is to let the committed
-    /// verifier answer. Otherwise identical, with `expectRevert` immediately
-    /// before the call that must revert rather than before the helper.
-    function _flushExpectingRejection(uint256 id, uint64 publicIn, bytes32 cm) internal {
+    /// `EscrowFlowBase._flush` mocks `tubVerifier` into accepting; this variant
+    /// mocks nothing, so the committed verifier answers. Otherwise identical,
+    /// with `expectRevert` immediately before the call that must revert rather
+    /// than before the helper.
+    function _flushExpectingRejection(uint256 id, uint64 publicIn, bytes32 inner) internal {
         PubInputs.TreeUpdateBatch memory tpi =
             DepositFixture.batch(masp.currentRoot(), bytes32(uint256(0xfeedbeef)), masp.committedCount(), 1);
-        DepositFixture.setDepositLeaves(tpi, 0, cm, ASSET_ID, publicIn);
+        DepositFixture.setDepositLeaves(tpi, 0, inner, ASSET_ID, publicIn);
         MASP.DepositMeta[] memory meta = DepositFixture.metas(1, payer, uint32(block.number), FEE_BPS);
 
         vm.expectRevert(MASP.TreeUpdateRejected.selector);
@@ -70,8 +70,8 @@ contract MASPVerifierSwapTest is MASPUpgradeTestBase {
         assertEq(tub, address(tubVerifier), "live pair is not the deployed one");
     }
 
-    /// The whole point of the window: a queued verifier has no effect on what
-    /// the pool accepts until it is committed.
+    /// A queued verifier has no effect on what the pool accepts until it is
+    /// committed.
     function test_queuedVerifierDoesNotVerifyBeforeItsWindowElapses() public {
         _queueRejectingPair();
 
@@ -82,16 +82,15 @@ contract MASPVerifierSwapTest is MASPUpgradeTestBase {
         assertEq(address(masp.TREE_UPDATE_BATCH_VERIFIER()), address(tubVerifier), "swapped before its window");
     }
 
-    /// After the commit the pool verifies against the new pair, which is the
-    /// change governance queued.
+    /// After the commit the pool verifies against the new pair.
     function test_committedVerifierDecidesWhatThePoolAccepts() public {
         _swapToRejectingPair();
 
         assertEq(address(masp.TREE_UPDATE_BATCH_VERIFIER()), address(rejectingTub), "pool did not pick up the swap");
         assertEq(address(masp.SPEND_VERIFIER()), address(newSpend), "pool did not pick up the spend verifier");
 
-        // The same flush that succeeded above is now rejected: the new verifier
-        // answers false, and `flushBatch` reverts rather than trusting it.
+        // A flush that succeeds under the deployed verifier is rejected: the new
+        // verifier answers false, and `flushBatch` reverts.
         uint256 id = _deposit(1_000, bytes32(uint256(0x222)), 0);
         _flushExpectingRejection(id, 1_000, bytes32(uint256(0x222)));
     }

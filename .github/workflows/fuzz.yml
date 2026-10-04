@@ -48,15 +48,6 @@ jobs:
           node-version: "24"
       - uses: extractions/setup-just@v2
       - run: just quint-install
-      # This job used to carry the EchidnaGenericCall optimization sweep as a
-      # `continue-on-error` step, to spread load away from the echidna job.
-      # It never ran: the sweep needs the Foundry build and the generated
-      # config that only the echidna job produces, so every invocation died
-      # immediately on
-      # "EchidnaGenericCall.optimize.generated.yaml: withBinaryFile: does not
-      # exist (No such file or directory)", which `continue-on-error` turned
-      # into a green step. The sweep now runs in the echidna matrix leg for
-      # that contract, next to the build it depends on.
       - name: Fresh-seed Quint sweep
         run: just quint-fresh
       - uses: actions/upload-artifact@v4
@@ -73,29 +64,22 @@ jobs:
   # the cache below round-tripping.
   #
   # One job per target, rather than one job running every sweep in sequence.
-  # Sequentially the runtimes added up against a single budget while the
-  # leading campaign's own runtime grew with the corpus it restored: the
-  # EchidnaMasp property sweep alone took 89-137 minutes across the runs of
-  # 2026-09-17..20, and the sweeps behind it got whatever was left of the
-  # job's 180 minutes. That stopped being enough once EchidnaGenericCall was
-  # added as a third target, and the job was cancelled mid-run on 2026-09-16
-  # and 2026-09-20, in both cases inside an optimization sweep that therefore
-  # has not run since. Splitting by target makes each job's budget depend on
-  # one contract's two campaigns instead of all five, so a slow target no
-  # longer starves the others, and the wall-clock `timeout` in echidna.yaml
-  # bounds each campaign on top of its test limit.
+  # A campaign's runtime grows with the corpus it restores, so under a single
+  # job budget a slow leading campaign leaves the sweeps behind it too little
+  # time and the job is cancelled mid-run. Per target, each job's budget
+  # depends on one contract's two campaigns only, and the wall-clock `timeout`
+  # in echidna.yaml bounds each campaign on top of its test limit.
   echidna:
     runs-on: [ubuntu-latest]
     strategy:
-      # A broken property on one target is a finding about that target; the
-      # other two still owe the night's fuzzing.
+      # A broken property on one target is a finding about that target only;
+      # the other targets' campaigns still run.
       fail-fast: false
       matrix:
         include:
-          # Test limits carried over from when these ran as sequential steps.
-          # They are upper bounds on sequences generated; `timeout` in
-          # echidna.yaml bounds the same campaign in wall-clock, and whichever
-          # is reached first ends it.
+          # The test limits are upper bounds on sequences generated; `timeout`
+          # in echidna.yaml bounds the same campaign in wall-clock time, and
+          # whichever is reached first ends it.
           - contract: EchidnaMasp
             property_limit: 400000
             optimize_limit: 150000
@@ -135,13 +119,10 @@ jobs:
       # A fresh checkout builds everything; `--force` keeps the step correct if
       # a cache is introduced.
       - run: FOUNDRY_PROFILE=echidna forge build --build-info --force --skip script
-      # Only this leg's target. The ordering constraint the justfile recipes
-      # work around — crytic-compile re-runs `forge build` scoped to the
-      # target it compiles, and Foundry prunes artifacts outside that
-      # dependency graph, so a config generated after another contract's sweep
-      # fails on a missing ABI — does not arise here, because a leg runs one
-      # contract. Both of this contract's configs are written by this single
-      # invocation, before either sweep.
+      # Only this leg's target. Both of its configs are written by this single
+      # invocation, before either sweep, so the ordering constraint the
+      # `echidna` recipe in the justfile handles (a config generated after
+      # another contract's sweep fails on a missing ABI) does not arise.
       - run: just _echidna-config ${{ matrix.contract }}
       # Append-only cache, one entry per target: the key is unique per run so
       # this job always writes a fresh entry, and `restore-keys` picks up the
@@ -151,15 +132,10 @@ jobs:
       #
       # Restore and save are separate actions rather than one `actions/cache`
       # step. The combined action saves in a post step, and post steps are
-      # skipped when a job is cancelled — which is what a `timeout-minutes`
-      # expiry is. So the runs that most needed their corpus kept were exactly
-      # the ones that dropped it: "Post Run actions/cache@v4 ... skipped" in
-      # the cancelled runs of 2026-09-16 and 2026-09-20. `if: always()` on an
-      # explicit save step runs during cancellation.
-      #
-      # The key scheme gained the contract segment here, so the first run after
-      # this change restores nothing and each target starts from an empty
-      # corpus once.
+      # skipped when a job is cancelled, which is what a `timeout-minutes`
+      # expiry is ("Post Run actions/cache@v4 ... skipped"), so a run that
+      # times out would drop its corpus. `if: always()` on an explicit save
+      # step runs during cancellation.
       - uses: actions/cache/restore@v4
         with:
           path: test/echidna/corpus/${{ matrix.contract }}
@@ -179,18 +155,17 @@ jobs:
           test-limit: ${{ matrix.property_limit }}
           format: text
           crytic-args: --compile-force-framework foundry --ignore-compile
-          # `echidna-version` is pinned to the version the justfile recipes use;
-          # the action's default is `latest`, which would let a new Echidna
-          # release fail an unrelated nightly run.
+          # `echidna-version` is pinned: the action's default is `latest`, which
+          # would let a new Echidna release fail an unrelated nightly run.
           #
           # `crytic-args` restates the config's `cryticArgs` because a CLI
           # value replaces it rather than extending it, and without the
           # platform pin crytic-compile falls back to the solc platform, whose
           # output it cannot read back.
           #
-          # NOTE: Echidna runs Slither for the constant extraction that seeds
-          # its mutations, and under `--ignore-compile` that step depends on
-          # the Slither/crytic-compile version pair. Homebrew's pair (Slither
+          # Echidna runs Slither for the constant extraction that seeds its
+          # mutations, and under `--ignore-compile` that step depends on the
+          # Slither/crytic-compile version pair. Homebrew's pair (Slither
           # 0.11.6 with crytic-compile 0.4.2) crashes in constant folding; the
           # container ships a matched pair, which has not been verified outside
           # it. Success logs "Running slither on ... Done!"; failure logs
@@ -198,11 +173,11 @@ jobs:
           # likely be less effective", which reduces mutation quality but not
           # correctness.
       - name: Echidna optimization sweep (${{ matrix.contract }})
-        # Runs even when the property sweep above failed: the two answer
-        # different questions, and the magnitude report is worth having
-        # alongside a broken property. The property sweep stays the gate.
-        # Not `always()`, which also fires while the job is being cancelled
-        # and would start a fresh campaign inside the cancellation window.
+        # Runs even when the property sweep above failed: the magnitude report
+        # is useful alongside a broken property, and the property sweep remains
+        # the gate. Not `always()`, which also fires while the job is being
+        # cancelled and would start a fresh campaign inside the cancellation
+        # window.
         if: success() || failure()
         # Echidna exits non-zero in optimization mode regardless of result: an
         # optimization target is never "solved" and is reported as an open

@@ -85,12 +85,12 @@ contract MockNativePool is IMASPPool {
         uint256,
         uint48,
         bytes32,
-        uint256[2] calldata,
         uint64,
         uint16,
         address payer,
         uint32,
-        PubInputs.FeeNote calldata
+        PubInputs.FeeNote calldata,
+        uint256
     ) external returns (uint256 total, uint256 feeRefunded) {
         if (refundAmount != 0) WETH.transfer(payer, refundAmount);
         feeRefunded = feeRefundedReport;

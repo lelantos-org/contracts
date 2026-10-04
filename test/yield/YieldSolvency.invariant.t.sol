@@ -38,7 +38,7 @@ abstract contract YieldInvariantBase is Test {
     ERC4626Venue internal venue;
     YieldHandler internal handler;
 
-    /// Overridden by the monotonicity suite below.
+    /// Overridden to zero by the monotonicity and strand suites below.
     function _perfBps() internal view virtual returns (uint16) {
         return 1000;
     }
@@ -154,6 +154,12 @@ contract YieldSolvencyInvariantTest is YieldInvariantBase {
 ///
 /// With `perfBps = 0` there is no dilution channel and monotonicity holds
 /// exactly: only a venue loss or the fee may move the index down.
+///
+/// A venue loss includes assets the vault strands on a draw. ERC-4626
+/// `withdraw` rounds the burned shares up, so a draw within one share's value
+/// of the position burns every share and leaves the rest in the vault,
+/// unclaimed. The handler counts that as a loss; see `YieldHandler._observe`
+/// and `YieldVaultStrandTest`.
 contract YieldIndexMonotonicityInvariantTest is YieldSolvencyInvariantTest {
     function _perfBps() internal view override returns (uint16) {
         return 0;
@@ -161,6 +167,52 @@ contract YieldIndexMonotonicityInvariantTest is YieldSolvencyInvariantTest {
 
     function invariant_indexMonotoneAbsentLossWithNoPerfFee() public view {
         assertFalse(handler.indexFellWithoutLoss(), "index fell with neither a loss nor a fee to explain it");
+    }
+}
+
+/// The one way the index falls with no `lose` call and no fee: a draw that
+/// burns the venue's last shares while the vault still holds assets.
+///
+/// The sequence is the monotonicity invariant's shrunk counterexample. A
+/// donation into the empty vault leaves the venue a residual position after the
+/// only holder cancels; a 99.13% buffer draws it down to 22 shares; interest
+/// then makes each share worth about 1e20 base units; and the next rebalance
+/// draws 99.13% of the position, which rounds up to all 22 shares.
+contract YieldVaultStrandTest is YieldInvariantBase {
+    function _perfBps() internal view override returns (uint16) {
+        return 0;
+    }
+
+    function test_vaultStrand_countsAsVenueLoss() public {
+        handler.earn(2633);
+        handler.deposit(12_682, true);
+        handler.cancel(0);
+        handler.setParams(9913, 0);
+        handler.rebalance();
+        assertEq(vault.balanceOf(address(venue)), 22, "venue position not drawn down to a few shares");
+
+        handler.earn(type(uint96).max);
+        handler.deposit(168_700, true);
+        assertEq(handler.lastStranded(), 0, "nothing stranded before the draw");
+        assertFalse(handler.sawLoss(), "interest and a shield read as a loss");
+        uint256 indexBefore = _state().index;
+
+        handler.rebalance();
+
+        assertEq(vault.totalSupply(), 0, "the draw left the venue a share");
+        assertGt(vault.totalAssetsHeld(), 0, "nothing was stranded");
+        assertEq(handler.lastStranded(), vault.totalAssetsHeld(), "stranded assets not observed");
+        assertLt(_state().index, indexBefore, "the strand did not lower the index");
+        assertTrue(handler.sawLoss(), "the strand was not counted as a venue loss");
+        assertFalse(handler.indexFellWithoutLoss(), "a fall explained by the strand was reported");
+    }
+
+    /// Interest paid into a vault in which the venue holds no share is not the
+    /// venue's to lose, so it must not switch the monotonicity check off.
+    function test_vaultStrand_interestOnEmptyVaultIsNotALoss() public {
+        handler.earn(2633);
+        assertEq(handler.lastStranded(), 2633, "unclaimed interest not tracked");
+        assertFalse(handler.sawLoss(), "interest on an empty vault read as a loss");
     }
 }
 

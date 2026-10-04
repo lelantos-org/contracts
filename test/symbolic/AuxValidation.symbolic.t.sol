@@ -33,8 +33,8 @@ contract AuxValidationSymbolicTest is GuardAsserts {
         h = new AuxValidationHarness();
     }
 
-    /// The Baby-Jubjub prime-order generator: on-curve and outside the small
-    /// subgroup, so both curve checks pass concretely.
+    /// A payload whose points are the Baby-Jubjub prime-order generator: on-curve
+    /// and outside the small subgroup, so both curve checks pass concretely.
     function _payload(bytes memory ciphertext) internal pure returns (AuxValidation.Output memory o) {
         o.clueRx = BabyJubJub.BASE8_X;
         o.clueRy = BabyJubJub.BASE8_Y;

@@ -62,9 +62,8 @@ contract LelantosTokenTest is Test {
 
     // ============== ERC-6372 clock ===========================================
 
-    /// Warps use absolute timestamps. Under `via_ir` the optimizer may cache
-    /// `block.timestamp` within a call, which `vm.warp` invalidates, so
-    /// `vm.warp(block.timestamp + n)` is unreliable in a test body.
+    /// Warps use absolute timestamps: under `via_ir` the optimizer may cache
+    /// `block.timestamp` within a call.
     function test_clockIsTimestamp() public {
         vm.warp(1_000);
         assertEq(token.clock(), uint48(1_000));
@@ -81,7 +80,6 @@ contract LelantosTokenTest is Test {
 
     // ============== Delegation ===============================================
 
-    /// A balance carries no voting weight until it is delegated.
     function test_balanceIsNotVotesUntilDelegated() public {
         assertEq(token.getVotes(RECIPIENT), 0, "undelegated balance must carry no weight");
         vm.prank(RECIPIENT);

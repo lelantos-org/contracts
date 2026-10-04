@@ -42,7 +42,7 @@ abstract contract EscrowFlowBase is Test {
 
     /// The relayer fee note every deposit here carries. It has zero value, but
     /// its leaf is still inserted, so a deposit always occupies two leaves.
-    bytes32 internal constant FEE_CM = DepositFixture.FEE_CM;
+    bytes32 internal constant FEE_INNER = DepositFixture.FEE_INNER;
 
     TreeUpdateBatchGroth16Verifier internal tubVerifier;
     BatchedGroth16Verifier internal batchVerifier;
@@ -108,27 +108,27 @@ abstract contract EscrowFlowBase is Test {
         token.approve(permit2, type(uint256).max);
     }
 
-    function _depositCall(uint64 publicIn, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
-        PubInputs.DepositRequest memory d = DepositFixture.request(ASSET_ID, publicIn, payer, recipient, cm);
+    function _depositCall(uint64 publicIn, bytes32 inner, uint256 nonce) internal returns (uint256 id) {
+        PubInputs.DepositRequest memory d = DepositFixture.request(ASSET_ID, publicIn, payer, recipient, inner);
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         return masp.deposit(d, DepositFixture.sig(nonce), aux[0], aux[1]);
     }
 
     /// Funds the payer and escrows a deposit in one step.
-    function _deposit(uint64 publicIn, bytes32 cm, uint256 nonce) internal returns (uint256 id) {
+    function _deposit(uint64 publicIn, bytes32 inner, uint256 nonce) internal returns (uint256 id) {
         _fundPayer(publicIn);
-        return _depositCall(publicIn, cm, nonce);
+        return _depositCall(publicIn, inner, nonce);
     }
 
     /// Flushes one escrowed deposit, advancing the tree and accruing the
     /// treasury's fee. A deposit occupies two adjacent leaves (principal and the
     /// note paying the flusher), so the tree advances by two.
-    function _flush(uint256 id, uint64 publicIn, bytes32 cm) internal {
+    function _flush(uint256 id, uint64 publicIn, bytes32 inner) internal {
         // The new root must stay inside the BN254 scalar field:
         // `PubInputs.compress` rejects an out-of-field coefficient.
         PubInputs.TreeUpdateBatch memory tpi =
             DepositFixture.batch(masp.currentRoot(), bytes32(uint256(0xfeedbeef)), masp.committedCount(), 1);
-        DepositFixture.setDepositLeaves(tpi, 0, cm, ASSET_ID, publicIn);
+        DepositFixture.setDepositLeaves(tpi, 0, inner, ASSET_ID, publicIn);
         MASP.DepositMeta[] memory meta = DepositFixture.metas(1, payer, uint32(block.number), FEE_BPS);
 
         Stubs.acceptTreeUpdateProofs(IVerifier(address(tubVerifier)), true);
@@ -137,8 +137,8 @@ abstract contract EscrowFlowBase is Test {
     }
 
     /// Deposits then flushes. Returns the treasury fee accrued by the flush.
-    function _depositAndFlush(uint64 publicIn, bytes32 cm) internal returns (uint256 fee) {
+    function _depositAndFlush(uint64 publicIn, bytes32 inner) internal returns (uint256 fee) {
         fee = FeeMath.fee(uint256(publicIn) * SCALE, FEE_BPS);
-        _flush(_deposit(publicIn, cm, 0), publicIn, cm);
+        _flush(_deposit(publicIn, inner, 0), publicIn, inner);
     }
 }

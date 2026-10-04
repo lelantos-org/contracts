@@ -46,12 +46,12 @@ abstract contract MaspReplay is MaspSpecReplay {
     /// The generator does not emit spec constants, so this duplicates the
     /// spec's value. A mismatch with the spec moves its `cancel` /
     /// `cancelTooEarly` guards to a different block and the replay diverges at
-    /// the first one. `setUp` asserts that the pool agrees.
+    /// the first one.
     uint32 internal constant CANCEL_DELAY = 7200;
     address internal constant TREASURY = address(0xfee);
-    /// The fee-note commitment every deposit escrows, with `feeIn` zero. Bound
+    /// The fee note's `inner` every deposit escrows, with `feeIn` zero. Bound
     /// into the escrow digest, so flush and cancel have to resupply it.
-    bytes32 internal constant FEE_CM = bytes32(uint256(0xfee));
+    bytes32 internal constant FEE_INNER = bytes32(uint256(0xfee));
 
     MASP internal masp;
     MockERC20 internal token;
@@ -69,7 +69,9 @@ abstract contract MaspReplay is MaspSpecReplay {
     // for the same reason.
     uint256[] internal ids;
     mapping(uint256 id => uint48) internal shadowPublicIn;
-    mapping(uint256 id => bytes32) internal shadowCm;
+    /// The depositor note's `inner`, which the digest binds and the batch
+    /// circuit hashes into the leaf.
+    mapping(uint256 id => bytes32) internal shadowInner;
     mapping(uint256 id => uint256) internal shadowSubmitBlock;
     mapping(uint256 id => MaspSpec.Status) internal shadowStatus;
     uint256 internal nonce;
@@ -153,8 +155,8 @@ abstract contract MaspReplay is MaspSpecReplay {
         d.publicIn = publicIn;
         d.payer = payer;
         d.recipient = address(0xb0b);
-        d.outCm = bytes32(uint256(0x1000 + nonce));
-        d.feeCm = FEE_CM;
+        d.inner = bytes32(uint256(0x1000 + nonce));
+        d.feeInner = FEE_INNER;
 
         AuxValidation.Output[6] memory aux = SpendFixture.validAux();
         MASP.Permit2Sig memory sig = MASP.Permit2Sig({
@@ -165,7 +167,7 @@ abstract contract MaspReplay is MaspSpecReplay {
 
         ids.push(id);
         shadowPublicIn[id] = uint48(publicIn);
-        shadowCm[id] = d.outCm;
+        shadowInner[id] = d.inner;
         shadowSubmitBlock[id] = block.number;
         shadowStatus[id] = MaspSpec.Status.Pending;
     }
@@ -174,27 +176,30 @@ abstract contract MaspReplay is MaspSpecReplay {
     /// its principal, then the note paying the flusher. `_validateBatchHeader`
     /// requires `actualCount == n * 2` and `_drainDeposit` rebuilds the escrow
     /// digest from leaf `p + 1` as the fee note, which submit escrowed as
-    /// `(0, FEE_CM, [0, 0])`. Populating only leaf 0 reverts `BatchMisaligned`.
+    /// `FeeNote(0, 0, FEE_INNER)`. Populating only leaf 0 reverts
+    /// `BatchMisaligned`.
     function _flush(uint256 id) private {
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
         // The SNARK is mocked so the value is arbitrary, but it must be a field
         // element: `flushBatch` compresses the header through
         // `SnarkCompression.evaluatePolyAt`, which rejects a coefficient >= R.
-        // A raw keccak clears BN254 about 78% of the time.
+        // A raw keccak is >= R about 81% of the time.
         tpi.newRoot = bytes32(uint256(keccak256(abi.encode("flushed", id, block.number))) % SnarkCompression.R);
         tpi.startIndex = masp.committedCount();
         tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
 
-        tpi.cms[0] = shadowCm[id];
+        // On a deposit leaf `cms` carries the note's `inner`; the circuit
+        // builds the leaf from it and the slot's asset and amount.
+        tpi.cms[0] = shadowInner[id];
         tpi.leafAsset[0] = ASSET_ID;
         tpi.leafPublicIn[0] = uint64(shadowPublicIn[id]);
         tpi.isDeposit[0] = 1;
 
-        tpi.cms[1] = FEE_CM;
-        // Zero value, so asset 0: the circuit canonicalises the asset of a
-        // leaf whose Pedersen binding cannot see it (step 6a), and
-        // `_drainDeposit` requires the match.
+        tpi.cms[1] = FEE_INNER;
+        // Zero value, so asset 0, "no asset": submit requires it of a
+        // zero-value fee note, the escrow digest holds it, and `_drainDeposit`
+        // rebuilds the digest from this slot.
         tpi.leafAsset[1] = 0;
         tpi.leafPublicIn[1] = 0;
         tpi.isDeposit[1] = 1;
@@ -203,7 +208,8 @@ abstract contract MaspReplay is MaspSpecReplay {
         batch[0] = id;
 
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: payer, submittedAt: uint32(shadowSubmitBlock[id]), fbps: FEE_BPS });
+        meta[0] =
+            MASP.DepositMeta({ payer: payer, submittedAt: uint32(shadowSubmitBlock[id]), fbps: FEE_BPS, pulled: 0 });
 
         MASP.Proof memory proof;
         masp.flushBatch(batch, meta, proof, tpi);
@@ -212,8 +218,6 @@ abstract contract MaspReplay is MaspSpecReplay {
     }
 
     function _cancel(uint256 id, bool expectTooEarly) private {
-        uint256[2] memory zCv;
-
         // `expectRevert` must precede `prank`: a prank is consumed by the next
         // call, and `expectRevert` is itself a call. The reverse order spends
         // the prank on the cheatcode, so the cancel comes from this contract
@@ -231,13 +235,13 @@ abstract contract MaspReplay is MaspSpecReplay {
         masp.cancelDeposit(
             id,
             shadowPublicIn[id],
-            shadowCm[id],
-            zCv,
+            shadowInner[id],
             ASSET_ID,
             FEE_BPS,
             payer,
             uint32(shadowSubmitBlock[id]),
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: FEE_CM, feeCvDep: zCv })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeInner: FEE_INNER }),
+            0
         );
 
         if (!expectTooEarly) shadowStatus[id] = MaspSpec.Status.Cancelled;

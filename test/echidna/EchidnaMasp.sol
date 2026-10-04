@@ -12,8 +12,8 @@ import { EchidnaMaspAdversarial } from "./EchidnaMaspAdversarial.sol";
 /// Foundry's invariant runner samples fresh call sequences each run; Echidna
 /// mutates a corpus it keeps on disk across runs (`corpusDir`, emitted per
 /// contract by `just _echidna-config`), so sequences that reached deep states
-/// remain available as mutation bases. The properties restate the Foundry
-/// ones; the persistent corpus is what this target adds.
+/// remain available as mutation bases. The bookkeeping properties restate the
+/// Foundry ones.
 ///
 /// Differences from the Foundry handlers, required by hevm's smaller cheatcode
 /// set:
@@ -99,7 +99,7 @@ contract EchidnaMasp is EchidnaMaspAdversarial {
     }
 
     /// Escrow storage agrees with the lifecycle ghost: `escrowed[id]` is
-    /// non-zero for exactly the ids this handler believes are pending.
+    /// non-zero for exactly the ids the ghost marks `Pending`.
     ///
     /// Compares per-deposit storage, not balances, against the ghost. Catches
     /// a drain that moved funds without clearing the slot (leaving it
@@ -114,9 +114,8 @@ contract EchidnaMasp is EchidnaMaspAdversarial {
         return true;
     }
 
-    /// Conservation across the pool boundary: every token that has left the
-    /// pool via `sweep` is sitting in the treasury, and nothing else ever
-    /// reached it.
+    /// Conservation across the pool boundary: the treasury holds every token
+    /// that left the pool via `sweep`, and nothing else.
     ///
     /// `echidna_solvency` sees only the pool's side, so a sweep that moved more
     /// than `accruedFee`, or moved it elsewhere, passes it if the pool's
@@ -222,10 +221,17 @@ contract EchidnaMasp is EchidnaMaspAdversarial {
         return !transferMovedTokens;
     }
 
+    /// No `transfer` whose request names an asset is accepted.
+    ///
+    /// The transact circuit forces `publicAssetId` to 0 whenever `publicOut`
+    /// is, so a transfer does not publish the asset it moves; the pool rejects
+    /// a request that names one before verifying anything.
+    function echidna_transferNamesNoAsset() public view returns (bool) {
+        return !namedAssetTransferAccepted;
+    }
+
     // -----------------------------------------------------------------------
     // Root ring and pause
-    //
-    // Root eviction and the guardian pause.
     // -----------------------------------------------------------------------
 
     /// Every root the ring buffer holds reads as known, and `rootIndexOf`

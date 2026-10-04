@@ -11,7 +11,7 @@ import { SpendFixture } from "../utils/SpendFixture.sol";
 import { EchidnaMaspBase } from "./EchidnaMaspBase.sol";
 
 /// Honest handlers for `EchidnaMasp`: escrow (submit, flush, cancel, sweep),
-/// the withdraw leg, the root ring, and the guardian pause.
+/// the withdraw leg, the root ring, and the admin pause.
 abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
     // -----------------------------------------------------------------------
     // Handlers
@@ -36,8 +36,8 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         d.publicIn = publicIn;
         d.payer = address(payer);
         d.recipient = address(0xb0b);
-        d.outCm = bytes32(uint256(0x1000 + nonce));
-        d.feeCm = bytes32(uint256(0xfee));
+        d.inner = bytes32(uint256(0x1000 + nonce));
+        d.feeInner = FEE_INNER;
         d.feeIn = feeIn;
         d.feeAssetId = ASSET_ID;
 
@@ -55,7 +55,7 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         relayerFeeAt[id] = relayerFee;
         relayerFeeIn[id] = feeIn;
         preimagePublicIn[id] = uint48(publicIn);
-        preimageCm0[id] = d.outCm;
+        preimageInner[id] = d.inner;
         preimageSubmittedAt[id] = uint32(block.number);
         ghostPendingTotal += inAmt + fee + relayerFee;
         submitCount += 1;
@@ -73,11 +73,9 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         // the required field reduction.
         tpi.newRoot = EchidnaRoots.fresh(abi.encode("flushed", id, block.number));
         tpi.startIndex = masp.committedCount();
-        // A deposit occupies LEAVES_PER_DEPOSIT (= 2) adjacent leaves: the
-        // principal, then the note paying the flusher. `_validateBatchHeader`
-        // requires `actualCount == n * LEAVES_PER_DEPOSIT` (else
-        // `BatchMisaligned`) and `_drainDeposit` rebuilds the escrow digest
-        // from leaf `p + 1`, so both leaves must be populated.
+        // `_validateBatchHeader` requires `actualCount` to equal
+        // `n * LEAVES_PER_DEPOSIT` (else `BatchMisaligned`). See
+        // `_fillDepositLeaves` for the leaf pair.
         tpi.actualCount = uint64(PubInputs.LEAVES_PER_DEPOSIT);
         _fillDepositLeaves(tpi, 0, id);
 
@@ -85,7 +83,7 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         ids[0] = id;
 
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: address(payer), submittedAt: preimageSubmittedAt[id], fbps: FEE_BPS });
+        meta[0] = _meta(id);
 
         MASP.Proof memory proof;
         bytes32 willEvict = _pendingEviction();
@@ -111,33 +109,36 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
     /// The cancel itself, shared by `cancelOne` and `cancelAt` so the two
     /// cannot drift.
     function _cancel(uint256 id) internal {
-        uint256[2] memory zCv;
-        payer.exec(
-            address(masp),
-            abi.encodeCall(
-                MASP.cancelDeposit,
-                (
-                    id,
-                    preimagePublicIn[id],
-                    preimageCm0[id],
-                    zCv,
-                    ASSET_ID,
-                    FEE_BPS,
-                    address(payer),
-                    preimageSubmittedAt[id],
-                    PubInputs.FeeNote({
-                        feeIn: uint48(relayerFeeIn[id]),
-                        feeAssetId: relayerFeeIn[id] == 0 ? 0 : ASSET_ID,
-                        feeCm: bytes32(uint256(0xfee)),
-                        feeCvDep: zCv
-                    })
-                )
-            )
-        );
+        payer.exec(address(masp), _honestCancelCalldata(id));
 
         status[id] = Status.Cancelled;
         ghostPendingTotal -= principalAt[id] + feeAt[id] + relayerFeeAt[id];
         cancelCount += 1;
+    }
+
+    /// The correct cancel preimage for `id`. Every honest cancel sends it, and
+    /// so do the handlers testing a guard other than the digest, so that a
+    /// rejection can only come from that guard. The asset is plain, so the
+    /// refund cap is zero.
+    function _honestCancelCalldata(uint256 id) internal view returns (bytes memory) {
+        return abi.encodeCall(
+            MASP.cancelDeposit,
+            (
+                id,
+                preimagePublicIn[id],
+                preimageInner[id],
+                ASSET_ID,
+                FEE_BPS,
+                address(payer),
+                preimageSubmittedAt[id],
+                PubInputs.FeeNote({
+                    feeIn: uint48(relayerFeeIn[id]),
+                    feeAssetId: relayerFeeIn[id] == 0 ? 0 : ASSET_ID,
+                    feeInner: FEE_INNER
+                }),
+                0
+            )
+        );
     }
 
     /// `cancelOne` for a caller that has already chosen the deposit.
@@ -166,17 +167,27 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
     /// Shared so single- and multi-deposit batches are assembled identically.
     function _fillDepositLeaves(PubInputs.TreeUpdateBatch memory tpi, uint256 slot, uint256 id) internal view {
         uint256 pIdx = slot * PubInputs.LEAVES_PER_DEPOSIT;
-        tpi.cms[pIdx] = preimageCm0[id];
+        // On a deposit leaf `cms` carries the note's `inner`; the circuit
+        // builds the leaf from it and the slot's asset and amount.
+        tpi.cms[pIdx] = preimageInner[id];
         tpi.leafAsset[pIdx] = ASSET_ID;
         tpi.leafPublicIn[pIdx] = uint64(preimagePublicIn[id]);
         tpi.isDeposit[pIdx] = 1;
-        tpi.cms[pIdx + 1] = bytes32(uint256(0xfee));
-        // Zero-value leaves declare asset 0: `tree_update_batch.circom` step 6a
-        // canonicalises the asset of a leaf whose Pedersen binding cannot see
-        // it, and `_drainDeposit` requires the match.
+        tpi.cms[pIdx + 1] = FEE_INNER;
+        // A zero-value fee leaf declares asset 0, "no asset": submit requires
+        // it (`FeeAssetMustBeZero`), the escrow digest holds it as
+        // `FeeNote.feeAssetId`, and `_drainDeposit` rebuilds the digest from
+        // this slot, so any other id fails `DigestMismatch`.
         tpi.leafAsset[pIdx + 1] = relayerFeeIn[id] == 0 ? 0 : ASSET_ID;
         tpi.leafPublicIn[pIdx + 1] = relayerFeeIn[id];
         tpi.isDeposit[pIdx + 1] = 1;
+    }
+
+    /// The digest fields a flush resupplies for deposit `id` outside `tpi`.
+    /// The asset is plain, so the escrow carries no refund cap.
+    function _meta(uint256 id) internal view returns (MASP.DepositMeta memory) {
+        return
+            MASP.DepositMeta({ payer: address(payer), submittedAt: preimageSubmittedAt[id], fbps: FEE_BPS, pulled: 0 });
     }
 
     /// Header shared by the multi-deposit flush handlers.
@@ -211,8 +222,8 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         ids[1] = second;
 
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](2);
-        meta[0] = MASP.DepositMeta({ payer: address(payer), submittedAt: preimageSubmittedAt[first], fbps: FEE_BPS });
-        meta[1] = MASP.DepositMeta({ payer: address(payer), submittedAt: preimageSubmittedAt[second], fbps: FEE_BPS });
+        meta[0] = _meta(first);
+        meta[1] = _meta(second);
 
         MASP.Proof memory proof;
         bytes32 willEvict = _pendingEviction();
@@ -247,7 +258,7 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         ids[1] = id;
 
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](2);
-        meta[0] = MASP.DepositMeta({ payer: address(payer), submittedAt: preimageSubmittedAt[id], fbps: FEE_BPS });
+        meta[0] = _meta(id);
         meta[1] = meta[0];
 
         MASP.Proof memory proof;
@@ -294,7 +305,8 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
     // `MASPHarness.consumeNullifierExternal`, i.e. `NullifierSet` in isolation.
     // -----------------------------------------------------------------------
 
-    /// Build the spend/tree-update pair for a withdrawal of `publicOut`.
+    /// Build the spend/tree-update pair for a withdrawal of `publicOut`, or
+    /// for a transfer when `publicOut` is zero.
     ///
     /// Shared so the spend handlers differ in exactly one field each, making a
     /// rejection attributable to the guard under test.
@@ -304,8 +316,10 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         returns (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi)
     {
         pi.merkleRoot = masp.currentRoot();
-        pi.publicAssetId = ASSET_ID;
-        pi.publicIn = 0; // `withdraw` reverts MustNotHaveDeposit otherwise
+        // A withdraw names the asset it pays out in. A transfer names none:
+        // the circuit forces `publicAssetId` to 0 whenever `publicOut` is, and
+        // `transfer` reverts `MustNotNameAsset` otherwise.
+        pi.publicAssetId = publicOut == 0 ? 0 : ASSET_ID;
         pi.publicOut = publicOut;
         pi.recipient = RECIPIENT;
         pi.chainId = block.chainid;
@@ -325,14 +339,13 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         return ghostShieldedPrincipal - ghostWithdrawnGross;
     }
 
-    /// A `publicOut` the pool can actually pay, or 0 when it can pay nothing.
+    /// A `publicOut` the pool can pay (at least 1), or 0 when it can pay
+    /// nothing.
     ///
     /// With the spend verifier stubbed to accept, an unbounded `publicOut`
     /// would drain escrowed deposits and `echidna_solvency` would report an
     /// insolvency caused by the stub rather than by MASP. Every withdrawing
     /// handler uses this bound.
-    ///
-    /// Zero signals "nothing to withdraw"; a valid amount is at least 1.
     function _boundedPublicOut(uint64 seed) internal view returns (uint64) {
         uint256 maxOut = _shieldedAvailable() / SCALE;
         if (maxOut == 0) return 0;
@@ -389,11 +402,11 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
     ///
     /// `transfer` takes the same proofs and tree update as `withdraw`, runs the
     /// same nullifier consumption and root advance, and must leave
-    /// `balanceOf(masp)` unchanged. A per-call balance check attributes any
-    /// token movement to this path, which a balance-sum property cannot.
+    /// `balanceOf(masp)` unchanged. The balance is compared across this call;
+    /// see `echidna_transferMovesNoTokens`.
     function transferShielded(uint256 cmSeed) public {
-        // publicOut = 0 makes this a transfer; `_spendRequest` sets publicIn
-        // to 0.
+        // publicOut = 0 makes this a transfer, and `_spendRequest` then leaves
+        // `publicAssetId` at 0.
         (PubInputs.Transact memory pi, PubInputs.SpendTree memory tpi) = _spendRequest(0, _nextNullifierSeed(), cmSeed);
 
         uint256 balanceBefore = token.balanceOf(address(masp));
@@ -541,7 +554,7 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
     }
 
     // -----------------------------------------------------------------------
-    // Guardian pause
+    // Admin pause
     //
     // `whenNotPaused` guards five entry points (withdraw, transfer, deposit,
     // depositAuthorized, flushBatch) and not `cancelDeposit` or `sweep`, so
@@ -562,8 +575,8 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         if (pausedUntil != 0) return;
         // Requires at least two pending deposits. `pausedCancelHonoured` needs
         // a deposit still pending during the pause, but cancels are not
-        // blocked, so `cancelOne` and the cancel negative handlers keep
-        // draining escrow while `submit` is frozen and cannot replace it.
+        // blocked, so `cancelOne` keeps draining escrow while `submit` is
+        // frozen and cannot replace it.
         if (_countPending() < 2) return;
         uint256 duration = 60_000 + (uint256(durSeed) % 140_000);
         proxy.pauseSpends(duration);
@@ -589,10 +602,8 @@ abstract contract EchidnaMaspHandlers is EchidnaMaspBase {
         } catch { }
     }
 
-    /// While paused, a cancel whose delay has elapsed must still be honoured.
-    ///
-    /// If a pause could block refunds, an admin could hold depositors' escrow
-    /// for the length of the pause.
+    /// While paused, a cancel whose delay has elapsed must still be honoured;
+    /// see `echidna_pauseCannotTrapFunds`.
     function pausedCancelHonoured(uint256 idxSeed) public {
         if (block.timestamp >= pausedUntil) return;
         // Scans for a pending deposit that is also past its delay. The first

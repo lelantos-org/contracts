@@ -31,14 +31,14 @@ import {
 import { Stubs } from "../utils/Stubs.sol";
 import { TestConstants } from "../utils/TestConstants.sol";
 
-/// Guards with no direct assertion elsewhere in the suite: constructor
+/// Guards with no direct assertion elsewhere in the suite: initializer
 /// dependency checks, registry bounds, spend-path magnitude bounds, batch
 /// mode, and the small-subgroup rejection in `AuxValidation`.
 contract MASPGuardCoverageTest is MockPoolTestBase {
     uint16 internal constant FEE_BPS = TestConstants.FEE_BPS;
     address internal constant PAYER = address(0xBEEF);
 
-    /// Real contracts, used only by the constructor probe tests.
+    /// Real contracts, used only by the spend-verifier probe tests.
     Groth16Verifier internal realVerifier;
     BatchedGroth16Verifier internal realBatchVerifier;
 
@@ -138,6 +138,77 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
+    /// The pool hands the batch verifier `[y, digest, z]` for each proof, as
+    /// `PubInputs.compress` and `compressSpend` derive them from the request:
+    /// transact signals in the first slot, tree-update signals in the second.
+    /// Each digest word arrives exactly as calldata carried it. The pool never
+    /// recomputes either commitment, so forwarding them is what lets the proofs
+    /// check them.
+    function test_spendForwardsBothDigestsToVerifier() public {
+        PubInputs.Transact memory pi = _pi();
+        pi.digest = 0x7a6e5ac7;
+        PubInputs.SpendTree memory tpi = _spendTree(pi);
+        tpi.digest = 0xba7c4;
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
+        token.mint(address(masp), 1e18);
+
+        uint256[3] memory pub1 = this.compressTransact(pi, aux);
+        uint256[3] memory pub2 = this.compressSpend(pi, tpi, masp.currentRoot());
+        assertEq(pub1[1], pi.digest, "transact digest is signal 1, as given");
+        assertEq(pub2[1], tpi.digest, "batch digest is signal 1, as given");
+
+        MASP.Proof memory proof = FixtureLoader.emptyProof();
+        vm.expectCall(
+            address(bv),
+            abi.encodeCall(
+                IBatchVerifier.verifyBatch, (proof.a, proof.b, proof.c, pub1, proof.a, proof.b, proof.c, pub2)
+            ),
+            1
+        );
+        vm.prank(RELAYER);
+        masp.withdraw(proof, pi, proof, tpi, aux);
+    }
+
+    /// Both digest words are in the challenge preimage of their own proof and
+    /// of no other: changing the transact digest moves the transact `z` alone,
+    /// and changing the batch digest moves the tree-update `z` alone. A relayer
+    /// therefore cannot substitute either without invalidating that proof.
+    function test_spendDigestsMoveTheirOwnChallenge() public view {
+        PubInputs.Transact memory pi = _pi();
+        PubInputs.SpendTree memory tpi = _spendTree(pi);
+        AuxValidation.Output[6] memory aux = SpendFixture.validAux();
+        bytes32 root = masp.currentRoot();
+        uint256[3] memory t0 = this.compressTransact(pi, aux);
+        uint256[3] memory u0 = this.compressSpend(pi, tpi, root);
+
+        pi.digest = 1;
+        assertTrue(this.compressTransact(pi, aux)[2] != t0[2], "transact digest moves the transact z");
+        assertEq(this.compressSpend(pi, tpi, root)[2], u0[2], "transact digest is not in the batch image");
+
+        pi.digest = 0;
+        tpi.digest = 1;
+        assertEq(this.compressTransact(pi, aux)[2], t0[2], "batch digest is not in the transact image");
+        assertTrue(this.compressSpend(pi, tpi, root)[2] != u0[2], "batch digest moves the tree-update z");
+    }
+
+    /// External so the request arrives as calldata, which is what the pool
+    /// compresses.
+    function compressTransact(PubInputs.Transact calldata pi, AuxValidation.Output[6] calldata aux)
+        external
+        pure
+        returns (uint256[3] memory)
+    {
+        return PubInputs.compress(pi, aux);
+    }
+
+    function compressSpend(PubInputs.Transact calldata pi, PubInputs.SpendTree calldata tpi, bytes32 oldRoot)
+        external
+        pure
+        returns (uint256[3] memory)
+    {
+        return PubInputs.compressSpend(pi, tpi, oldRoot);
+    }
+
     /// `verifyBatch` returns false rather than reverting, so `_verifyProofs`
     /// must check the bool. Omitting that check fails open and is not detected
     /// by tests that mock verification to `true`.
@@ -151,7 +222,7 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, SpendFixture.validAux());
     }
 
-    // --- constructor dependency checks -------------------------------------
+    // --- initializer dependency checks -------------------------------------
 
     function test_revert_ZeroVerifier_treeUpdate() public {
         _expectDeployRevert(VerifierStorage.ZeroVerifier.selector, IVerifier(address(0)), bv, permit2);
@@ -167,7 +238,7 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
         _expectDeployRevert(VerifierStorage.ZeroVerifier.selector, tub, IBatchVerifier(address(0)), permit2);
     }
 
-    /// The constructor probes the spend slot rather than trusting the address.
+    /// `initialize` probes the spend verifier rather than trusting the address.
     /// A contract with code but no `verifyBatch` reverts into the probe's
     /// `catch`; a single-proof `Groth16Verifier` is the likely misconfiguration.
     function test_revert_BadSpendVerifier_wrongInterface() public {
@@ -204,14 +275,25 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
         _expectDeployRevert(AssetRegistry.LengthMismatch.selector, tub, bv, permit2, ids, tokens, scales);
     }
 
+    /// `scale` shares the entry's one storage slot as a `uint48`; anything
+    /// wider is refused rather than truncated.
     function test_revert_ScaleTooLarge() public {
         vm.expectRevert(AssetRegistry.ScaleTooLarge.selector);
-        masp.addAsset(2, IERC20(address(token)), 1e18 + 1, 0, 0);
+        masp.addAsset(2, IERC20(address(token)), uint256(type(uint48).max) + 1, 0, 0);
     }
 
     function test_scaleAtBound_accepted() public {
-        masp.addAsset(2, IERC20(address(token)), 1e18, 0, 0);
-        assertEq(masp.asset(2).scale, 1e18, "scale at bound");
+        masp.addAsset(2, IERC20(address(token)), type(uint48).max, 0, 0);
+        assertEq(masp.asset(2).scale, type(uint48).max, "scale at bound");
+    }
+
+    /// Asset id 0 means "no asset" to the circuits, which is what a transfer's
+    /// `publicAssetId` and a zero-value fee note carry. The genesis registry is
+    /// validated like `addAsset`, so a deployment cannot register it either.
+    function test_revert_ZeroAssetId_atInitialize() public {
+        (uint64[] memory ids, IERC20[] memory tokens, uint256[] memory scales) = _registry();
+        ids[0] = 0;
+        _expectDeployRevert(AssetRegistry.ZeroAssetId.selector, tub, bv, permit2, ids, tokens, scales);
     }
 
     // --- spend-path magnitude + mode bounds --------------------------------
@@ -226,22 +308,23 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
     }
 
     /// `flushBatch` slots must be deposits; a spend-mode slot is rejected
-    /// before any digest comparison.
+    /// before any digest comparison. The flag is what makes the circuit build
+    /// the leaf from the escrowed amount and `inner` rather than insert the
+    /// `cms` word as a commitment.
     function test_revert_BadDepositMode() public {
         uint256[] memory ids = new uint256[](1);
         ids[0] = 0;
         MASP.DepositMeta[] memory meta = new MASP.DepositMeta[](1);
-        meta[0] = MASP.DepositMeta({ payer: PAYER, submittedAt: uint32(block.number), fbps: FEE_BPS });
+        meta[0] = MASP.DepositMeta({ payer: PAYER, submittedAt: uint32(block.number), fbps: FEE_BPS, pulled: 0 });
 
         PubInputs.TreeUpdateBatch memory tpi;
         tpi.oldRoot = masp.currentRoot();
         tpi.newRoot = bytes32(uint256(0xdead));
         tpi.startIndex = masp.committedCount();
-        // Two leaves per deposit; slot 0 is the principal, slot 1 the relayer's
-        // fee note. Only slot 0 is in spend mode, which the guard under test
-        // rejects.
+        // Two leaves per deposit: slot 0 is the principal, slot 1 the relayer's
+        // fee note. Only slot 0 is in spend mode.
         tpi.actualCount = 2;
-        tpi.isDeposit[0] = 0; // spend mode
+        tpi.isDeposit[0] = 0;
         tpi.isDeposit[1] = 1;
 
         // Seeds a pending deposit so the slot passes the pending check first.
@@ -260,8 +343,8 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
         d.publicIn = 1;
         d.payer = address(this);
         d.recipient = RECIPIENT;
-        d.outCm = bytes32(uint256(0x1));
-        d.feeCm = bytes32(uint256(0xfee));
+        d.inner = bytes32(uint256(0x1));
+        d.feeInner = bytes32(uint256(0xfee));
         // The AllowanceTransfer path needs no signature.
         _approvePermit2ToMasp();
         masp.depositAuthorized(d, SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
@@ -284,9 +367,9 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
     // --- small-subgroup rejection ------------------------------------------
 
     /// `AuxValidation` rejects low-order points (order dividing 8) on the clue
-    /// and ephemeral keys.
-    /// `BabyJubJub.isLowOrder` is fuzzed directly elsewhere; this pins the
-    /// revert wiring in the spend path.
+    /// and ephemeral keys. `BabyJubJub.isLowOrder` is fuzzed directly in
+    /// `test/fuzz/BabyJubJub.fuzz.t.sol`; this pins the revert wiring in the
+    /// spend path.
     function test_revert_LowOrderPoint_clue() public {
         PubInputs.Transact memory pi = _pi();
         PubInputs.SpendTree memory tpi = _spendTree(pi);
@@ -313,6 +396,4 @@ contract MASPGuardCoverageTest is MockPoolTestBase {
         vm.expectRevert(AuxValidation.LowOrderPoint.selector);
         masp.withdraw(FixtureLoader.emptyProof(), pi, FixtureLoader.emptyProof(), tpi, aux);
     }
-
-    // --- off-chain dry-run helpers -----------------------------------------
 }

@@ -7,6 +7,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { IAllowanceTransfer } from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import { DeployPermit2 } from "permit2/test/utils/DeployPermit2.sol";
 
+import { AssetRegistry } from "../../src/AssetRegistry.sol";
 import { BaseDeploy } from "../../script/base/BaseDeploy.s.sol";
 import { MockWETH9 } from "../mocks/MockWETH9.sol";
 import { uniformBps } from "../utils/FeeArrays.sol";
@@ -101,5 +102,15 @@ contract DeployBaseTest is Test {
         vm.deal(address(this), 1 ether);
         (bool ok,) = address(core.masp).call{ value: 1 }("");
         assertFalse(ok, "pool must not accept native");
+    }
+
+    /// Asset id 0 means "no asset" to the circuits and cannot be registered.
+    /// The shared helper deploys through `initialize`, so a config naming it
+    /// fails the whole deploy rather than shipping a pool with the id live.
+    function test_revert_ZeroAssetId_reservedIdInParams() public {
+        BaseDeploy.MaspParams memory p = _params(address(weth));
+        p.ids[0] = 0;
+        vm.expectRevert(AssetRegistry.ZeroAssetId.selector);
+        harness.deployCore(p);
     }
 }

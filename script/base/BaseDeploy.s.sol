@@ -45,7 +45,7 @@ abstract contract BaseDeploy is Script {
         address proxyAdmin;
         /// The exit window. Immutable on the proxy once deployed.
         uint256 upgradeDelay;
-        /// Ceiling on a single guardian pause.
+        /// Ceiling on a single admin pause.
         uint256 maxPause;
     }
 

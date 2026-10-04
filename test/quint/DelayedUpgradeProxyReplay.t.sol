@@ -83,20 +83,16 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
             vm.prank(admin);
             proxy.changeProxyAdmin(admins[picks.who]);
         } else if (action == DelayedUpgradeProxySpec.Action.AdvanceTime) {
-            // Absolute, from an accumulator, rather than
-            // `vm.warp(block.timestamp + dt)`.
+            // Warps to an absolute time from an accumulator, so the driver's
+            // clock is a function of the model's `dt` picks rather than of the
+            // chain's current time: a skipped, duplicated or reordered warp
+            // shows up as a `nowTs` divergence.
             //
-            // A relative warp would also be correct here: `_apply` is reached
-            // through an external self-call (`quintApply`), so `block.timestamp` is read fresh
-            // in that frame and the via_ir caching described in
-            // test/upgrade/DelayedUpgradeProxy.t.sol does not apply.
-            //
-            // The accumulator makes the driver's clock a function of the model's
-            // `dt` picks rather than of the chain's current time, so a skipped,
-            // duplicated or reordered warp shows up as a `nowTs` divergence.
-            //
-            // The caching hazard applies to the read side; see `_project`, which
-            // is inlined into the replay loop.
+            // `vm.warp(block.timestamp + dt)` would also be correct: `_apply`
+            // is reached through an external self-call (`quintApply`), so
+            // `block.timestamp` is read fresh in that frame and the via_ir
+            // caching described in test/upgrade/DelayedUpgradeProxy.t.sol does
+            // not apply. The hazard is on the read side; see `_project`.
             elapsed += picks.dt;
             vm.warp(T0 + elapsed);
         } else {
@@ -121,10 +117,6 @@ abstract contract DelayedUpgradeProxyReplay is DelayedUpgradeProxySpecReplay {
         // `block.timestamp` here would read T0 on every step regardless of
         // `advanceTime` warps, and every trace would diverge on `nowTs` at the
         // first jump. A staticcall result is not cached.
-        //
-        // test/upgrade/DelayedUpgradeProxy.t.sol describes this hazard for
-        // warps; in a replay driver the warp happens inside an external call
-        // frame and is safe, and the read is what is affected.
         s.nowTs = this.quintNow() - T0;
 
         (address pending, uint256 activationAt) = proxy.pendingUpgrade();

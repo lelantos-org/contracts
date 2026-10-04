@@ -24,23 +24,14 @@ import { FeeBurnerSpecReplay } from "./generated/FeeBurnerSpecReplay.sol";
 /// `abstract` so Foundry does not collect it as a test contract; the generated
 /// `FeeBurnerTraces` inherits it and holds one test per trace.
 abstract contract FeeBurnerReplay is FeeBurnerSpecReplay {
-    // Must match the spec. `setUp` asserts the deployed burner agrees on each
-    // of them.
+    // Must match the spec, which gives the reason for each value. `setUp`
+    // asserts the deployed burner agrees on its constructor parameters.
     uint32 internal constant HALF_LIFE = 3600;
     uint8 internal constant MAX_HALVINGS = 12;
-    /// Not 20_000: at 20_000 the term `(restartMultBps - BPS) * fillBps / BPS`
-    /// is exactly `fillBps` and the rounding in the ratchet disappears.
     uint16 internal constant RESTART_MULT_BPS = 17_777;
-    /// Not 10_000: at 10_000 the burn split is exact and the remainder is
-    /// always zero, so the secondary-treasury leg is never exercised.
     uint16 internal constant BURN_BPS = 6_667;
-    /// Odd, and not a multiple of 1e18, so `ceil` differs from `floor` in
-    /// `govIn` and `startPrice >> periods` loses bits.
     uint256 internal constant SEED_PRICE = 1_234_567_890_123_456_789;
-    /// Above `SEED_PRICE >> MAX_HALVINGS`, so the floor binds once decay clamps.
     uint256 internal constant MIN_PRICE = 400_000_000_000_000;
-    /// The spec's `MIN_LOT`: above two of its amounts, so dust balances form,
-    /// and equal to a third, so a fill of exactly the floor is drawn.
     uint128 internal constant MIN_LOT = 1009;
 
     uint256 internal constant GOV_SUPPLY = 1_000_000_000e18;

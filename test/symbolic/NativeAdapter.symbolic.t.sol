@@ -60,11 +60,9 @@ contract NativeAdapterSymbolicTest is GuardAsserts {
         d.publicIn = 1;
         d.payer = payer;
         d.recipient = address(0xb0b);
-        d.outCm = bytes32(uint256(0xdead));
-        d.cvDep = [uint256(0x11), uint256(0x22)];
+        d.inner = bytes32(uint256(0xdead));
         d.feeIn = 0;
-        d.feeCm = bytes32(uint256(0xfee5));
-        d.feeCvDep = [uint256(0x33), uint256(0x44)];
+        d.feeInner = bytes32(uint256(0xfee5));
     }
 
     function _depositNative(address payer, uint256 value) internal returns (bool ok, bytes memory ret) {

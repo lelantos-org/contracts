@@ -19,10 +19,10 @@ import { TestConstants } from "../utils/TestConstants.sol";
 import { DepositFixture } from "../utils/DepositFixture.sol";
 import { FeeMath } from "../utils/FeeMath.sol";
 
-/// `depositAuthorized`: Permit2 AllowanceTransfer-based deposit.
-/// Tests call `IAllowanceTransfer.approve` from the payer to set the allowance
-/// directly; production uses a pre-signed PermitSingle, which yields the same
-/// on-chain state.
+/// `depositAuthorized`: Permit2 AllowanceTransfer-based deposit. Tests call
+/// `IAllowanceTransfer.approve` from the payer to set the allowance directly;
+/// production uses a pre-signed PermitSingle, which yields the same on-chain
+/// state.
 contract MASPDepositAuthorizedTest is Test {
     uint64 internal constant ASSET_ID = TestConstants.ASSET_ID;
     uint256 internal constant SCALE = TestConstants.SCALE;
@@ -56,7 +56,7 @@ contract MASPDepositAuthorizedTest is Test {
         view
         returns (PubInputs.DepositRequest memory d)
     {
-        return DepositFixture.request(ASSET_ID, publicIn, payerAddr, recipient, keccak256(abi.encode(salt, "cm0")));
+        return DepositFixture.request(ASSET_ID, publicIn, payerAddr, recipient, keccak256(abi.encode(salt, "inner")));
     }
 
     function _total(uint64 publicIn) internal pure returns (uint256) {

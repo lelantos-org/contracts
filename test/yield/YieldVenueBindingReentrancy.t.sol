@@ -61,11 +61,8 @@ contract ReenteringVenue {
 ///
 /// This makes the ordering inside `addYieldAsset` (registry write before venue
 /// binding) safe without a reentrancy guard. Without `view` on any of those
-/// three declarations, there would be a window in which `_assets[id]` exists
-/// while `params[id].venue` is still zero, so `id` reads as a plain asset: a
-/// deposit taken there prices on the plain branch and is then unresolvable,
-/// because `flushBatch` and `cancelDeposit` both take the yield branch
-/// afterwards and underflow a `totalNormalized` that was never credited.
+/// three declarations, a venue could re-enter the pool while the registry
+/// entry (with `isYield` set) exists and `params[id].venue` is still zero.
 ///
 /// The assertion below fails if that change is made.
 contract YieldVenueBindingReentrancyTest is YieldTestBase {

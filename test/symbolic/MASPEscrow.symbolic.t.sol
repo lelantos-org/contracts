@@ -10,11 +10,18 @@ import { PoolFixture } from "./PoolFixture.sol";
 /// consume an escrow.
 ///
 /// A pending deposit is stored only as a `bytes32`: `keccak256` over
-/// `(address(this), chainid, id, cm, cvDep, assetId, publicIn, fbps, payer,
-/// submittedAt, feeNote)`. Flush and cancel both resupply that preimage from
-/// calldata and re-derive the hash, so every guarantee about a pending deposit
-/// (amount not inflated, payer not swapped, fee rate not changed, asset not
-/// changed) reduces to that equality holding only for the original preimage.
+/// `(address(this), chainid, id, inner, assetId, publicIn, fbps, payer,
+/// submittedAt, feeNote, pulled)`, thirteen words. Flush and cancel both
+/// resupply that preimage from calldata and re-derive the hash, so every
+/// guarantee about a pending deposit (amount not inflated, payer not swapped,
+/// fee rate not changed, asset not changed, neither note's `inner` replaced)
+/// reduces to that equality holding only for the original preimage.
+///
+/// The two `inner` words matter as much as the amounts. The batch circuit
+/// builds each deposit leaf as `Poseidon(TAG_CM, asset * 2^64 + value, inner)`
+/// from the flush calldata, so the digest is the only thing that makes the
+/// leaf's owner half the one the depositor escrowed, and the fee leaf's the one
+/// it agreed to pay.
 ///
 /// Halmos models `keccak256` as an uninterpreted function with an injectivity
 /// axiom, so a proof over all preimages costs roughly as much as one concrete
@@ -22,29 +29,28 @@ import { PoolFixture } from "./PoolFixture.sol";
 ///
 /// The pool, its mocks and the starting escrow come from `PoolFixture`.
 contract MASPEscrowSymbolicTest is PoolFixture {
-    function _feeNote(uint48 feeIn, uint64 feeAssetId, bytes32 feeCm, uint256 x, uint256 y)
+    function _feeNote(uint48 feeIn, uint64 feeAssetId, bytes32 feeInner)
         internal
         pure
         returns (PubInputs.FeeNote memory)
     {
-        return PubInputs.FeeNote({ feeIn: feeIn, feeAssetId: feeAssetId, feeCm: feeCm, feeCvDep: [x, y] });
+        return PubInputs.FeeNote({ feeIn: feeIn, feeAssetId: feeAssetId, feeInner: feeInner });
     }
 
     function _cancel(
         uint256 id,
         uint48 publicIn,
-        bytes32 cm,
-        uint256 cvX,
-        uint256 cvY,
+        bytes32 inner,
         uint64 assetId,
         uint16 fbps,
         address payer,
         uint32 subAt,
-        PubInputs.FeeNote memory feeNote
-    ) internal returns (bool ok) {
-        (ok,) = address(masp)
+        PubInputs.FeeNote memory feeNote,
+        uint256 pulled
+    ) internal returns (bool ok, bytes memory ret) {
+        (ok, ret) = address(masp)
             .call(
-                abi.encodeCall(MASP.cancelDeposit, (id, publicIn, cm, [cvX, cvY], assetId, fbps, payer, subAt, feeNote))
+                abi.encodeCall(MASP.cancelDeposit, (id, publicIn, inner, assetId, fbps, payer, subAt, feeNote, pulled))
             );
     }
 
@@ -53,9 +59,11 @@ contract MASPEscrowSymbolicTest is PoolFixture {
     /// No preimage other than the submitted one cancels the escrow.
     ///
     /// Every field of the record is symbolic simultaneously, so this states the
-    /// full anti-forgery property in one proof: an inflated `publicIn`, swapped
-    /// `payer`, different `publicAssetId`, back-dated `submittedAt` or altered fee
-    /// note all fail the same equality.
+    /// full anti-forgery property in one proof: an inflated `publicIn`, replaced
+    /// `inner`, swapped `payer`, different `publicAssetId`, back-dated
+    /// `submittedAt`, altered fee note (its value, asset or `feeInner`) or
+    /// invented refund cap all fail the same equality. The escrow is in a plain
+    /// asset, so the submitted cap is zero.
     ///
     /// Only mismatching preimages are explored. The matching preimage is a single
     /// concrete point covered by `check_cancel_cannotBeReplayed`, which also shows
@@ -63,101 +71,90 @@ contract MASPEscrowSymbolicTest is PoolFixture {
     /// (`publicIn * scale * fbps / BPS`), a product of symbolic values under a
     /// division that the solvers do not finish.
     function check_cancel_digestBindsEveryField(
-        bytes32 submittedCm,
+        bytes32 submittedInner,
         uint256 id,
         uint48 publicIn,
-        bytes32 cm,
-        uint256 cvX,
-        uint256 cvY,
+        bytes32 inner,
         uint64 assetId,
         uint16 fbps,
         address payer,
         uint32 subAt,
         uint48 feeIn,
         uint64 feeAssetId,
-        bytes32 feeCm,
-        uint256 feeCvX,
-        uint256 feeCvY
+        bytes32 feeInner,
+        uint256 pulled
     ) public {
-        uint256 escrowId = _submit(submittedCm);
+        uint256 escrowId = _submit(submittedInner);
 
-        bool matchesSubmitted = id == escrowId && publicIn == uint48(PUBLIC_IN) && cm == submittedCm && cvX == CV_DEP_X
-            && cvY == CV_DEP_Y && assetId == ASSET_ID && fbps == FEE_BPS && payer == address(this)
-            && subAt == submittedAt && feeIn == FEE_IN && feeAssetId == ASSET_ID && feeCm == FEE_CM
-            && feeCvX == FEE_CV_DEP_X && feeCvY == FEE_CV_DEP_Y;
+        bool matchesSubmitted = id == escrowId && publicIn == PUBLIC_IN && inner == submittedInner
+            && assetId == ASSET_ID && fbps == FEE_BPS && payer == address(this) && subAt == submittedAt
+            && feeIn == FEE_IN && feeAssetId == ASSET_ID && feeInner == FEE_INNER && pulled == 0;
         vm.assume(!matchesSubmitted);
 
         vm.roll(block.number + masp.cancelDelay());
-        bool ok = _cancel(
-            id, publicIn, cm, cvX, cvY, assetId, fbps, payer, subAt, _feeNote(feeIn, feeAssetId, feeCm, feeCvX, feeCvY)
-        );
+        (bool ok,) =
+            _cancel(id, publicIn, inner, assetId, fbps, payer, subAt, _feeNote(feeIn, feeAssetId, feeInner), pulled);
 
         assertFalse(ok);
+        assertTrue(masp.escrowed(escrowId) != bytes32(0), "escrow survives a rejected cancel");
+    }
+
+    /// Neither note's `inner` can be replaced at cancel, for every pair of
+    /// replacement words, and the rejection is the digest check itself.
+    ///
+    /// The proof above lets every field move and so can only assert that the
+    /// call fails, since a wrong `id` fails earlier with `DepositNotPending`.
+    /// Here only the two `inner` words move, which pins the selector.
+    ///
+    /// A cancel mints nothing, so a wrong `inner` misdirects nothing here. The
+    /// proof pins that both words are in the preimage, which the flush leg
+    /// relies on: there the batch circuit hashes them into the deposit's two
+    /// leaves, so they decide who owns the notes
+    /// (`MASPFlushSymbolicTest.check_flush_digestBindsEveryField`).
+    function check_cancel_digestBindsBothInners(bytes32 submittedInner, bytes32 inner, bytes32 feeInner) public {
+        uint256 escrowId = _submit(submittedInner);
+        vm.assume(inner != submittedInner || feeInner != FEE_INNER);
+
+        vm.roll(block.number + masp.cancelDelay());
+        (bool ok, bytes memory ret) = _cancel(
+            escrowId,
+            PUBLIC_IN,
+            inner,
+            ASSET_ID,
+            FEE_BPS,
+            address(this),
+            submittedAt,
+            _feeNote(FEE_IN, ASSET_ID, feeInner),
+            0
+        );
+
+        _assertRejected(ok, ret, MASP.DigestMismatch.selector, "rejected by the digest check");
         assertTrue(masp.escrowed(escrowId) != bytes32(0), "escrow survives a rejected cancel");
     }
 
     /// An escrow is consumed once: the second cancel finds the zero sentinel and
     /// reverts, so a refund cannot be drawn twice.
     ///
-    /// Also shows the submitted preimage cancels, which makes the proof above
-    /// non-vacuous.
-    function check_cancel_cannotBeReplayed(bytes32 submittedCm) public {
-        uint256 escrowId = _submit(submittedCm);
+    /// Also shows the submitted preimage cancels, which makes the digest proofs
+    /// above non-vacuous.
+    function check_cancel_cannotBeReplayed(bytes32 submittedInner) public {
+        uint256 escrowId = _submit(submittedInner);
         vm.roll(block.number + masp.cancelDelay());
 
-        assertTrue(
-            _cancel(
-                escrowId,
-                uint48(PUBLIC_IN),
-                submittedCm,
-                CV_DEP_X,
-                CV_DEP_Y,
-                ASSET_ID,
-                FEE_BPS,
-                address(this),
-                submittedAt,
-                _feeNote(FEE_IN, ASSET_ID, FEE_CM, FEE_CV_DEP_X, FEE_CV_DEP_Y)
-            ),
-            "first cancel settles"
-        );
+        assertTrue(_cancelSubmitted(escrowId, submittedInner), "first cancel settles");
         assertEq(masp.escrowed(escrowId), bytes32(0));
 
-        assertFalse(
-            _cancel(
-                escrowId,
-                uint48(PUBLIC_IN),
-                submittedCm,
-                CV_DEP_X,
-                CV_DEP_Y,
-                ASSET_ID,
-                FEE_BPS,
-                address(this),
-                submittedAt,
-                _feeNote(FEE_IN, ASSET_ID, FEE_CM, FEE_CV_DEP_X, FEE_CV_DEP_Y)
-            ),
-            "replay rejected"
-        );
+        assertFalse(_cancelSubmitted(escrowId, submittedInner), "replay rejected");
     }
 
     /// The cancel delay holds at every block height and is measured from the
     /// digest-bound `submittedAt`; a back-dated `submittedAt` fails the digest.
-    function check_cancel_delayHoldsAtEveryBlock(bytes32 submittedCm, uint32 height) public {
-        uint256 escrowId = _submit(submittedCm);
+    function check_cancel_delayHoldsAtEveryBlock(bytes32 submittedInner, uint32 height) public {
+        uint256 escrowId = _submit(submittedInner);
         vm.assume(height >= submittedAt);
         vm.roll(height);
 
-        bool ok = _cancel(
-            escrowId,
-            uint48(PUBLIC_IN),
-            submittedCm,
-            CV_DEP_X,
-            CV_DEP_Y,
-            ASSET_ID,
-            FEE_BPS,
-            address(this),
-            submittedAt,
-            _feeNote(FEE_IN, ASSET_ID, FEE_CM, FEE_CV_DEP_X, FEE_CV_DEP_Y)
-        );
+        bool ok = _cancelSubmitted(escrowId, submittedInner);
 
         assertEq(ok, uint256(height) >= uint256(submittedAt) + uint256(masp.cancelDelay()));
     }
@@ -168,24 +165,13 @@ contract MASPEscrowSymbolicTest is PoolFixture {
     /// contract payer must observe the refund arriving; a third-party cancel is
     /// indistinguishable on-chain from a flush and would strand the funder's
     /// claim. This contract is the payer, so every other caller is rejected.
-    function check_cancel_contractPayerIsSelfServiceOnly(bytes32 submittedCm, address caller) public {
-        uint256 escrowId = _submit(submittedCm);
+    function check_cancel_contractPayerIsSelfServiceOnly(bytes32 submittedInner, address caller) public {
+        uint256 escrowId = _submit(submittedInner);
         vm.assume(caller != address(this));
         vm.roll(block.number + masp.cancelDelay());
 
         vm.prank(caller);
-        bool ok = _cancel(
-            escrowId,
-            uint48(PUBLIC_IN),
-            submittedCm,
-            CV_DEP_X,
-            CV_DEP_Y,
-            ASSET_ID,
-            FEE_BPS,
-            address(this),
-            submittedAt,
-            _feeNote(FEE_IN, ASSET_ID, FEE_CM, FEE_CV_DEP_X, FEE_CV_DEP_Y)
-        );
+        bool ok = _cancelSubmitted(escrowId, submittedInner);
 
         assertFalse(ok);
         assertTrue(masp.escrowed(escrowId) != bytes32(0));
@@ -228,8 +214,8 @@ contract MASPEscrowSymbolicTest is PoolFixture {
     ///
     /// `fbps` is part of the digest at submit, so only the quoted rate cancels
     /// the escrow, regardless of the registry's current rate.
-    function check_feeChangeCannotRerateAPendingDeposit(bytes32 submittedCm, uint16 newBps) public {
-        uint256 escrowId = _submit(submittedCm);
+    function check_feeChangeCannotRerateAPendingDeposit(bytes32 submittedInner, uint16 newBps) public {
+        uint256 escrowId = _submit(submittedInner);
         vm.assume(newBps <= 2000 && newBps != FEE_BPS);
 
         vm.prank(OWNER);
@@ -237,38 +223,11 @@ contract MASPEscrowSymbolicTest is PoolFixture {
 
         vm.roll(block.number + masp.cancelDelay());
 
-        // The new rate does not open the escrow...
-        assertFalse(
-            _cancel(
-                escrowId,
-                uint48(PUBLIC_IN),
-                submittedCm,
-                CV_DEP_X,
-                CV_DEP_Y,
-                ASSET_ID,
-                newBps,
-                address(this),
-                submittedAt,
-                _feeNote(FEE_IN, ASSET_ID, FEE_CM, FEE_CV_DEP_X, FEE_CV_DEP_Y)
-            ),
-            "re-rated cancel rejected"
+        (bool rerated,) = _cancel(
+            escrowId, PUBLIC_IN, submittedInner, ASSET_ID, newBps, address(this), submittedAt, _submittedFeeNote(), 0
         );
+        assertFalse(rerated, "re-rated cancel rejected");
 
-        // ...and the rate quoted at submit still does.
-        assertTrue(
-            _cancel(
-                escrowId,
-                uint48(PUBLIC_IN),
-                submittedCm,
-                CV_DEP_X,
-                CV_DEP_Y,
-                ASSET_ID,
-                FEE_BPS,
-                address(this),
-                submittedAt,
-                _feeNote(FEE_IN, ASSET_ID, FEE_CM, FEE_CV_DEP_X, FEE_CV_DEP_Y)
-            ),
-            "submit-time rate still settles"
-        );
+        assertTrue(_cancelSubmitted(escrowId, submittedInner), "submit-time rate still settles");
     }
 }

@@ -89,27 +89,33 @@ contract MASPDepositTest is Test {
         assertEq(masp.nextDepositId(), 1, "nextDepositId bumped");
 
         // Escrow slot: a single digest binds the full preimage, including payer
-        // and submit block.
-        bytes32 expectedDigest = keccak256(
-            abi.encode(
-                address(masp),
-                block.chainid,
-                id,
-                d.outCm,
-                d.cvDep,
-                uint64(ASSET_ID),
-                uint48(publicIn),
-                uint16(FEE_BPS),
-                payer,
-                uint32(block.number),
-                // The relayer's leaf is bound too, so a flusher cannot mint
-                // itself a different fee note than the payer funded.
-                uint48(d.feeIn),
-                uint64(d.feeAssetId),
-                d.feeCm,
-                d.feeCvDep
-            )
+        // and submit block. Thirteen words: `FeeNote` is static, so the pool's
+        // `abi.encode` of the struct lays its three fields out inline, as here.
+        bytes memory preimage = abi.encode(
+            address(masp),
+            block.chainid,
+            id,
+            // The note's `inner`. The batch circuit builds the leaf from it and
+            // the two words that follow, so binding all three fixes the note's
+            // asset and value.
+            d.inner,
+            uint64(ASSET_ID),
+            uint48(publicIn),
+            uint16(FEE_BPS),
+            payer,
+            uint32(block.number),
+            // The relayer's leaf is bound the same way, by its amount, asset
+            // and `inner`, so a flusher cannot mint itself a different fee
+            // note than the payer funded.
+            uint48(d.feeIn),
+            uint64(d.feeAssetId),
+            d.feeInner,
+            // The refund cap closes the preimage: zero, as the asset is
+            // plain.
+            uint256(0)
         );
+        assertEq(preimage.length, 13 * 32, "preimage is thirteen words");
+        bytes32 expectedDigest = keccak256(preimage);
         assertEq(masp.escrowed(id), expectedDigest, "digest binds full preimage");
     }
 
@@ -159,7 +165,6 @@ contract MASPDepositTest is Test {
     }
 
     function test_revert_PublicInTooLarge() public {
-        // 2^48 exceeds uint48 max
         PubInputs.DepositRequest memory d = _request(0);
         d.publicIn = uint64(uint256(type(uint48).max) + 1);
         vm.expectRevert(MASP.PublicInTooLarge.selector);
@@ -180,13 +185,13 @@ contract MASPDepositTest is Test {
         masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
-    function test_revert_ZeroCm() public {
+    function test_revert_ZeroInner() public {
         PubInputs.DepositRequest memory d = _request(100);
-        // Zero principal commitment with a non-zero fee commitment, so `outCm`
-        // alone triggers the check.
-        d.outCm = bytes32(0);
-        d.feeCm = bytes32(uint256(0xfee));
-        vm.expectRevert(MASP.ZeroCm.selector);
+        // Zero principal `inner` with a non-zero fee `inner`, so `inner` alone
+        // triggers the check.
+        d.inner = bytes32(0);
+        d.feeInner = bytes32(uint256(0xfee));
+        vm.expectRevert(MASP.ZeroInner.selector);
         masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
@@ -305,23 +310,24 @@ contract MASPDepositTest is Test {
         masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
-    /// A deposit mints two leaves, so the fee leaf's commitment gets the same
+    /// A deposit mints two leaves, so the fee leaf's `inner` gets the same
     /// well-formedness check as the principal's. `feeIn` stays zero here: a
     /// subsidised deployment still mints the leaf, so the guard fires on
     /// shape alone, not on value.
-    function test_revert_ZeroCm_feeCm() public {
+    function test_revert_ZeroInner_feeInner() public {
         PubInputs.DepositRequest memory d = _request(100);
-        d.feeCm = bytes32(0);
-        vm.expectRevert(MASP.ZeroCm.selector);
+        d.feeInner = bytes32(0);
+        vm.expectRevert(MASP.ZeroInner.selector);
         masp.deposit(d, _sig(type(uint256).max), SpendFixture.validAux()[0], SpendFixture.validAux()[1]);
     }
 
-    /// Both aux payloads are validated. The two arguments are interchangeable in
-    /// every other test, so a swapped or dropped `feeAux` check would otherwise
-    /// go undetected and publish an unvalidated payload to the event.
+    /// Both aux payloads are validated. The two arguments are interchangeable
+    /// in every other test, so a swapped or dropped `feeAux` check would
+    /// otherwise go undetected and publish an unvalidated payload to the event.
     ///
-    /// Each case takes its payload from a fresh `SpendFixture.validAux()`: a memory struct is a
-    /// reference, so reusing one would carry the previous mutation forward.
+    /// Each case takes its payload from a fresh `SpendFixture.validAux()`: a
+    /// memory struct is a reference, so reusing one would carry the previous
+    /// mutation forward.
     function test_revert_feeAuxValidatedIndependently() public {
         _fund(100);
         PubInputs.DepositRequest memory d = _request(100);

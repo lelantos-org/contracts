@@ -10,8 +10,8 @@ import { BabyJubJub } from "../../src/BabyJubJub.sol";
 contract BabyJubJubTest is Test {
     uint256 internal constant P = BabyJubJub.P;
 
-    /// Verified on-curve point (asset 1 from
-    /// test/fixtures/asset_registry.json).
+    /// A fixed point known to lie on the curve. The tests use only that it
+    /// satisfies the curve equation.
     uint256 internal constant GEN_X =
         3_309_989_483_652_810_547_183_542_801_964_179_728_734_313_126_748_501_664_722_543_918_881_379_626_481;
     uint256 internal constant GEN_Y =

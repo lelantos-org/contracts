@@ -51,13 +51,10 @@ contract ExitTermsSlotTest is NamespaceSlotTestBase {
         assertEq(ExitTerms.SLOT, expected, "slot constant drifted from its namespace");
     }
 
-    /// ERC-7201 slots are 256-aligned, so the struct can grow within its
-    /// namespace.
     function test_slotIsAligned() public pure {
         assertEq(uint256(ExitTerms.SLOT) & 0xff, 0);
     }
 
-    /// The slot lies far above the sequential slots a pool implementation uses.
     function test_slotIsNowhereNearSequentialStorage() public pure {
         assertGt(uint256(ExitTerms.SLOT), 1e60);
     }
@@ -81,13 +78,10 @@ contract VenueBindingSlotTest is NamespaceSlotTestBase {
         assertEq(VenueBinding.SLOT, expected, "slot constant drifted from its namespace");
     }
 
-    /// ERC-7201 slots are 256-aligned, so the struct can grow within its
-    /// namespace.
     function test_slotIsAligned() public pure {
         assertEq(uint256(VenueBinding.SLOT) & 0xff, 0);
     }
 
-    /// The slot lies far above the sequential slots a pool implementation uses.
     function test_slotIsNowhereNearSequentialStorage() public pure {
         assertGt(uint256(VenueBinding.SLOT), 1e60);
     }
@@ -106,19 +100,16 @@ contract VerifierStorageSlotTest is NamespaceSlotTestBase {
         assertEq(VerifierStorage.SLOT, expected, "slot constant drifted from its namespace");
     }
 
-    /// ERC-7201 slots are 256-aligned, so the struct can grow within its
-    /// namespace.
     function test_slotIsAligned() public pure {
         assertEq(uint256(VerifierStorage.SLOT) & 0xff, 0);
     }
 
-    /// The slot lies far above the sequential slots a pool implementation uses.
     function test_slotIsNowhereNearSequentialStorage() public pure {
         assertGt(uint256(VerifierStorage.SLOT), 1e60);
     }
 
-    /// Four namespaces now live in the pool's storage, and the proxy writes two
-    /// of them in its own context. None may overlap.
+    /// Four namespaces live in the pool's storage, and the proxy writes two of
+    /// them in its own context. None may overlap.
     function test_slotIsClearOfTheOtherNamespaces() public pure {
         assertGt(_distance(VerifierStorage.SLOT, UpgradeStorage.SLOT), 1e60, "UpgradeStorage");
         assertGt(_distance(VerifierStorage.SLOT, ExitTerms.SLOT), 1e60, "ExitTerms");

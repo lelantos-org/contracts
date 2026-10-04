@@ -1,290 +1,162 @@
 # Echidna suite
 
-Property fuzzing for MASP and its peripherals, run by [`just echidna`](../../justfile). Three targets:
+Property fuzzing for `MASP` and its peripherals.
 
-- **`EchidnaMasp`** — the plain-asset state machine: deposit, flush, cancel,
-  sweep, withdraw and transfer. 24 properties, 2 optimization targets.
-- **`EchidnaMaspYield`** — the indexed-asset (yield) accounting. 6 properties,
-  2 optimization targets.
-- **`EchidnaGenericCall`** — `GenericCallWrapper` against a stub pool. 8
-  properties, 2 optimization targets. See [The generic call target](#the-generic-call-target).
+## Targets
 
-Separate contracts rather than one wider one: their setups share nothing (the
-yield target needs a venue, a vault, and two asset ids over one ERC-20) and a
-combined contract would make every sequence pay for both. They keep separate
-corpora for the same reason — a corpus is a set of call sequences against one
-ABI.
+| Target | Subject | Properties | Optimization targets |
+| --- | --- | --- | --- |
+| `EchidnaMasp` | Plain-asset state machine: deposit, flush, cancel, sweep, withdraw, transfer | 25 | 2 |
+| `EchidnaMaspYield` | Yield-asset accounting | 6 | 2 |
+| `EchidnaGenericCall` | `GenericCallWrapper` against a stub pool | 8 | 2 |
 
-## What it checks
+Each target is a separate contract with its own corpus.
 
-Twenty-four properties across five groups, plus two optimization targets.
+## Running
 
-**Bookkeeping** — ported from `test/invariant/MASPPendingFee.invariant.t.sol`
-and `test/invariant/MASP.flow.invariant.t.sol`, restated so the corpus below
-has something to compound against:
+```sh
+just echidna              # all targets, property mode, 50k tests each
+just echidna 400000       # nightly CI limit, capped by `timeout`
+just echidna-optimize     # all targets, optimization mode
+```
 
-| Property | Holds that |
-| --- | --- |
-| `echidna_solvency` | The pool holds escrowed totals + shielded principal not yet withdrawn + claimable fees, and nothing else. |
-| `echidna_feeAccrualAccounted` | `accruedFee` moves only at flush, at withdraw, and at sweep — never at submit or cancel, so escrowed fees stay refundable. |
-| `echidna_rootCoherence` | The live root is the last one written, is inside the known-roots ring, and the leaf count matches. |
-| `echidna_lifecycleExclusivity` | Every id is in exactly one of {Pending, Flushed, Cancelled}. |
+- Both recipes build under `[profile.echidna]` and regenerate their configs from the current artifacts. The profile pre-links `YieldOps` and `DepositOps` at fixed addresses, and `just _echidna-config` places each library's code there. The generated configs and the corpus are git-ignored.
+- Echidna persists its corpus on disk (`corpusDir` in [`echidna.yaml`](../../echidna.yaml)), so a run mutates sequences found by earlier runs. The nightly job in [`.github/workflows/fuzz.yml`](../../.github/workflows/fuzz.yml) caches one corpus per target. A campaign stopped by `timeout` still writes its corpus and reports its properties.
+- Property mode exits 0 when all properties hold and is the gate. Optimization mode always exits non-zero; the recipe ignores the exit code and the CI step sets `continue-on-error`.
 
-**Guards** — the negative space. Everything above drives the pool the way an
-honest caller would and can only confirm that correct input is accepted; these
-make calls the pool must *reject*. Nothing else in the repo fuzzes this half:
-the Foundry handlers always resupply a correct preimage.
+## `EchidnaMasp`
+
+Both verifiers are stubbed to accept. Conservation of value across a spend is enforced by the circuit and is not asserted here; `withdrawOne` bounds itself to shielded principal the ghost state recorded as deposited.
+
+**Bookkeeping**
 
 | Property | Holds that |
 | --- | --- |
-| `echidna_cancelDigestBinds` | No `cancelDeposit` with any one of the ten digest fields corrupted has been accepted. |
-| `echidna_flushDigestBinds` | The same, on the flush leg — which rebuilds the digest from the batch rather than from call arguments, so it is a separate reconstruction. |
-| `echidna_cancelDelayEnforced` | No deposit cancelled before `cancelDelay` elapsed. |
-| `echidna_noDoubleDrain` | No deposit drained twice. |
-| `echidna_payerGuardEnforced` | No contract payer's deposit cancelled by anyone else. |
-| `echidna_escrowMatchesLifecycle` | `escrowed[id]` is non-zero for exactly the pending ids — catches a drain that moved funds without clearing the slot, or a clear that moved none. |
-| `echidna_treasuryConservation` | Everything swept is in the treasury; nothing else reached it. |
+| `echidna_solvency` | The pool balance equals escrowed totals, plus shielded principal not yet withdrawn, plus claimable fees. |
+| `echidna_feeAccrualAccounted` | `accruedFee` moves only at flush, withdraw and sweep. |
+| `echidna_rootCoherence` | The live root is the last one written, is in the known-roots ring, and the leaf count matches. |
+| `echidna_lifecycleExclusivity` | Every id is in exactly one of Pending, Flushed, Cancelled. |
 
-**Withdraw** — the entrypoint with the least sequence-level coverage in the
-repo. The unit tests exercise it, but the only invariant suite that touches
-nullifiers drives `MASPHarness.consumeNullifierExternal`, i.e. `NullifierSet`
-in isolation, never the real spend path.
+**Guards**
 
 | Property | Holds that |
 | --- | --- |
-| `echidna_noNullifierReuse` | No nullifier consumed twice through `withdraw` itself. |
-| `echidna_unknownRootRejected` | No withdrawal against a root the pool never committed. |
-| `echidna_spentNullifiersStaySpent` | Every consumed nullifier still reads spent — the bitmap packs 256 per slot, so a write clobbering neighbours would silently un-retire a note. |
-| `echidna_withdrawFeeSplitExact` | `net + fee == gross`, to the wei, summed over every withdrawal. |
-| `echidna_recipientCredited` | The recipient received exactly the net, and nothing besides. |
+| `echidna_cancelDigestBinds` | No `cancelDeposit` with a corrupted digest field was accepted. |
+| `echidna_flushDigestBinds` | No `flushBatch` with a corrupted digest field was accepted. |
+| `echidna_cancelDelayEnforced` | No deposit was cancelled before `cancelDelay` elapsed. |
+| `echidna_noDoubleDrain` | No deposit was drained twice. |
+| `echidna_payerGuardEnforced` | No contract payer's deposit was cancelled by another address. |
+| `echidna_escrowMatchesLifecycle` | `escrowed[id]` is non-zero for exactly the pending ids. |
+| `echidna_treasuryConservation` | The treasury balance equals the total swept. |
 
-**Batch and transfer** — entry points and shapes the Foundry handlers never
-build. `flushOne` only ever passes one id, so the loop in `flushBatch` and the
-per-token fee accumulator behind it run at n = 1 and nowhere else.
-
-| Property | Holds that |
-| --- | --- |
-| `echidna_transferMovesNoTokens` | A shielded transfer consumes notes and advances the tree while leaving the pool's balance bit-identical — MASP's own comment on the branch is "No tokens move". |
-| `echidna_noDuplicateIdInBatch` | A batch naming the same deposit twice is rejected. Accepting it would mint two commitments against one escrow — the drain-once rule *within* a transaction, which `echidna_noDoubleDrain` cannot reach. |
-
-**Root ring and pause** — `CommitmentTree` keeps `ROOT_HISTORY = 64` roots in a
-ring and forgets what the next push displaces. Nothing else in the repo pushes
-past the wrap.
+**Withdraw**
 
 | Property | Holds that |
 | --- | --- |
-| `echidna_rootRingConsistent` | Every root the buffer still holds reads as known. The buffer and the map are written together but read apart. |
-| `echidna_evictedRootsUnknown` | No evicted root still reads as known — else a spend proves inclusion in a tree state the pool has forgotten. |
-| `echidna_evictedRootRejected` | No withdrawal against an evicted root is accepted. Distinct from `echidna_unknownRootRejected`: this root *was* the pool's state once, so it is the case a stale-root check is likeliest to get wrong. |
-| `echidna_pauseBlocksDeposits` | A pause stops the pool taking on new obligations. |
-| `echidna_pauseBlocksSpends` | A pause stops the pool settling spends. |
-| `echidna_pauseCannotTrapFunds` | A cancel past its delay is still honoured while paused. `cancelDeposit` and `sweep` are excluded from `whenNotPaused` on purpose — a deliberate asymmetry is exactly what a later refactor tidies away, at which point an admin could freeze depositors' money. |
+| `echidna_noNullifierReuse` | No nullifier was consumed twice through `withdraw`. |
+| `echidna_unknownRootRejected` | No withdrawal against a root the pool never committed was accepted. |
+| `echidna_spentNullifiersStaySpent` | Every consumed nullifier still reads spent. |
+| `echidna_withdrawFeeSplitExact` | `net + fee == gross`, summed over every withdrawal. |
+| `echidna_recipientCredited` | The recipient received exactly the net amount. |
 
-### What the withdraw properties deliberately do not assert
-
-Both verifiers are stubbed to accept, so the fuzzer supplies the public inputs
-a circuit would otherwise have constrained and can "withdraw" value no deposit
-funded. Conservation of value across a spend is the *circuit's* invariant, not
-MASP's, and it is not observable here — asserting it would report an
-insolvency that is an artifact of the stub. `withdrawOne` therefore bounds
-itself to shielded principal the ghost knows was deposited, and every property
-above asserts something MASP itself owns: nullifier uniqueness, root
-membership, and the exact arithmetic of the fee split.
-
-## Why this exists next to `test/invariant/`
-
-Foundry's invariant runner starts each run from a fixed seed and samples fresh
-call sequences. A rare sequence that reached a deep state last night has to be
-rediscovered from scratch tonight. Echidna mutates a corpus it keeps on disk
-(`corpusDir` in [`echidna.yaml`](../../echidna.yaml)), so the nightly job
-compounds: sequences that first reached a deep state weeks ago stay in the pool
-as mutation bases. That is the whole return on running both, and it only holds
-while the corpus survives between runs — see the cache note in the `echidna`
-job in [`.github/workflows/fuzz.yml`](../../.github/workflows/fuzz.yml).
-
-Compounding also costs time: replaying a larger corpus makes the same test
-limit take longer every night, which is why that job runs one matrix leg per
-target with its own cache entry, and why `echidna.yaml` sets a `timeout` that
-bounds a campaign in wall-clock as well as in sequences. A campaign stopped by
-that timeout still writes its corpus and still reports its properties, so the
-next night resumes from it.
-
-Optimization mode is the second thing Foundry has no equivalent of.
-`just echidna-optimize` maximises a value rather than asserting it, which
-answers "how far can solvency drift" instead of "does it ever break" — the
-question that separates a bounded rounding residue from a leak that grows with
-volume.
-
-## The yield target
-
-`test/yield/YieldSolvency.invariant.t.sol` already covers this ground well —
-seven invariants over thirteen handlers, spanning growth, loss, illiquidity,
-rebalance, unwind and the fee high-water mark. `EchidnaMaspYield` is
-deliberately *not* a port of it. Re-stating those invariants would buy almost
-nothing; what Foundry cannot express is **magnitude**, and that is the point of
-the file.
-
-`invariant_paysOutNoMoreThanCameInPlusYield` asks whether the yield id ever
-distributes value that was neither deposited nor earned. Yes or no, and the
-answer is no. It cannot ask *how close the pool gets* — which is the question
-separating a rounding residue bounded by a few wei from a leak that grows with
-volume. Yield is exactly where that matters: every conversion between
-normalized units and assets is a `mulDiv` with a rounding direction.
-`optimize_freeMoney` maximises that slack directly.
+**Batch and transfer**
 
 | Property | Holds that |
 | --- | --- |
-| `echidna_noFreeMoney` | Paid out never exceeds paid in plus what the venue genuinely earned. |
-| `echidna_poolCoversIdlePlusPlainLiability` | The pool holds the idle buffer it booked *on top of* what the plain id is owed — the risk two ids over one ERC-20 creates. |
-| `echidna_idleNeverExceedsGross` | Booked idle is a component of the backing, never more than it. |
-| `echidna_everyUnitIsBacked` | Units outstanding are never unbacked. |
-| `echidna_highWaterMarkNeverFalls` | `lastIdx` only rises, so the treasury cannot bill twice for one period of growth. |
-| `echidna_venueBindingImmutable` | The venue binding is permanent and the asset stays indexed. |
+| `echidna_transferMovesNoTokens` | A transfer consumes notes and advances the tree without changing the pool's balance. |
+| `echidna_transferNamesNoAsset` | No transfer whose request names an asset was accepted. |
+| `echidna_noDuplicateIdInBatch` | A batch naming the same deposit twice is rejected. |
+
+**Root ring and pause**
+
+| Property | Holds that |
+| --- | --- |
+| `echidna_rootRingConsistent` | Every root in the ring reads as known. |
+| `echidna_evictedRootsUnknown` | No evicted root reads as known. |
+| `echidna_evictedRootRejected` | No withdrawal against an evicted root was accepted. |
+| `echidna_pauseBlocksDeposits` | No deposit was accepted while paused. |
+| `echidna_pauseBlocksSpends` | No spend was accepted while paused. |
+| `echidna_pauseCannotTrapFunds` | A cancel past its delay is honoured while paused. |
 
 | Optimization target | Maximises |
 | --- | --- |
-| `optimize_freeMoney` | `paidOut - (paidIn + earned)` — the slack in the no-free-money invariant. |
-| `optimize_idleOverGross` | `idle - gross` — how far booked idle can exceed real backing. |
+| `optimize_solvencyDeficit` | Amount owed (escrowed deposits, shielded principal, claimable fees) minus the pool's balance. |
+| `optimize_feeAccrualDrift` | Absolute difference between `accruedFee` and the accrual implied by the flush, withdraw and sweep history. |
 
-A related fix went into the justfile alongside this: `just test-fuzz` globbed
-only `test/fuzz/**` and `test/invariant/**`, so `YieldSolvency.invariant.t.sol`
-— an invariant suite by everything except its directory — had never run at the
-nightly depth. It does now.
+## `EchidnaMaspYield`
 
-## The generic call target
+| Property | Holds that |
+| --- | --- |
+| `echidna_noFreeMoney` | Paid out never exceeds paid in plus what the venue earned. |
+| `echidna_poolCoversIdlePlusPlainLiability` | The pool holds the booked idle buffer in addition to what the plain id is owed. |
+| `echidna_idleNeverExceedsGross` | Booked idle never exceeds the backing. |
+| `echidna_everyUnitIsBacked` | Outstanding units are backed. |
+| `echidna_highWaterMarkNeverFalls` | `lastIdx` only rises. |
+| `echidna_venueBindingImmutable` | The venue binding does not change and the asset stays indexed. |
 
-`EchidnaGenericCall` is also the handler for
-`test/invariant/GenericCallWrapper.invariant.t.sol`: one set of handlers and
-books, searched by both engines. It uses no cheatcodes. The target is the
-withdraw proof's `payer`, so it drives every execution itself, and it derives
-the next executor clone's address from the wrapper's CREATE nonce.
+| Optimization target | Maximises |
+| --- | --- |
+| `optimize_freeMoney` | `paidOut - (paidIn + earned)`. |
+| `optimize_idleOverGross` | `idle - gross`. |
 
-Each handler builds one execution shape, predicts from the stub pool's fee
-arithmetic whether the calls land or refund and what every address receives,
-runs it, and books the prediction. `swap` covers the ten `SwapMode`s: five
-that land (`Honest`, `UnusedInput`, `DonationMidLeg`, `PrefundedExecutor`,
-`StaleApproval`) and five that refund (`Shortfall`, `FailingCall`, `Expired`,
-`DeniedTarget`, `HookDrain`). `split` escrows three outputs with
-the input token among them; `cancel`, `flush`, `donate` and `drainPast` act
-between executions; `tamper`, `stranger` and `oversized` make calls the wrapper
-must refuse.
+## `EchidnaGenericCall`
+
+The target is also the handler for `test/invariant/GenericCallWrapper.invariant.t.sol`. It uses no cheatcodes: it is the withdraw proof's `payer`, drives every execution itself, and derives the next executor clone's address from the wrapper's CREATE nonce.
+
+Each handler builds one execution shape, predicts from the stub pool's fee arithmetic whether the calls land or refund and what every address receives, runs it, and records the prediction.
+
+| Handler | Shape |
+| --- | --- |
+| `swap` | Ten `SwapMode`s. Landing: `Honest`, `UnusedInput`, `DonationMidLeg`, `PrefundedExecutor`, `StaleApproval`. Refunding: `Shortfall`, `FailingCall`, `Expired`, `DeniedTarget`, `HookDrain`. |
+| `split` | Three outputs, the input token among them. |
+| `cancel`, `flush`, `donate`, `drainPast` | Actions between executions. |
+| `tamper`, `stranger`, `oversized` | Calls the wrapper must refuse. |
 
 | Property | Holds that |
 | --- | --- |
 | `echidna_poolBalancesMatch` | The pool holds exactly the escrowed notes net of cancels, plus unshield fees. |
 | `echidna_surplusMatches` | `surplusTo` received exactly the cushions, unused input and donations. |
 | `echidna_refundsMatch` | `refundTo` received exactly what cancelled escrows held. |
-| `echidna_wrapperHoldsOnlyDonations` | The wrapper keeps nothing between executions but what was donated to it, and never spends that. |
-| `echidna_executorsEmpty` | Every clone is empty after its execution, and the drainer, holding approvals on old clones, got nothing. |
+| `echidna_wrapperHoldsOnlyDonations` | Between executions the wrapper holds only what was donated to it. |
+| `echidna_executorsEmpty` | Every clone is empty after its execution, and the drainer holding approvals on old clones received nothing. |
 | `echidna_escrowRecordsMatchPool` | Every pending escrow's record names `refundTo` and the amount the pool holds; a cancelled one is cleared. |
-| `echidna_outcomesAsPredicted` | Every execution landed or refunded as predicted, never reverted, and left a clone bound to the wrapper. |
+| `echidna_outcomesAsPredicted` | Every execution landed or refunded as predicted and did not revert. |
 | `echidna_guardsHold` | No tampered intent, lifted proof, oversized note or cancel of a settled escrow landed. |
 
 | Optimization target | Maximises |
 | --- | --- |
 | `optimize_wrapperResidue` | Wrapper balance above what was donated. |
-| `optimize_surplusDrift` | `surplusTo` balance above the books. |
-
-The harness was checked against three mutations of the wrapper, each caught by
-the Foundry run: a shared executor instead of a fresh clone (a drain through a
-hook lands), surplus paid to `refundTo`, and a missing floor check.
-`EchidnaGenericCallReachability.t.sol` gates that every mode lands its path.
+| `optimize_surplusDrift` | `surplusTo` balance above the recorded amount. |
 
 ## Files
 
 | File | Role |
 | --- | --- |
-| `EchidnaMasp.sol` | Plain-asset target (the deployed contract): properties and optimization targets. Inherits the three modules below. |
-| `EchidnaMaspBase.sol` | Plain-asset target, abstract base: constants, ghost bookkeeping, constructor (pool and mock deployment), shared helpers. |
-| `EchidnaMaspHandlers.sol` | Plain-asset target, honest handlers: escrow, withdraw and transfer, root ring, guardian pause. |
-| `EchidnaMaspAdversarial.sol` | Plain-asset target, negative-space handlers: tampered digests, early cancel, double drain, stranger cancel. |
-| `EchidnaMaspYield.sol` | Indexed-asset target: shield/settle/exit plus venue growth, loss, illiquidity and maintenance. |
-| `EchidnaMaspPayer.sol` | The fixture payer as a real contract — permissive ERC-1271, and able to originate its own calls. Used only by the plain target; the yield target uses `depositAuthorized` and is its own payer. |
-| `EchidnaMaspReachability.t.sol` | A `forge test` gate proving each handler actually lands. See below. |
+| `EchidnaMasp.sol` | Plain-asset target: properties and optimization targets. Inherits the three modules below. |
+| `EchidnaMaspBase.sol` | Constants, ghost state, constructor (pool and mock deployment), shared helpers. |
+| `EchidnaMaspHandlers.sol` | Honest handlers: escrow, withdraw and transfer, root ring, pause. |
+| `EchidnaMaspAdversarial.sol` | Negative handlers: tampered digests, early cancel, double drain, stranger cancel. |
+| `EchidnaMaspPayer.sol` | The plain target's payer: a deployed contract with permissive ERC-1271 that originates its own calls. |
+| `EchidnaMaspYield.sol` | Yield target: shield, settle, exit, and venue growth, loss, illiquidity and maintenance. |
 | `EchidnaGenericCall.sol` | `GenericCallWrapper` target, shared with the Foundry invariant suite. |
-| `EchidnaGenericCallReachability.t.sol` | The same gate for it: every swap mode, handler and property. |
-| `EchidnaMaspYieldReachability.t.sol` | The same for the yield target, including that the optimization targets see real inflow and outflow — a maximum of 0 over a history that never paid anything out is indistinguishable from exact accounting. |
+| `EchidnaRoots.sol` | Root values reduced into the BN254 scalar field, for the targets that stub the tree-update verifier. |
+| `Echidna*Reachability.t.sol` | `forge test` gates, one per target. See [Reachability](#reachability). |
 
-## Where it diverges from the Foundry handlers
+## Differences from the Foundry handlers
 
-Echidna runs on hevm, whose cheatcode set is smaller than Foundry's. Three
-things had to change, all noted at their sites in `EchidnaMasp.sol` and its modules:
+Echidna runs on hevm, whose cheatcode set is smaller than Foundry's.
 
-- **Tree-update verifier.** The Foundry suites stub it with `vm.mockCall`; hevm
-  has no `mockCall`, so this one uses `MockTreeUpdateVerifier`, a real contract.
-- **The payer.** The Foundry suites `vm.etch` a stub at a hard-coded address and
-  `vm.prank` it for the calls MASP restricts to the payer. `EchidnaMaspPayer` is
-  deployed instead, so it has code (Permit2 routes through ERC-1271) and
-  originates its own calls (`cancelDeposit`'s `PayerNotSender` guard is
-  satisfied honestly rather than by impersonation).
-- **Block advancement.** The Foundry handlers `vm.roll` past `cancelDelay`
-  unconditionally, which makes every cancel succeed and so never exercises the
-  timing guard. Here the guard is live and Echidna has to find the timing;
-  `maxBlockDelay` is set against `CANCEL_DELAY_DEFAULT` (7,200 blocks) so it
-  can, and the coverage report confirms it does.
+| Concern | Foundry suites | Echidna targets |
+| --- | --- | --- |
+| Tree-update verifier | `vm.mockCall` | `MockTreeUpdateVerifier`, a deployed contract |
+| Payer | `vm.etch` and `vm.prank` | `EchidnaMaspPayer`, a deployed contract |
+| Block advancement | `vm.roll` past `cancelDelay` | The delay guard is live; `maxBlockDelay` is set against `CANCEL_DELAY_DEFAULT` (7,200 blocks) |
 
-## Reachability is not free here
+## Reachability
 
-Three of these properties passed *vacuously* when first written: across 40,000
-calls, the handlers behind `echidna_evictedRootsUnknown`,
-`echidna_evictedRootRejected` and `echidna_pauseCannotTrapFunds` never once
-reached the pool, and the run reported them green. Two independent causes, both
-worth knowing before adding a property that needs a deep state:
+A property whose handler returns early is reported as passing. Each target therefore has a reachability test, run under `forge test`, that drives every handler directly and asserts it changed state. `EchidnaMaspReachability.t.sol` also asserts that a cancel inside the delay window is rejected, and `EchidnaMaspYieldReachability.t.sol` that the optimization targets observe real inflow and outflow. The Echidna coverage report (`corpus/covered.*.txt`) confirms reachability under Echidna itself.
 
-- **Echidna resets state between sequences.** Anything requiring many landed
-  calls in a row has to fit inside one sequence. The ring evicts nothing until
-  64 roots are in it, and transfers spread across two dozen handlers landed
-  perhaps twenty times per sequence. `churnRoots` exists for this: it advances
-  the root in a loop, putting the wrap within a few calls instead of a few
-  hundred. `seqLen` was raised to 400 for the same reason.
-- **Independent delays have to overlap.** The pause properties need a paused
-  pool (timestamp-bounded) holding a deposit whose cancel delay of 7,200
-  *blocks* has elapsed. Echidna draws its block and time delays separately, and
-  at the original `maxTimeDelay: 300000` any single call ended the pause long
-  before a block jump could cross the delay. Time is now deliberately slow
-  relative to blocks, `pauseSpends` refuses to trip over an escrow too small to
-  outlast its own window, and `pausedCancelHonoured` searches for a deposit
-  that is *both* pending and past its delay rather than giving up on the first
-  pending one.
+Constraints that affect reachability:
 
-The general shape: a property whose handler early-returns is indistinguishable
-from one that holds. The gate below is what tells them apart, and the coverage
-report (`corpus/covered.*.txt`) is what confirms it under Echidna specifically —
-an `*` on the handler's attempt counter means the call was actually made.
-
-## The reachability gate
-
-A fuzzer reports a property as passing whether it held across a thousand real
-state transitions or across a thousand calls that all reverted on entry.
-`MaspFlowInvariantTest.test_handlerReachesEveryPath` exists because exactly that
-happened to the Foundry suite once: `flushOne` built a one-leaf batch,
-`_validateBatchHeader` rejected it, and with reverts tolerated the call rolled
-back leaving no trace — so `invariant_rootCoherence` spent its whole life
-comparing 0 to 0.
-
-This suite is *more* exposed to that than the Foundry one, because its handlers
-were rewritten around a different cheatcode set and `cancelOne` deliberately
-leaves a guard live. `EchidnaMaspReachability.t.sol` runs under `forge test` and
-drives each handler directly, asserting it changed state — including that a
-cancel inside the delay window is rejected, so a passing cancel path cannot be
-confused with an unreachable one.
-
-## Running it
-
-```sh
-just echidna              # both targets, property mode, 50k tests each
-just echidna 400000       # roughly what CI runs nightly (capped at `timeout`)
-just echidna-optimize     # both targets, optimization mode; reports, does not gate
-```
-
-Note that Echidna exits **non-zero in optimization mode whatever it finds** — an
-optimization target is never "solved", so it is reported as an open test the way
-a failing property would be. The recipe swallows that, and the CI step carries
-`continue-on-error`. Property mode exits 0 normally, and is what gates.
-
-Both recipes build under `[profile.echidna]` and regenerate their config first.
-That profile pre-links the `YieldOps` and `DepositOps` libraries at fixed
-addresses because Echidna cannot deploy-and-link them the way Foundry does;
-`just _echidna-config` then places each library's code there. The generated
-configs are rebuilt from the current artifacts on every run, so the bytecode
-cannot go stale — and both they and the corpus are gitignored.
+- Echidna resets state between sequences, so a deep state must be reachable within one sequence. `churnRoots` advances the root in a loop to reach the ring wrap, and `seqLen` is 400.
+- Block and time delays are drawn independently. The pause properties need a paused pool (timestamp-bounded) holding a deposit past its cancel delay (block-bounded), so `maxTimeDelay` is small relative to `maxBlockDelay`.

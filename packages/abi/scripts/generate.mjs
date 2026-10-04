@@ -28,9 +28,8 @@ const outDir = join(repoRoot, "out");
  * `source` is the path under the repo root; `contract` the name inside it;
  * `export` the camelCase symbol the package exposes.
  *
- * `UpgradeStorage` is omitted: it declares only internal functions, so its
- * artifact carries an empty ABI. `TimelockController` is omitted because it is
- * unmodified OpenZeppelin and ships with that package.
+ * `TimelockController` is omitted because it is unmodified OpenZeppelin and
+ * ships with that package. Omitted `src/` contracts are listed in `EXCLUDED`.
  */
 const CONTRACTS = [
     { source: "src/MASP.sol", contract: "MASP", export: "maspAbi" },
@@ -89,8 +88,7 @@ const EXCLUDED = new Map([
     ["src/swap/UniV4Adapter.sol:IUniversalRouter", "external router surface, transcribed locally"],
     ["src/yield/YieldOps.sol:IERC4626Asset", "helper interface declared alongside its consumer"],
 
-    // PROVISIONAL — publication not yet decided. These in-progress contracts
-    // are excluded only so `generate` passes while they land; each must be
+    // Provisional: publication is not yet decided. Each entry below must be
     // moved to `CONTRACTS` or given a settled reason here before the next tag.
     ["src/bundler/Bundler.sol:Bundler", "provisional: publication not yet decided"],
     ["src/bundler/Bundler.sol:IBundlerDeployer", "provisional: publication not yet decided"],
@@ -117,7 +115,7 @@ function assertUnique() {
  * Artifacts whose source no longer exists are skipped: `forge build` never
  * prunes `out/`, and CI restores it from a cache keyed on a prefix, so a
  * contract deleted since the cached build leaves its artifact behind and would
- * otherwise be reported as unpublished drift forever.
+ * otherwise be reported as unpublished drift indefinitely.
  */
 function assertNoDrift() {
     const known = new Set([...CONTRACTS.map((e) => `${e.source}:${e.contract}`), ...EXCLUDED.keys()]);

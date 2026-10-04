@@ -34,11 +34,11 @@ import { DepositFixture } from "../utils/DepositFixture.sol";
 /// `MaspEscrowSatellite` checks the refund that arrives against the refund the
 /// pool reports, not against the recorded escrow, to support this configuration.
 /// `NativeAdapter.guards.t.sol` covers that check against `MockNativePool`, whose
-/// refund is set by hand; `NativeAdapter.t.sol` uses a real pool with plain WETH,
-/// where the refund always equals the escrow. This suite covers a real index: a
-/// yield refund is floored at the current index and capped at the pull, so it
-/// equals the recorded escrow after growth and falls below it at a flat index or
-/// after a loss.
+/// refund is set by hand; `NativeAdapter.cancel.t.sol` uses a real pool with
+/// plain WETH, where the refund always equals the escrow. This suite covers a
+/// real index: a yield refund is floored at the current index and capped at the
+/// pull, so it equals the recorded escrow after growth and falls below it at a
+/// flat index or after a loss.
 ///
 /// WETH is the wrapped native token on all three deployed chains, so a
 /// yield-bearing WETH id is on the native ETH path.
@@ -99,7 +99,7 @@ contract YieldNativeAdapterTest is Test {
 
     function _request(uint64 publicIn) internal view returns (PubInputs.DepositRequest memory d) {
         d = DepositFixture.request(ASSET_WETH, publicIn, address(adapter), RECIPIENT, bytes32(uint256(0x1)));
-        d.feeCm = bytes32(uint256(0x2));
+        d.feeInner = bytes32(uint256(0x2));
     }
 
     /// At the first deposit the index is `RAY`, so the pull matches the plain
@@ -161,15 +161,18 @@ contract YieldNativeAdapterTest is Test {
     }
 
     function _cancel(uint256 id, uint64 publicIn, uint32 submittedAt) internal {
+        // The pool pulled the escrow from the adapter, so the adapter's record
+        // of that pull is the refund cap the pool bound.
+        (, uint256 pulled) = adapter.escrows(id);
         adapter.cancelNative(
             id,
             uint48(publicIn),
             bytes32(uint256(0x1)),
-            [uint256(0), 0],
             ASSET_WETH,
             FEE_BPS,
             submittedAt,
-            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeCm: bytes32(uint256(0x2)), feeCvDep: [uint256(0), 0] })
+            PubInputs.FeeNote({ feeIn: 0, feeAssetId: 0, feeInner: bytes32(uint256(0x2)) }),
+            pulled
         );
     }
 
@@ -226,10 +229,10 @@ contract YieldNativeAdapterTest is Test {
 
     /// At a flat index the ceilinged pull and the floored refund differ by a wei.
     ///
-    /// The adapter used to require at least the recorded amount back, so this
-    /// cancel reverted, and the pool accepts a contract payer's cancel only from
-    /// the payer: the escrow had no refund path. The adapter now forwards what
-    /// the pool reports.
+    /// The adapter forwards what the pool reports instead of requiring the
+    /// recorded amount back. Requiring it would revert this cancel and, because
+    /// the pool accepts a contract payer's cancel only from the payer, leave the
+    /// escrow with no refund path.
     function test_cancelNative_atFlatIndex_refundsTheFloor() public {
         _depositFrom(HOLDER, 1_000_000);
         // Odd growth, so a unit is no longer worth a whole number of base units.

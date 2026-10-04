@@ -92,8 +92,8 @@ contract BundlerTest is BundlerTestBase {
     }
 
     /// Calldata per item kind, as the relayer packs bundles against a per-chain
-    /// transaction size limit. Pinned so a struct change that grows an item is
-    /// noticed where `max_tx_bytes` is sized.
+    /// transaction size limit (its `max_tx_bytes`). The sizes are logged; only
+    /// the relations between the kinds are asserted.
     ///
     /// The aux ciphertexts here are the 2-byte minimum; production notes carry
     /// 130 bytes each, adding 128 bytes of payload (padded to 160) per output.
@@ -143,6 +143,28 @@ contract BundlerTest is BundlerTestBase {
         assertEq(masp.committedCount(), start + 6, "only the first call landed");
         assertEq(masp.currentRoot(), _root(1), "root from the first call");
         assertFalse(masp.isKnownRoot(_root(3)), "third call never ran");
+    }
+
+    /// A transfer names no asset. One that sets `publicAssetId` is refused by
+    /// the pool with `MustNotNameAsset`, reported like any other failed item,
+    /// and the calls before it stay landed.
+    function test_execute_transferNamingAsset_failsItem_keepsPrefix() public {
+        uint64 start = masp.committedCount();
+
+        Bundler.Call[] memory calls = new Bundler.Call[](2);
+        calls[0] = _transferCall(bundler, 0x100, _root(1), start);
+        calls[1] = _transferCall(ASSET_A, bundler, 0x200, _root(2), start + 6);
+
+        bytes memory expected = abi.encodeWithSelector(MASP.MustNotNameAsset.selector);
+        vm.expectEmit(address(bundler));
+        emit Bundler.BundleItemFailed(1, expected);
+        vm.prank(OPERATOR);
+        (uint256 executed, bytes memory reason) = bundler.execute(calls);
+
+        assertEq(executed, 1, "stopped at the transfer naming an asset");
+        assertEq(reason, expected, "reason is the pool's revert");
+        assertEq(masp.committedCount(), start + 6, "only the first call landed");
+        assertFalse(masp.spent(bytes32(uint256(0x200))), "refused spend consumed no nullifier");
     }
 
     // --- running out of gas -----------------------------------------------

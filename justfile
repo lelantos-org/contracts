@@ -158,18 +158,15 @@ echidna limit="50000":
 # value can drift, which distinguishes a bounded rounding residue from a leak.
 # Most relevant to the yield target, where every conversion between normalized
 # units and assets is a mulDiv with a rounding direction. Reports the largest
-# value found rather than passing or failing; it is a report, not a gate.
+# value found rather than passing or failing, so it is not a gate.
 [doc('Run the Echidna suites in optimization mode')]
 [group('test')]
 echidna-optimize limit="50000":
     #!/usr/bin/env bash
     set -euo pipefail
     FOUNDRY_PROFILE={{ ECHIDNA_PROFILE }} forge build --build-info --skip script
-    # All configs are generated before any run. crytic-compile re-runs
-    # `forge build` scoped to the target it compiles, and Foundry prunes
-    # artifacts outside that dependency graph, so running Echidna on the first
-    # contract deletes the second's artifact and its config generation would
-    # fail on the missing ABI.
+    # All configs are generated before any run, for the reason given in the
+    # `echidna` recipe.
     for c in {{ ECHIDNA_CONTRACTS }}; do just _echidna-config "$c"; done
     for c in {{ ECHIDNA_CONTRACTS }}; do
         echo "=== echidna: $c (optimization mode) ==="
@@ -177,8 +174,7 @@ echidna-optimize limit="50000":
         # regardless of result, because an optimization target is never
         # "solved" and is reported as an open test (property mode on the same
         # contract exits 0; optimization mode exits 1 even with both maxima at
-        # 0). Without it, `set -e` aborts the loop after the first contract and
-        # the CI step fails on every run.
+        # 0). Without it, `set -e` aborts the loop after the first contract.
         FOUNDRY_PROFILE={{ ECHIDNA_PROFILE }} echidna "test/echidna/$c.sol" \
             --contract "$c" \
             --config "test/echidna/$c.optimize.generated.yaml" \
@@ -399,17 +395,17 @@ fmt-check:
 # `--skip` keeps test/ and script/ out of the build. Slither reports only on
 # src/ (`filter_paths` in slither.config.json), but `filter_paths` drops
 # findings after the fact: every source in build-info is still parsed and run
-# through the detectors first. test/ is 217 of the 274 first-party sources and
-# compiles through via_ir, so excluding it takes the whole recipe from ~8
-# minutes to ~12 seconds (build 221s -> 6s, Slither 250s -> 6s, measured
-# locally) and build-info from 142 MB to 17 MB. src/ bytecode is unchanged.
+# through the detectors first. test/ is about 80% of the first-party sources
+# and compiles through via_ir, so excluding it cuts the recipe from ~8 minutes
+# to ~12 seconds (build 221s -> 6s, Slither 250s -> 6s, measured locally) and
+# build-info from 142 MB to 17 MB. src/ bytecode is unchanged.
 #
 # The narrower scope adds 11 informational findings (`dead-code`,
 # `unused-state`, `missing-inheritance`) and removes none. They are an artifact
 # of `compilation_restrictions` in foundry.toml: MASP compiles at 1_000 runs
 # into its own compilation unit, so the copy of each base contract in the
-# 1_000_000-run unit has no caller once the test contracts that used to call it
-# are gone. All are below the `--fail-medium` gate, which sees the same set of
+# 1_000_000-run unit has no caller once the test contracts that call it are
+# excluded. All are below the `--fail-medium` gate, which sees the same set of
 # findings either way.
 [doc('Run Slither (mirrors the CI job)')]
 [group('ci')]
@@ -508,7 +504,7 @@ deploy-test-yield:
 deploy-mainnet *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ MASP_SCRIPT }} --broadcast -vvv {{ args }}
 
-# Simulation only (no broadcast). Same args as `deploy-mainnet`.
+# Same args as `deploy-mainnet`.
 [doc('Simulate the MASP deploy without broadcasting')]
 [group('deploy')]
 dry-run-mainnet *args:
@@ -522,7 +518,7 @@ dry-run-mainnet *args:
 deploy-swap *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ SWAP_SCRIPT }} --broadcast -vvv {{ args }}
 
-# Simulation only (no broadcast). Same args as `deploy-swap`.
+# Same args as `deploy-swap`.
 [doc('Simulate the swap-stack deploy without broadcasting')]
 [group('deploy')]
 dry-run-swap *args:
@@ -532,13 +528,13 @@ dry-run-swap *args:
 # already-deployed MASP, NativeAdapter and SwapWrapper, for chains whose swap
 # stack predates them. Reads $BUNDLER_CONFIG (default
 # script/config/mainnet.bundler.json); requires $BUNDLER_OPERATOR and
-# $BUNDLER_OWNER. Log BUNDLER= is the relayer's BUNDLER_ADDRESS.
+# $BUNDLER_OWNER. The logged `BUNDLER=` value is the relayer's BUNDLER_ADDRESS.
 [doc('Deploy GenericCallWrapper + BundlerFactory + relayer Bundler (broadcasts)')]
 [group('deploy')]
 deploy-bundler *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ BUNDLER_SCRIPT }} --broadcast -vvv {{ args }}
 
-# Simulation only (no broadcast). Same args as `deploy-bundler`.
+# Same args as `deploy-bundler`.
 [doc('Simulate the bundler deploy without broadcasting')]
 [group('deploy')]
 dry-run-bundler *args:
@@ -554,8 +550,8 @@ dry-run-bundler *args:
 deploy-yield *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ YIELD_SCRIPT }} --broadcast -vvv {{ args }}
 
-# Simulation only (no broadcast). Same args as `deploy-yield`. Run before
-# deploying: a venue binding is permanent, so a wrong vault retires the asset id.
+# Same args as `deploy-yield`. Run before deploying: a venue binding is
+# permanent, so a wrong vault retires the asset id.
 [doc('Simulate the yield deploy without broadcasting')]
 [group('deploy')]
 dry-run-yield *args:
@@ -563,8 +559,8 @@ dry-run-yield *args:
 
 # === deploy: governance ===
 
-# Governance-stack deploy (token, timelock, governor, burner, admin).
-# Reads $GOV_CONFIG (default script/config/mainnet.gov.json). Run after
+# Governance-stack deploy (token, timelock, governor, burner). Reads
+# $GOV_CONFIG (default script/config/mainnet.gov.json). Run after
 # deploy-mainnet and deploy-swap; the config must name both deployed
 # addresses. The deployer's timelock admin is renounced as the last
 # transaction, so a failed run is recoverable but a completed one is final.
@@ -575,17 +571,17 @@ dry-run-yield *args:
 deploy-gov *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ GOV_SCRIPT }} --broadcast -vvv {{ args }}
 
-# Simulation only (no broadcast). Same args as `deploy-gov`. Run before
-# deploying: several configured values (quorum in particular) can only be
-# changed afterwards through the governance they configure.
+# Same args as `deploy-gov`. Run before deploying: several configured values
+# (quorum in particular) can only be changed afterwards through the governance
+# they configure.
 [doc('Simulate the governance deploy without broadcasting')]
 [group('deploy')]
 dry-run-gov *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ GOV_SCRIPT }} -vvv {{ args }}
 
 # Moves MASP, SwapWrapper and the pool proxy admin under governance. Signed by
-# the current owner EOA. Requires $PROTOCOL_ADMIN and $FEE_BURNER from the
-# deploy-gov output.
+# the current owner EOA. Requires $TIMELOCK and $FEE_BURNER from the deploy-gov
+# output.
 #
 # One-way: `Ownable` is single-step, so a wrong address loses the pool's entire
 # admin surface. Run only once delegated weight exists and a dry-run proposal
@@ -596,7 +592,7 @@ dry-run-gov *args:
 handover *args:
     FOUNDRY_PROFILE={{ DEPLOY_PROFILE }} forge script {{ HANDOVER_SCRIPT }} --broadcast -vvv {{ args }}
 
-# Simulation only. Run before `handover`.
+# Run before `handover`.
 [doc('Simulate the ownership handover without broadcasting')]
 [group('deploy')]
 dry-run-handover *args:
