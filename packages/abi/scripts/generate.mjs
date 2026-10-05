@@ -51,6 +51,16 @@ const CONTRACTS = [
     { source: "src/swap/SwapWrapper.sol", contract: "SwapWrapper", export: "swapWrapperAbi" },
     { source: "src/generic/GenericCallWrapper.sol", contract: "GenericCallWrapper", export: "genericCallWrapperAbi" },
     { source: "src/generic/CallExecutor.sol", contract: "CallExecutor", export: "callExecutorAbi" },
+    {
+        source: "src/names/LelantosNameRegistrar.sol",
+        contract: "LelantosNameRegistrar",
+        export: "lelantosNameRegistrarAbi",
+    },
+    {
+        source: "src/names/LelantosNameResolver.sol",
+        contract: "LelantosNameResolver",
+        export: "lelantosNameResolverAbi",
+    },
     { source: "src/swap/UniV3Adapter.sol", contract: "UniV3Adapter", export: "uniV3AdapterAbi" },
     { source: "src/swap/UniV4Adapter.sol", contract: "UniV4Adapter", export: "uniV4AdapterAbi" },
     { source: "src/swap/ISwapAdapter.sol", contract: "ISwapAdapter", export: "swapAdapterAbi" },
@@ -87,6 +97,7 @@ const EXCLUDED = new Map([
     ["src/swap/UniV3Adapter.sol:ISwapRouter02", "external router surface, transcribed locally"],
     ["src/swap/UniV4Adapter.sol:IUniversalRouter", "external router surface, transcribed locally"],
     ["src/yield/YieldOps.sol:IERC4626Asset", "helper interface declared alongside its consumer"],
+    ["src/names/HandleBlob.sol:HandleBlob", "internal-only library; its error surfaces in lelantosNameRegistrarAbi"],
 
     // Provisional: publication is not yet decided. Each entry below must be
     // moved to `CONTRACTS` or given a settled reason here before the next tag.

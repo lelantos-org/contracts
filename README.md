@@ -65,6 +65,7 @@ flowchart TB
 | [`NativeAdapter`](src/native/NativeAdapter.sol) | Wraps native coin into the deposit path and unwraps it out of the withdraw path. |
 | [`SwapWrapper`](src/swap/SwapWrapper.sol) | Atomic unshield, swap, re-shield through an allowlisted `ISwapAdapter` (`UniV3Adapter`, `UniV4Adapter`). |
 | [`GenericCallWrapper`](src/generic/GenericCallWrapper.sol) | Atomic unshield, arbitrary calls, re-shield into up to four notes. |
+| [`LelantosNameRegistrar`](src/names/LelantosNameRegistrar.sol), [`LelantosNameResolver`](src/names/LelantosNameResolver.sol) | Handles: a label mapped to its holder's shielded address, registered through `GenericCallWrapper` and served as ENS subnames of each parent name a resolver is deployed for. |
 | [`Bundler`](src/bundler/Bundler.sol) | Lands a relayer's chained tree-advancing calls in one transaction. One per relayer, deployed by the permissionless [`BundlerFactory`](src/bundler/BundlerFactory.sol). |
 | [`LelantosGovernor`](src/governance/LelantosGovernor.sol), [`LelantosToken`](src/governance/LelantosToken.sol) | Governance, executing through a `TimelockController`. |
 | [`FeeBurner`](src/burn/FeeBurner.sol) | The pool's treasury. Auctions accrued fees for the governance token and burns the proceeds. |

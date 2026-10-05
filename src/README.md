@@ -16,6 +16,7 @@ Reference for the contracts in `src/`: what each does, how they compose, and the
 - [Generic calls](#generic-calls)
 - [Native coin](#native-coin)
 - [Bundling](#bundling)
+- [Names](#names)
 - [Constants](#constants)
 
 ## Overview
@@ -64,6 +65,7 @@ The two spend proofs are independent. The contract binds them; see [Spend](#spen
 | [swap/](swap/) | `SwapWrapper`, `ISwapAdapter`, `UniV3Adapter`, `UniV4Adapter`. |
 | [generic/](generic/) | `GenericCallWrapper`, `CallExecutor`. |
 | [bundler/](bundler/) | `Bundler`, `BundlerFactory`. |
+| [names/](names/) | `LelantosNameRegistrar`, `LelantosNameResolver`, `HandleBlob`. |
 | [governance/](governance/) | `LelantosToken`, `LelantosGovernor`. |
 | [burn/FeeBurner.sol](burn/FeeBurner.sol) | The pool's `treasury`. |
 
@@ -607,6 +609,42 @@ Targets are immutables. An adapter a chain lacks is zero, and zero is never a ta
 **Concurrency.** Relayers do not coordinate. Concurrent bundles race for `currentRoot`; the loser's first call fails `BatchMisaligned` or `StaleOldRoot`, and that relayer rebuilds on the new root. Each item registers its own root, so a bundle of K items evicts K of the 64 known roots.
 
 **Log layout.** Indexers reconstruct leaf indices from the log order, pinned by `test/bundler/Bundler.t.sol :: test_execute_mixedBundle_logLayout`: a flush emits its `DepositFlushed` events before its `RootAdvanced`; a spend emits its `NotePayload` events after; adapter events follow the pool events of their item; consecutive `RootAdvanced` events chain `startIndex`.
+
+## Names
+
+A handle maps a label to one text value, the holder's shielded address. [`LelantosNameRegistrar`](names/LelantosNameRegistrar.sol) holds the handles of a chain. [`LelantosNameResolver`](names/LelantosNameResolver.sol) serves them as ENS subnames of one parent name; one is deployed per parent, all over the same registrar. Neither is registered with the pool or named by it.
+
+**Registration.** `register(label, value, controller)` is first come, first served and open to any caller. It is built to be called from a `GenericCallWrapper` execution, where `msg.sender` is a single-use clone, so the registrant is not an account: a handle belongs to `controller`, the address of a key its holder keeps.
+
+| Entry point | Caller | Effect |
+| --- | --- | --- |
+| `register` | Anyone | Records `(controller, value)` under `keccak256(label)`; pulls `feeAmount` of `feeToken` from the caller to `treasury` when non-zero |
+| `setValue` | Anyone, with the controller's signature | Replaces the value. An empty value clears the record; the handle stays registered |
+| `setFee` | Owner | Sets the fee token, amount and recipient |
+
+- **Labels.** `[a-z0-9-]`, 3 to 32 bytes, no leading or trailing hyphen, no two hyphens in a row. Each is its own ENSIP-15 normal form.
+- **Values.** Opaque: at most 1,024 bytes of printable ASCII (`0x21..0x7e`), non-empty in `register`. Never parsed; a reader validates the address it decodes.
+- **Storage.** A handle is one slot, `(blob, nonce)`. The controller and the value are the code of a [`HandleBlob`](names/HandleBlob.sol): `STOP ‖ controller ‖ value`. For a 195-byte value that is about a third of the gas of storage slots (`register` falls from about 233k to 152k). The blob is immutable: `setValue` deploys a new one, at about twice what rewriting slots would cost, and the old one stays on chain. A cleared record keeps a blob of the controller alone.
+- **Gas.** `test/names/NameRegistrationGas.t.sol` measures the call leg `[approve, register]` and holds it, with `FEE_TOKEN_PREMIUM` for a dearer fee token and a quarter to spare, under `REGISTER_MIN_GAS`, the `minGas` wallets bind. `test/names/fork/RegistrationGas.fork.t.sol` holds mainnet USDC to that premium.
+- **Signatures.** `setValue` takes an EIP-712 signature over `SetValue(string label,string value,uint256 nonce,uint256 deadline)` in the domain `("LelantosNameRegistrar", "1", chainId, registrar)`. The nonce is the handle's count of `setValue` calls, read from storage. `ECDSA.recover` rejects malleable signatures; contract signers are not supported.
+- **No owner power over handles.** The owner sets the fee and nothing else. A handle cannot be transferred, released or reclaimed, and its controller cannot be changed. Reserved labels are therefore seeded in the constructor.
+- **Fee.** Paid straight to `treasury`; the registrar holds no balance. Through the wrapper, the clone approves the exact fee and then registers, so a fee raised after the wallet signed makes the call leg refund.
+- **Front-running.** The label is in clear calldata and anyone can register it first. The wrapper then refunds the input. Relayers should submit registrations through private order flow.
+
+**Resolution.** A resolver implements ENSIP-10 (`supportsInterface(0x9061b923)`) and is set as its parent's resolver in the ENS registry. No subname exists there; the Universal Resolver calls `resolve(name, data)` for every name under the parent and for the parent itself.
+
+| `name` | `data` | Result |
+| --- | --- | --- |
+| `<label>.<parent>` | `text(node, KEY)` | The handle's value; empty when unregistered or cleared |
+| `<label>.<parent>` | `text(node, other key)` | Empty |
+| `<label>.<parent>` | Any other record type | Reverts `UnsupportedResolverProfile(selector)` |
+| The parent | Anything | Forwarded to `FALLBACK_RESOLVER`; reverts `UnsupportedResolverProfile` when there is none |
+| Any other name | Anything | Reverts `UnreachableName(name)` |
+
+- `name` is in DNS wire format and is authoritative; the node inside `data` is ignored. The suffix check also refuses a name under another parent whose owner points it at this contract.
+- A resolver is stateless and ownerless. Its parent, text key, registrar and fallback are fixed at deploy.
+- The parent's owner in the ENS registry can repoint the resolver or create a real subnode, which shadows the wildcard for that label. Readers of the registrar itself are unaffected. For a `.eth` parent, [`HandoverName.s.sol`](../script/HandoverName.s.sol) moves the name to the Timelock; a DNS-imported parent stays under whoever controls its DNS zone.
+- Deploys: [`DeployNames.s.sol`](../script/DeployNames.s.sol) for the registrar, [`DeployNameResolver.s.sol`](../script/DeployNameResolver.s.sol) once per parent.
 
 ## Constants
 

@@ -12,7 +12,7 @@
 
 ## Layout
 
-Directories are by subject: `masp/`, `yield/`, `native/`, `swap/`, `generic/`, `bundler/`, `burn/`, `governance/`, `upgrade/`, `deploy/`, `core/` (tree, nullifiers, curve, compression), `libs/` and `verifiers/`. `fuzz/` and `invariant/` hold cross-cutting suites.
+Directories are by subject: `masp/`, `yield/`, `native/`, `swap/`, `generic/`, `names/`, `bundler/`, `burn/`, `governance/`, `upgrade/`, `deploy/`, `core/` (tree, nullifiers, curve, compression), `libs/` and `verifiers/`. `fuzz/` and `invariant/` hold cross-cutting suites.
 
 The technique is in the file suffix:
 

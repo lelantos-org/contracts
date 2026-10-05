@@ -1,0 +1,6 @@
+{
+  "registrar": "0x0000000000000000000000000000000000000000",
+  "parent": "lelantos.xyz",
+  "textKey": "xyz.lelantos.address",
+  "fallbackResolver": "0x0000000000000000000000000000000000000000"
+}
