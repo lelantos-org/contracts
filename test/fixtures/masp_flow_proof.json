@@ -1,8 +1,8 @@
 {
   "schema": "lelantos.contracts.masp-fixture/1",
   "source": {
-    "generator": "@lelantos-org/circuits@0.19.0 scripts/gen-masp-fixture.ts",
-    "keys": "prototype-0.19.0",
+    "generator": "@lelantos-org/circuits@0.20.0 scripts/gen-masp-fixture.ts",
+    "keys": "prototype-0.20.0",
     "transact": "Transact(11, 4, 6)",
     "treeUpdateBatch": "TreeUpdateBatch(11, 8)"
   },
@@ -68,22 +68,22 @@
     },
     "proof": {
       "a": [
-        "0x23a7cc60ebb8f98840cf1342a44146b90dc1c48b09fe9ec5422cc646aa0e2fca",
-        "0x1e7f732839bbb54b1a6e1758a5ad58055657cd9ede88e2daa1182a217451af37"
+        "0x28764601f70738ae157b5c42284538ef3fc1e573261713845dfb4fb6c82f57c1",
+        "0x29ef10ca1eb40c9ab16155bb063470a70941d6bc35a0bad615af2ab388c83c21"
       ],
       "b": [
         [
-          "0x0f537ae4171c7d8e5ef16257e55c2ea48e117f954b2e2dff8726a4306acbbef8",
-          "0x0dc31b0cdf7d3ad600c7ce36316345be6285bf658a122ef1594eef528b1c20c5"
+          "0x186ad7fa2d69bd28b7ccc290867d7cef4524b6868247b7afb13d24d911c7de78",
+          "0x27da88d18c93829a0f7f9e478b76d886e144e9327ac958cf862c493a3ed111b6"
         ],
         [
-          "0x0e545985be4e1617885b9f14857bbe3da3fe43d41a2df109bf685b70c9b2531b",
-          "0x051eb2cdd71e15470aeb11294908a61d7e084f06ba4f6b69fb23b78e36b06a50"
+          "0x0af0135bf529c28b205c91e283eb144f10ba32c6c83aec9013e2fcfc84cdab6b",
+          "0x157f7ea716eea7c89432a0a7451b4d2eb7e59ec6cc724281efccbcc7bcbbb5b2"
         ]
       ],
       "c": [
-        "0x04d2fe174ec9dd69569fb6139bd89a9ba595996c02d8623d66751691a4c1a87d",
-        "0x242e068c71a0936c13d6d4b0f68cd3d691c5eb98e90781230e86afaad6a57439"
+        "0x105d512d7792ee42a2557998de50663a40786228d340d885f130ca1008ecdc0a",
+        "0x0096e8f2a4f0ad817c46ba6f229abd17a6be7b44833e1fbaee54dfada5d1a1e8"
       ]
     },
     "pubSignals": [
@@ -181,22 +181,22 @@
     },
     "txProof": {
       "a": [
-        "0x2c31b96b46bdc17de0f58731b88ad38bb8d2b6fb47ad02f72812f7df409dbb30",
-        "0x2c2a52e1c19c0f4a1fd6fd0dd7789bd1e93c496f8abf1cff7f9b80d117ab190c"
+        "0x083bce994a0f4faa86b71a31642b5c659bef458c71d363be6735db43a32dd279",
+        "0x246509eab6c435215171edf62f2e20576969c7c8be24cb69128761dad7a20aa6"
       ],
       "b": [
         [
-          "0x2d5c1f849cb57888912c0edcc699c64dc4543cadb327be68c97c486331f4e09a",
-          "0x11a97280d47e8ceb0a608abdd1af0a53cf88d7637c0ab59fcac8f72454f6aa8c"
+          "0x0bf02663ae4ac26bfc956f991341100c5924bcf9659bd2ad48ffba2fbb700ca7",
+          "0x15bc78b94e6420e28fa9604b2463259502d7a3aaa6441aeab41effac782cdbd8"
         ],
         [
-          "0x1de21ce95cc1898fa665aed135cc17068c172d56d90dc1214b840c677312995b",
-          "0x10e22d784efdd51b8960ee46e86367032d5cb4e6e024c2a1d1f0822d9e1b682d"
+          "0x302f406e053803039bbdb3cd0d51e33bc49a336aad41e38525a210c0e9f6fb42",
+          "0x1e2abc3974a83b6281ab8279629fd313381164489def0db9f721eca119fcc3f8"
         ]
       ],
       "c": [
-        "0x0701a75ea0dff383ddf73ece9aa801f2c9b23b4281dca66250e6bef4e8443d72",
-        "0x06f6e5536fd482e0b2dc01645072cbcc07bd36a6bd99a9a400db1f6a9132907b"
+        "0x2aa65e56c641dffdef9a4db1c2a8c1cec2d6078bb34833507561e1bf7f28c5ec",
+        "0x1ae66f8dc2ac7572914225da1fbb59ebc1e88c515f565adc482652964df05154"
       ]
     },
     "txPubSignals": [
@@ -206,22 +206,22 @@
     ],
     "tubProof": {
       "a": [
-        "0x149cefb91055345f98fd52a1b6622b93f74d2db3ffddc9ebb36961360b3b51f9",
-        "0x0bed60b4a5dae943d7b15b3911db74128643cfd839755c106e2f615ef637b046"
+        "0x10baaa8dc755c834cae715b2aa2040867837a0c570f7959f7434d2a0e3e0470d",
+        "0x187d72d47995cd3e0e2a2d729d8aaed84fef57f364cab7cb6968f9f0017e8bc8"
       ],
       "b": [
         [
-          "0x165c43264740cb02b3c47974345c863755f97a9f591ca3f9c0e760cf1355c6cb",
-          "0x10475a6267d18164c83ce2ab151fc59b465da152cbb145775521de406283a295"
+          "0x0d4b253b986ea4a260af3786868e1d58a8f6447f97c954260c39156a870a9bc8",
+          "0x1c52259434310abd89d2f9de08f0d6d98b46aee80ae8ccf8f210f228e42f232b"
         ],
         [
-          "0x0e869dc4368d37d03f436cea16f06f2d9120e67529713ebe6b56d5834e072d3b",
-          "0x1bcf7bdc918b724e2faf169f050dfe4ceb63c9c200735127441e2a86fa88835a"
+          "0x000eff996b38d0782d9c0b5f0009816d8293e37c3060873f18888bece897b445",
+          "0x13f02e416fcc042792e658fa080896ce6564e7567c741e136c8cd04478f50397"
         ]
       ],
       "c": [
-        "0x0a06d3958046bf3df5a1ae00b2a087598051c546ab688debb24d8639428bccc3",
-        "0x081d1b5486646ceb9baaa639e77fa251b6437fd7fb89d3079c8bf507ff7761c6"
+        "0x2c971fcec8bf87c3f0e03b42d716c75ca2e45f71e24f30b90985956ea7f9ad1b",
+        "0x158330975d12fa332a9f04ec3bb3f61e7722f9ed08566f400b42b3bb00273a6f"
       ]
     },
     "tubPubSignals": [
@@ -319,22 +319,22 @@
     },
     "txProof": {
       "a": [
-        "0x1e1ea907d17fc0aaeea865158c8686bb3db58c96d60cf3d3147803077ca74a7a",
-        "0x0c0ae932554dff5ada6dceb20f7a18ca6fac3e2afc4db226a63d6c81bfd4d729"
+        "0x15fdbfa14a647d2697c7d91179672a0404a781bd08862ed1c7c1e5a4e1c39d19",
+        "0x1fc07f04cca61c1bbefef178bd65ec1b3f0fa7c6b4d689e7e813ca3855c3fcb0"
       ],
       "b": [
         [
-          "0x18335e6239d7cb96d0f0ad585f9549c784b9989311efadb5b506436efe1494bb",
-          "0x0998d31e12eaad517b4d54d32c72aba42ceaea06896a69669670e1052bdea9a2"
+          "0x0bfbd0fc0acc2f5f2dec2c35310cd86f0825780256c78237b132c08132277d0c",
+          "0x1e9041ddfab18c32174d2e0383a36d1293abf77dc4199f70848bf923abf789cd"
         ],
         [
-          "0x0ae064f0f1e65ce637fbe4c204697eb0ba7217556b6e0876ac9e538751726b58",
-          "0x271d88a815c4b34bcb83afbd4b4c2666bfc48e72e05f873964ba7afe312f5192"
+          "0x1e3b3717d382e7fb9779fc344b9253fd9a5ff770a399688e3431380478bd2435",
+          "0x01f8d399e5c46477fe37d61f12a96a364328e2af4bcc1cb6f261b521ee89799e"
         ]
       ],
       "c": [
-        "0x2df597b041c99f7cdcd4a72b6c56e61779a08c4b18061ce59b616093f4813a03",
-        "0x1f071d35b7e781f245a9450262d1231cf0ff6f8da4bdc4bbb43907b702bc9bf9"
+        "0x0b59d575bdb88301dcbd4f991eaaab9441e932ff05b394306994a68a2b40dc2b",
+        "0x29f5148aa78b04cfadd338cb036dbce5e34d5974abb970f9025335aaa0b82214"
       ]
     },
     "txPubSignals": [
@@ -344,22 +344,22 @@
     ],
     "tubProof": {
       "a": [
-        "0x2ddd375f3271bbf36d44e9cc25a7071808ed3e138c417324dde1a8e4de328274",
-        "0x188f50a085e73b80dcb821bee9990cb42134c07f20f7f5efeccc296eb4c842bc"
+        "0x0489a509809ba986d4907f5aafd0b7b33f2ed8ed05c27d078f5e9f249d65b463",
+        "0x22df054c0f9c4c9e5fd7f0fcd9cd497ec036dc24af1649ee115b8d65c0d70fae"
       ],
       "b": [
         [
-          "0x18d2794e68f94cad01618c86d58ccd98ad0f24fa9747106478e74056e4e3e77a",
-          "0x2d308573409213cc6ffa278afda9615bc7c6f9cb48e671189502094838e0bea6"
+          "0x20e31af17a6e3b0d675dcbd46c3376c9695270b7239e934a909a3a52ec2d7520",
+          "0x08ff47dddbbab33027bfeb58166e434deb943a78dd4c93ac0baf69d440b6149d"
         ],
         [
-          "0x2dc7927844cc0b890d424efaa7e40c0378d69123eecdc2e33298d6c1a661c705",
-          "0x2ffb432e408275c41cfb71b3f0904dc6d546085620c6cd44ebdb546dbf7240ba"
+          "0x2e139fa66f3cede8484487e59235fe285c1245234439adcc6ef4bbc34f965263",
+          "0x1f79142ee7df06409517d788d940e3dacaf0f510ff07c2cddbf740571f4f2cbc"
         ]
       ],
       "c": [
-        "0x1749897d4ccbf2377715f48ff967ee81bb39bd1e76e6abc27c679d126d6da498",
-        "0x0a406d56c9d644221c18c4365f71c563b02b5c3c00657ae9e7a4ae29f7ee709e"
+        "0x0d6ed81ec440c2f9f8933880aee215b1616239453133a3a549d49b4f856b30dd",
+        "0x18d6b34418492d9c8b11ff24691d94aa9ff8f09a71b5996896f09adf70e697e0"
       ]
     },
     "tubPubSignals": [

@@ -2,7 +2,7 @@
   "schema": "lelantos.contracts.proof-fixture/2",
   "source": {
     "vector": "transact-4x6.json",
-    "package": "@lelantos-org/circuits@0.19.0",
+    "package": "@lelantos-org/circuits@0.20.0",
     "generator": "transact",
     "template": "Transact(11, 4, 6)",
     "layoutDigest": "0x2a27471a7ff7bc19b44d7a7567edbe2c382dc1bea4e6e52b23bcab9349c96a9a"
@@ -11,22 +11,22 @@
     {
       "name": "internal-4in6out-balanced",
       "a": [
-        "0x085d628493c9287605441ae3c823ab8da852d31dbaaca0ef6b56ba29f889fabd",
-        "0x2ecc0a2917e595854a67142a9593e8ecb7ffbb4ef45efb5ddd6e4e1fdfb4f651"
+        "0x06ac6355dea0bf13fb486d1384672f49fd4ae53c38bf5622622d8cb19036f804",
+        "0x2bbbb6fd1ef8359415419da61abe9b13a69d0b0457fcc62e9d7eebce3dfdbe1f"
       ],
       "b": [
         [
-          "0x30122316da541a48760bf3d31777bb5b5d0493735112b2b1b95cff154fa910d1",
-          "0x08c507a7b71f9441aef5814eb7004e3070c82510f789b02c35dc924f4fcd0f3b"
+          "0x2d87f0828caf5786b6f1116a5c74bd7cb51af9ed5fc8174b2ed258f5a527b2d0",
+          "0x0f0f5a04d8325f3b2145d6871b5e14f9849be0c69c7c27c09dfda78b2f8ec0f6"
         ],
         [
-          "0x0af5e053cc57c4cdd17a7cca5a624e071b202a325ea471ebef2e1e6a17caf2ed",
-          "0x2b699843cb3e312899d48815c909699d6eaee425bd7bab40f855d4519078b900"
+          "0x08ed7649499bd11fb8ef4e885e09d6939b2a669217eeeb3323c5b7259a7e640c",
+          "0x2d451532450c1f18e73810bc10bfdc21f6698358888abb1d87b6cd07cdcdc5c8"
         ]
       ],
       "c": [
-        "0x28da0c548c7a5d9e9fca47d6df190790738beadca9e8f611ddbf1833929582db",
-        "0x05485ffe330bcba66cf2f122851d1a292c718ec4d8eaf1b2918538db9ec06058"
+        "0x0cae916615d73bd497fdd7af9b42c8de4b045b68b24c85fc4801fe05f5896abd",
+        "0x2f58109af600812ada9f6a8ddb470e73808039aebcd27aa1507721c1bd15443f"
       ],
       "pubSignals": [
         "0x2a26ea9ce514b8bcb5bdbdcea4a15a2cc0308ff39002a1b8ec5bb5e99a3923c6",
@@ -37,22 +37,22 @@
     {
       "name": "transfer-3in6out-one-dummy",
       "a": [
-        "0x25700a09c35e59969663e2bb188443ff8ab88d9f143e03e94dd4f09d9f94e84b",
-        "0x23a84f66ed71d45f14499555bdc52d0d36cc1a4b0f6a7140ed7edb6da9554ba8"
+        "0x1615b8cefb8a032cd4fac7d0b4f6931ed3606a955657ce3f1e9fb8993a2df7ca",
+        "0x0f1dae80e295b54e6f638b09b25f5415a178da70cd227448a83ba65642531170"
       ],
       "b": [
         [
-          "0x1b044a4bdf7c675466215187d0d71b3f63343c3b388b458780241b4f7b0ca0b1",
-          "0x1c02a43820e2ad9a05013e8dbfc0518cc96f0ff3f272e324fed585bc71ea7334"
+          "0x186e888fd2a42810a9b1450f75b3f9eb31a0ea757e95845b36429fe1d5aafdad",
+          "0x2269cad2742b94d3fa9e4cb3ac5e90fd5403582a5ac21d019875895cdc195662"
         ],
         [
-          "0x2ac0ad4500fec3c837c00c21eb5323283c5054b1d8327dfe9844ded7933bc24e",
-          "0x20fc9b4800fe2038253686f19aa53099ab590ccc9ab605cad6a35f40a962deda"
+          "0x1c0e41977b878fb56f8a6b03412d6402b01f413a678fdf86fdc27db4029800c8",
+          "0x29785162dd4e4dff73b03ba56ea98072b3d96e86e93f1172ac18f1a8e5a2965f"
         ]
       ],
       "c": [
-        "0x207a27d9706ffd69ec5350e9031894bd21122b0b043dc1623deb35ee8b3c9a99",
-        "0x1972ff54e07eb1a74e4e0e2ab12cea36cba5fb9397d06c0cd1c5a51ea1a40f7a"
+        "0x12fa57b30221b7f7f7ce200948da84402128651a0147aa970f7c8e57109fc6fd",
+        "0x110c83d3603330498ff4b3bd3720990998bd057d1e641b6c9da04cebdf46f61a"
       ],
       "pubSignals": [
         "0x1bb482e2dfcf6fb064bebe24cba88154d5c5272e7fc4e338f68a57368313674f",
@@ -63,22 +63,22 @@
     {
       "name": "withdraw-4in6out-public-out",
       "a": [
-        "0x0b8d886534ab2634d70cf1df80f2643f1f8cb4c7ae6790f8693f6e1ecaa2375f",
-        "0x26c893a38d5a62a88b9567dde71c9d0c0feff90289bfadd84a2f76a4f02fddff"
+        "0x11252fb6c2c3718ad399efb08282afb0a9d873d42bdaf8a91e5108e3af6b03f9",
+        "0x007a74c12c0d1e8becb8832f70f9441a47c86bff9e3091bed700bff2a4e50d28"
       ],
       "b": [
         [
-          "0x216b169a0b025e9a674f74b9b4763060248f9eda8a0c402854b440f7169c6f5e",
-          "0x1f55b98f3d71255a559ed4128c7d392f332ab7a58d47d780e685e1d0cc5ba2cd"
+          "0x126a78d916a041cfc3283beddc424cea91d19d33e0e0c92b973f42a786a67638",
+          "0x1884c3d35a65bbf09ff15f2571e975de40215ce49d7f3926c4bb90029469fe9f"
         ],
         [
-          "0x2ba01a26a96e4ba9add3179127d3d632029f87d38a54e8196e9a4d7879331053",
-          "0x2c400828694cd01d3a085536ddde49b91e78ccf20c06885c47983922f7f404ef"
+          "0x2fb71f6abf71901a1646c3e9e70e86cd4d5036ff5f816ddf3d08a3954dab57f4",
+          "0x25fdd05404ed5de166aa503a20db67849aa23615e64bb2acb89acf576f9526a4"
         ]
       ],
       "c": [
-        "0x2daa6ee3d0256ae34222d84588dc591f311984fc3e0e0d3dfb38ba18a9daf37a",
-        "0x19aacd64fcd292958463da055641fd5f07a321e69884ac72aa9d046078a7901a"
+        "0x2609fa55912232f702390f21c2e6f224c51520dbc55a9156b1205fd323604cfb",
+        "0x07bd8e9da8d7a19ef7c4b39faae56ce5042e9caff1f2912acfca854e5c48dccb"
       ],
       "pubSignals": [
         "0x1f025abcc8c9900f78dfb12707a3d64bd65f43452d1f3fcbad844b5ba85ae32e",
